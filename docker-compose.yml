@@ -1,0 +1,118 @@
+name: witdem-analytics
+
+services:
+  witdem:
+    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/witdem-ai/witdem-analytics:0.2.0}
+    build:
+      context: .
+      dockerfile: Dockerfile.witdem
+    command: ["witdem", "serve", "--host", "0.0.0.0", "--port", "4318", "--db", "/app/data/live.duckdb"]
+    ports:
+      - "127.0.0.1:4318:4318"
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_DB_PATH: /app/data/live.duckdb
+      WITDEM_API_KEY: ${WITDEM_API_KEY:-}
+      WITDEM_PRICING_FILE: /app/config/pricing.yaml
+    volumes:
+      - witdem-live-data:/app/data
+      - ${WITDEM_PRICING_FILE:-./deploy/empty-pricing.yaml}:/app/config/pricing.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:4318/readiness', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 10
+
+  elt-worker:
+    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/witdem-ai/witdem-analytics:0.2.0}
+    build:
+      context: .
+      dockerfile: Dockerfile.witdem
+    command: ["witdem", "elt", "worker", "--poll-interval", "0.25"]
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_DB_PATH: /app/data/live.duckdb
+      WITDEM_PRICING_FILE: /app/config/pricing.yaml
+    volumes:
+      - witdem-live-data:/app/data
+      - ${WITDEM_PRICING_FILE:-./deploy/empty-pricing.yaml}:/app/config/pricing.yaml:ro
+    depends_on:
+      witdem:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
+  dashboard:
+    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/witdem-ai/witdem-analytics:0.2.0}
+    build:
+      context: .
+      dockerfile: Dockerfile.witdem
+    command: ["witdem", "dashboard", "--db", "/app/data/live.duckdb", "--dashboard-host", "0.0.0.0", "--dashboard-port", "8501"]
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_DB_PATH: /app/data/live.duckdb
+    volumes:
+      - witdem-live-data:/app/data
+    depends_on:
+      witdem:
+        condition: service_healthy
+      elt-worker:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8501/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+
+  agent-demo:
+    profiles: ["demo"]
+    build:
+      context: ./examples/haystack/demo
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://witdem:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: agent-demo
+      WITDEM_ENDPOINT: http://witdem:4318
+    depends_on:
+      witdem:
+        condition: service_healthy
+
+  remote-proxy:
+    profiles: ["remote"]
+    image: caddy:2.10-alpine
+    entrypoint: ["/bin/sh", "/etc/caddy/remote-entrypoint.sh"]
+    ports:
+      - "${WITDEM_REMOTE_HTTP_PORT:-80}:80"
+      - "${WITDEM_REMOTE_HTTPS_PORT:-443}:443"
+    environment:
+      WITDEM_INGEST_HOST: ${WITDEM_INGEST_HOST:-}
+      WITDEM_DASHBOARD_HOSTNAME: ${WITDEM_DASHBOARD_HOSTNAME:-}
+      WITDEM_TLS_EMAIL: ${WITDEM_TLS_EMAIL:-}
+      WITDEM_API_KEY: ${WITDEM_API_KEY:-}
+      WITDEM_DASHBOARD_USER: ${WITDEM_DASHBOARD_USER:-}
+      WITDEM_DASHBOARD_PASSWORD_HASH: ${WITDEM_DASHBOARD_PASSWORD_HASH:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/remote-entrypoint.sh:/etc/caddy/remote-entrypoint.sh:ro
+      - witdem-caddy-data:/data
+      - witdem-caddy-config:/config
+    depends_on:
+      witdem:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+
+volumes:
+  witdem-live-data:
+    name: witdem-analytics-live-data
+  witdem-caddy-data:
+    name: witdem-analytics-caddy-data
+  witdem-caddy-config:
+    name: witdem-analytics-caddy-config

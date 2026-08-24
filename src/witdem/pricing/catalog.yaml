@@ -1,0 +1,105 @@
+schema_version: "1"
+catalog_version: "2026-08-24"
+currency: USD
+models:
+  - provider: openai
+    model: gpt-4o-mini
+    aliases: [gpt-4o-mini-2024-07-18]
+    input_per_million: 0.15
+    output_per_million: 0.60
+    effective_date: 2024-07-18
+    source: https://platform.openai.com/docs/pricing
+  - provider: openai
+    model: gpt-5.6-sol
+    aliases: [gpt-5.6]
+    input_per_million: 4.00
+    output_per_million: 20.00
+    cache_read_per_million: 0.40
+    cache_write_per_million: 5.00
+    effective_date: 2026-08-21
+    source: https://developers.openai.com/api/docs/models/gpt-5.6-sol
+  - provider: openai
+    model: gpt-5.6-terra
+    input_per_million: 2.00
+    output_per_million: 12.00
+    cache_read_per_million: 0.20
+    cache_write_per_million: 2.50
+    effective_date: 2026-07-30
+    source: https://developers.openai.com/api/docs/models/gpt-5.6-terra
+  - provider: openai
+    model: gpt-5.6-luna
+    input_per_million: 0.20
+    output_per_million: 1.20
+    cache_read_per_million: 0.02
+    cache_write_per_million: 0.25
+    effective_date: 2026-07-30
+    source: https://developers.openai.com/api/docs/models/gpt-5.6-luna
+  - provider: anthropic
+    model: claude-haiku-4-5
+    aliases: [claude-haiku-4-5-20251001]
+    input_per_million: 1.00
+    output_per_million: 5.00
+    cache_read_per_million: 0.10
+    cache_write_per_million: 1.25
+    effective_date: 2025-10-01
+    source: https://platform.claude.com/docs/en/about-claude/pricing
+  - provider: anthropic
+    model: claude-sonnet-5
+    input_per_million: 2.00
+    output_per_million: 10.00
+    cache_read_per_million: 0.20
+    cache_write_per_million: 2.50
+    effective_date: 2026-08-10
+    source: https://platform.claude.com/docs/en/about-claude/pricing
+  - provider: anthropic
+    model: claude-sonnet-4-6
+    input_per_million: 3.00
+    output_per_million: 15.00
+    cache_read_per_million: 0.30
+    cache_write_per_million: 3.75
+    effective_date: 2026-02-17
+    source: https://platform.claude.com/docs/en/about-claude/models/migration-guide
+  - provider: openai
+    model: gpt-5.4-mini
+    aliases: [gpt-5.4-mini-2026-03-17]
+    input_per_million: 0.75
+    output_per_million: 4.50
+    effective_date: 2026-03-17
+    source: https://developers.openai.com/api/docs/models/gpt-5.4-mini
+  - provider: openai
+    model: gpt-5.4
+    aliases: [gpt-5.4-2026-03-05]
+    input_per_million: 2.50
+    output_per_million: 15.00
+    effective_date: 2026-03-05
+    source: https://developers.openai.com/api/docs/models/gpt-5.4
+  - provider: openai
+    model: gpt-5.4-nano
+    input_per_million: 0.20
+    output_per_million: 1.25
+    effective_date: 2026-03-17
+    source: https://platform.openai.com/docs/pricing
+  - provider: deepseek
+    model: deepseek-v4-flash
+    input_per_million: 0.14
+    output_per_million: 0.28
+    effective_date: 2026-08-23
+    source: https://api-docs.deepseek.com/quick_start/pricing/
+  - provider: deepseek
+    model: deepseek-v4-pro
+    input_per_million: 0.435
+    output_per_million: 0.87
+    effective_date: 2026-08-23
+    source: https://api-docs.deepseek.com/quick_start/pricing/
+  - provider: mistral
+    model: mistral-small-2603
+    input_per_million: 0.15
+    output_per_million: 0.60
+    effective_date: 2026-03-16
+    source: https://docs.mistral.ai/models/mistral-small-4-0-26-03
+  - provider: mistral
+    model: mistral-medium-3-5
+    input_per_million: 1.50
+    output_per_million: 7.50
+    effective_date: 2026-08-23
+    source: https://docs.mistral.ai/getting-started/models/models_overview/

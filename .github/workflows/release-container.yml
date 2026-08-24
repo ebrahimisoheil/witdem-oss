@@ -1,0 +1,51 @@
+name: Release container
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Released witdem-analytics version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.witdem
+          platforms: linux/amd64,linux/arm64
+          push: true
+          sbom: true
+          provenance: mode=max
+          build-args: WITDEM_ANALYTICS_REQUIREMENT=witdem-analytics==${{ inputs.version }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ inputs.version }}
+            ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ github.sha }}
+      - name: Compose smoke test published image
+        env:
+          WITDEM_ANALYTICS_IMAGE: ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ inputs.version }}
+        run: |
+          docker compose pull witdem elt-worker dashboard
+          docker compose up -d --no-build
+          for attempt in $(seq 1 30); do
+            curl -fsS http://localhost:4318/readiness && curl -fsS http://localhost:8501/health && exit 0
+            sleep 2
+          done
+          docker compose logs
+          exit 1

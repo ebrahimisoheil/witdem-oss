@@ -1,0 +1,95 @@
+domain: product_factory
+version: 1
+
+dimensions:
+  company_identity:
+    label: Company identity
+  product_catalog:
+    label: Product catalog
+  pim_stack:
+    label: PIM stack
+  catalog_scale:
+    label: Catalog scale
+  catalog_complexity:
+    label: Catalog complexity
+  source_data_complexity:
+    label: Source-data complexity
+
+decisions:
+  research_completeness:
+    values:
+      - continue_research
+      - terminate_research
+  targeted_research_route:
+    multi_select: true
+    values:
+      - target_product_catalog
+      - target_company_identity
+      - target_pim_stack
+      - target_catalog_scale
+      - target_catalog_complexity
+      - target_source_data_complexity
+      - target_conflicting_pim_evidence
+  pim_classification:
+    values:
+      - confirmed
+      - probable
+      - possible
+      - unknown
+  validation:
+    values:
+      - accept_profile
+      - repair_profile
+
+dimension_statuses:
+  values:
+    - sufficient
+    - missing
+    - weak
+    - conflicting
+    - unknown_acceptable
+
+evaluations:
+  profile_quality:
+    label: Profile quality
+  evidence_quality:
+    label: Evidence quality
+  qualification_score:
+    label: Qualification score
+
+outcomes:
+  accepted:
+    label: Accepted result
+  valid_but_not_accepted:
+    label: Valid result not accepted
+
+vendors:
+  pim:
+    - Akeneo
+    - Pimcore
+    - Salsify
+    - inriver
+    - Contentserv
+    - Syndigo
+    - Stibo Systems
+    - Informatica PIM
+    - SAP
+
+policies:
+  research:
+    max_targeted_attempts_per_dimension: 1
+    max_research_passes: 2
+  pim_stack:
+    allow_unknown: true
+    high_confidence_threshold: 0.85
+    require_strong_source_for_confirmed: true
+  catalog_scale:
+    allow_unknown: true
+  acceptance:
+    minimum_quality: 0.75
+  qualification:
+    pim_product_information_infrastructure: 0.18
+    catalog_scale: 0.25
+    catalog_complexity: 0.24
+    multi_market_multilingual: 0.13
+    source_data_complexity: 0.20

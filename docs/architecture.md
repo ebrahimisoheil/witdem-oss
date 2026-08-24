@@ -1,0 +1,44 @@
+# Architecture and data flow
+
+The repository produces two Python distributions and one bundled web application:
+
+| Component | Responsibility |
+| --- | --- |
+| `witdem-analytics` | OTLP/SDK ingestion, durable corpus, adapters, canonical analytics, API, dashboard, and CLI |
+| `witdem-sdk` | Optional application-side semantic reporting and explicit framework integrations |
+| `web` | React dashboard compiled into the analytics wheel and container image |
+
+## Data flow
+
+```text
+OTLP or SDK request
+  → immutable corpus commit and acknowledgement
+  → Duckle batch selection
+  → runtime adapter
+  → provider adapter
+  → canonical executions, operations, links, events, and semantic facts
+  → serving.* projections
+  → AnalyticsRepository
+  → dashboard API and React application
+```
+
+The corpus is authoritative. Canonical and serving projections are rebuildable. Ingestion acknowledges only after the original payload and decoded records are durable. Runtime/provider-specific data is normalized at adapter boundaries; provider-specific tables are not exposed to analytics consumers.
+
+## Boundaries
+
+- `src/witdem/ingest`: wire endpoints, correlation, durable corpus, and database publication.
+- `src/witdem/elt`: pending-batch processing and rebuild/backfill commands.
+- `src/witdem/integrations` and `src/witdem/adapters`: runtime/provider normalization.
+- `src/witdem/analytics`: canonical models, SQL query catalog, contracts, and repository reads.
+- `src/witdem/dashboard`: versioned read API and bundled static application.
+- `witdem-sdk/src/witdem_sdk`: public application SDK; it does not import server internals.
+
+The active dashboard is FastAPI plus React. The retired Streamlit implementation has been removed.
+
+## Compatibility
+
+| Analytics | SDK | Semantic protocol | Python |
+| --- | --- | --- | --- |
+| `0.2.x` | `>=0.2,<0.3` | `1.0` | `>=3.10` |
+
+Compatibility aliases for old environment variables and raw-data migration remain deliberately isolated in configuration and ELT code. They protect existing installations and are not alternate product architectures.

@@ -1,0 +1,16 @@
+.git
+.venv
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+web/node_modules
+web/*.tsbuildinfo
+dist
+**/dist
+data
+examples
+tests
+witdem-sdk
+.DS_Store

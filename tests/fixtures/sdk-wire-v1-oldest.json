@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "kind": "outcome",
+  "event_id": "oldest-sdk-v1-fixture",
+  "execution_id": "protocol-compatibility-v1",
+  "trace_id": null,
+  "span_id": null,
+  "name": "product_goal",
+  "value": "accepted",
+  "attributes": {
+    "status": "achieved",
+    "contract_version": "1.0",
+    "expected_status": "accepted",
+    "observed_status": "accepted",
+    "product_goal_achieved": true
+  }
+}

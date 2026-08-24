@@ -1,0 +1,27 @@
+services:
+  witdem:
+    build:
+      context: .
+      dockerfile: Dockerfile.witdem
+    volumes:
+      - .:/app
+      - witdem-live-data:/app/data
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.witdem
+    volumes:
+      - .:/app
+      - witdem-live-data:/app/data
+
+  elt-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.witdem
+    volumes:
+      - .:/app
+      - witdem-live-data:/app/data
+
+volumes:
+  witdem-live-data:

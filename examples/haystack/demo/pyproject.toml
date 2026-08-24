@@ -1,0 +1,92 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-demo"
+version = "0.1.0"
+description = "Witdem live e2e demo: a tiny Haystack tool-using QA agent, proving OTLP-only telemetry with an optional Witdem SDK enrichment layer on top of the same physical execution."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "haystack-ai>=3.0,<3.1",
+  "opentelemetry-api",
+  "opentelemetry-sdk",
+  "opentelemetry-exporter-otlp-proto-http",
+  "opentelemetry-haystack",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "pydantic>=2.10,<3",
+]
+
+# witdem_sdk is an OPTIONAL extra, not a base dependency -- even though
+# ../../../witdem-sdk now exists and is wired in below. It was built concurrently by
+# a different agent and did not exist on disk for part of this package's own
+# development; keeping it optional meant `uv sync` / `pip install -e .`
+# always succeeded for telemetry-only development regardless of the other
+# package's timing, and still does (this package must keep working if
+# witdem-sdk is ever absent, moved, or fails to build). `pip install -e
+# ".[enriched]"` (or `uv sync --extra enriched`) installs it for real
+# end-to-end sdk_enriched testing. See src/agent_demo/enrichment.py for the
+# guarded-import fallback this implies.
+[project.optional-dependencies]
+enriched = ["witdem-sdk"]
+
+# uv-style path dependency: resolved only when the
+# "enriched" extra above is actually requested.
+#
+# `witdem-analytics` below is a TEST-ONLY path dependency. It is only
+# referenced from the `dev` dependency-group below, never from
+# [project.dependencies], so
+# `pip install .` (what Dockerfile does) never installs it, and agent_demo's
+# own src/ never imports witdem (verified by
+# tests/test_no_witdem_sdk_import.py's sibling invariant + this package's own
+# "never imports witdem internals" contract). It lets
+# tests/test_two_mode_topology_equivalence.py import
+# witdem.analytics.identity / adapters / ingest to run the
+# cross-package canonical-graph equivalence proof in
+# one process, using this venv's already-installed real agent_demo + witdem_sdk.
+[tool.uv.sources]
+witdem-sdk = { path = "../../../witdem-sdk", editable = true }
+witdem-analytics = { path = "../../..", editable = true }
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "httpx>=0.27,<1",
+  "witdem-analytics",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_demo"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+testpaths = ["tests"]
+markers = [
+  "enriched: requires the optional witdem_sdk package to be installed",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["agent_demo"]
+exclude = ["tests"]
+
+# witdem_sdk is an optional extra (see [project.optional-dependencies] above):
+# whether it resolves for mypy depends on whether the "enriched" extra
+# happens to be installed in the environment mypy runs in. An inline
+# `# type: ignore` on the import in enrichment.py would be *correct* when
+# witdem_sdk is absent but flagged as "unused-ignore" under strict mode when
+# it's present (as it now is in this project's own dev venv) -- this
+# per-module override is the environment-independent fix: it always treats
+# witdem_sdk as fine to import without requiring/forbidding an inline ignore.
+[[tool.mypy.overrides]]
+module = "witdem_sdk"
+ignore_missing_imports = true

@@ -1,0 +1,14 @@
+{
+	email {$WITDEM_TLS_EMAIL}
+}
+
+{$WITDEM_INGEST_HOST} {
+	reverse_proxy witdem:4318
+}
+
+{$WITDEM_DASHBOARD_HOSTNAME} {
+	basic_auth {
+		{$WITDEM_DASHBOARD_USER} {$WITDEM_DASHBOARD_PASSWORD_HASH}
+	}
+	reverse_proxy dashboard:8501
+}

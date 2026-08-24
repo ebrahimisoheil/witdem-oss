@@ -1,0 +1,10 @@
+{
+  "semantic_record_protocol": "1.0",
+  "python": ">=3.10",
+  "releases": [
+    {
+      "witdem_analytics": ">=0.2.0,<0.3.0",
+      "witdem_sdk": ">=0.2.0,<0.3.0"
+    }
+  ]
+}

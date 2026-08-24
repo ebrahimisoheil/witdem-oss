@@ -1,0 +1,20 @@
+case_id: borderline-escalation
+company:
+  name: Atlas Home
+  website: https://example.invalid/atlas
+expected_status: escalated
+expected_targeted_research: false
+policy:
+  qualification_threshold: 0.80
+  escalation_margin: 0.05
+  minimum_profile_completeness: 0.85
+  minimum_evidence_coverage: 0.80
+pass_one:
+  - {id: be-1, dimension: catalog_complexity, claim: "The catalog has 42,000 SKUs with moderate variant complexity.", reliability: 0.95, score_signal: 0.81}
+  - {id: be-2, dimension: market_scale, claim: "The company operates in five markets.", reliability: 0.94, score_signal: 0.78}
+  - {id: be-3, dimension: data_fragmentation, claim: "Two sources describe both centralized and spreadsheet-based product data.", reliability: 0.86, score_signal: 0.80, conflicting: true}
+  - {id: be-4, dimension: operational_pain, claim: "Manual enrichment remains, but its launch impact is disputed.", reliability: 0.84, score_signal: 0.79, conflicting: true}
+targeted_research: {}
+ground_truth:
+  required_claim_ids: [be-1, be-2, be-3, be-4]
+  expected_dimensions: [catalog_complexity, market_scale, data_fragmentation, operational_pain]

@@ -1,0 +1,41 @@
+name: Release witdem-sdk
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["sdk-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    defaults:
+      run:
+        working-directory: witdem-sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - name: Smoke-test built wheel
+        run: |
+          python -m venv /tmp/witdem-sdk-wheel
+          /tmp/witdem-sdk-wheel/bin/pip install dist/*.whl
+          /tmp/witdem-sdk-wheel/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          import witdem_sdk
+          metadata = json.loads(Path('../compatibility.json').read_text())
+          assert witdem_sdk.__version__
+          assert witdem_sdk.SEMANTIC_RECORD_PROTOCOL_VERSION == metadata['semantic_record_protocol']
+          PY
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: witdem-sdk/dist

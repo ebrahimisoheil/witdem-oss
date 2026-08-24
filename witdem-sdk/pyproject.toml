@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "witdem-sdk"
+version = "0.2.0"
+description = "Public client SDK for emitting Witdem business-semantic records correlated to the caller's active OpenTelemetry execution."
+readme = { text = "Witdem SDK provides optional application semantics and framework integrations for Witdem Analytics.", content-type = "text/markdown" }
+requires-python = ">=3.10"
+dependencies = [
+  "opentelemetry-api>=1.27,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+  "opentelemetry-sdk>=1.27,<2",
+  "httpx>=0.27,<1",
+  "pydantic>=2.10,<3",
+  "pyyaml>=6.0,<7",
+  "typing-extensions>=4.12,<5",
+]
+
+[project.scripts]
+witdem = "witdem_sdk.cli:main"
+witdem-sdk = "witdem_sdk.cli:main"
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.50,<1"]
+openai = ["openai-agents>=0.0.10,<1"]
+langchain = ["langchain-core>=0.3,<2"]
+langgraph = ["langgraph>=0.2,<2"]
+haystack = ["haystack-ai>=2.9,<3", "opentelemetry-haystack>=1,<2"]
+all = [
+  "anthropic>=0.50,<1",
+  "openai-agents>=0.0.10,<1",
+  "langchain-core>=0.3,<2",
+  "langgraph>=0.2,<2",
+  "haystack-ai>=2.9,<3",
+  "opentelemetry-haystack>=1,<2",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1",
+  "mypy>=1.15,<2",
+  "types-PyYAML>=6.0,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/witdem_sdk"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/witdem_sdk", "tests", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["witdem_sdk"]

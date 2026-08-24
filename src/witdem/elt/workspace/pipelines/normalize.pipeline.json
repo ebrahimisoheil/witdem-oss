@@ -1,0 +1,59 @@
+{
+  "name": "Witdem corpus adapter normalization",
+  "nodes": [
+    {
+      "id": "corpus_bundle",
+      "type": "source",
+      "position": {"x": 0, "y": 0},
+      "data": {
+        "label": "Committed execution bundles",
+        "componentId": "src.jsonl",
+        "properties": {"path": "${workspace}/input.jsonl"}
+      }
+    },
+    {
+      "id": "runtime_adapter",
+      "type": "custom",
+      "position": {"x": 280, "y": 0},
+      "data": {
+        "label": "Witdem runtime and provider adapters",
+        "componentId": "code.python",
+        "properties": {
+          "code": "from witdem.elt.adapter_stage import transform_bundle\n\ndef process(row):\n    return transform_bundle(row)"
+        }
+      }
+    },
+    {
+      "id": "canonical_stage",
+      "type": "sink",
+      "position": {"x": 560, "y": 0},
+      "data": {
+        "label": "Validated canonical staging bundles",
+        "componentId": "snk.jsonl",
+        "properties": {
+          "path": "${workspace}/output.jsonl",
+          "mode": "overwrite",
+          "format": "jsonl"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "raw_to_adapter",
+      "source": "corpus_bundle",
+      "target": "runtime_adapter",
+      "sourceHandle": "main",
+      "targetHandle": "main",
+      "data": {"connectionType": "main"}
+    },
+    {
+      "id": "adapter_to_stage",
+      "source": "runtime_adapter",
+      "target": "canonical_stage",
+      "sourceHandle": "main",
+      "targetHandle": "main",
+      "data": {"connectionType": "main"}
+    }
+  ]
+}

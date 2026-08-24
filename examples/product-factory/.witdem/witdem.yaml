@@ -1,0 +1,39 @@
+version: 1
+service:
+  name: witdem-product-factory
+  description: Qualifies companies from controlled evidence using multiple agent runtimes.
+  runtime: product-factory
+telemetry:
+  capture_content: false
+contracts:
+  - name: company_qualification
+    description: Research one company and decide whether it qualifies, should be rejected, or needs escalation.
+    result:
+      name: Qualification outcome
+      description: The evidence-backed result returned by the qualification workflow.
+      values:
+        accepted: The company qualifies.
+        rejected: The company does not qualify.
+        escalated: The evidence is too close or ambiguous for an automatic decision.
+    decision:
+      name: Company qualification
+      description: The final deterministic qualification decision.
+      values:
+        accepted: The company qualifies.
+        rejected: The company does not qualify.
+        escalated: The evidence is too close or ambiguous for an automatic decision.
+    product_goal:
+      name: Correct company qualification
+      description: Reach the expected, evidence-supported qualification outcome through the required workflow path.
+    dimensions:
+      case_id:
+        name: Evidence case
+      runtime_id:
+        name: Agent runtime
+      model_profile:
+        name: Model profile
+    metrics:
+      qualification_score:
+        name: Qualification score
+        description: Weighted evidence-backed qualification score.
+        unit: score

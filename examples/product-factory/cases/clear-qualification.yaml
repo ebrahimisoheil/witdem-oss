@@ -1,0 +1,20 @@
+case_id: clear-qualification
+company:
+  name: Nordlicht Commerce
+  website: https://example.invalid/nordlicht
+expected_status: accepted
+expected_targeted_research: false
+policy:
+  qualification_threshold: 0.80
+  escalation_margin: 0.05
+  minimum_profile_completeness: 0.85
+  minimum_evidence_coverage: 0.80
+pass_one:
+  - {id: cq-1, dimension: catalog_complexity, claim: "The catalog contains 180,000 configurable SKUs.", reliability: 0.98, score_signal: 0.95}
+  - {id: cq-2, dimension: market_scale, claim: "The company sells in 14 markets and 11 languages.", reliability: 0.95, score_signal: 0.92}
+  - {id: cq-3, dimension: data_fragmentation, claim: "Product data is reconciled from ERP, PIM, supplier feeds, and spreadsheets.", reliability: 0.94, score_signal: 0.90}
+  - {id: cq-4, dimension: operational_pain, claim: "Launch delays are attributed to manual product-data reconciliation.", reliability: 0.92, score_signal: 0.88}
+targeted_research: {}
+ground_truth:
+  required_claim_ids: [cq-1, cq-2, cq-3, cq-4]
+  expected_dimensions: [catalog_complexity, market_scale, data_fragmentation, operational_pain]

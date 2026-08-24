@@ -1,0 +1,39 @@
+version: 1
+service:
+  name: witdem-example-openai-basic-agent
+  runtime: openai/basic_agent
+telemetry:
+  capture_content: false
+contracts:
+  - name: answer
+    description: Return one useful OpenAI answer.
+    application_outcome:
+      status:
+        choose:
+          when:
+            non_empty: $.result
+          then: completed
+          else: unresolved
+    artifact:
+      name: Agent answer
+      description: The answer returned to the user.
+      valid:
+        non_empty: $.result
+    decision:
+      name: Result validity
+      expected: true
+      observed: $.witdem.artifact_valid
+    product_goal:
+      name: Useful answer returned
+      description: Give the user a non-empty answer.
+      achieved: $.witdem.artifact_valid
+      closest_blocker:
+        choose:
+          when: $.witdem.artifact_valid
+          then: none
+          else: empty answer
+    metrics:
+      - name: Answer characters
+        value:
+          length: $.result
+        unit: characters

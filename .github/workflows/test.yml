@@ -1,0 +1,71 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-groups
+      - run: uv run pytest -q
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
+      - run: uv sync --project witdem-sdk --all-groups
+      - run: uv run --project witdem-sdk pytest -q
+      - run: uv run --project witdem-sdk ruff check src tests
+      - run: uv run --project witdem-sdk mypy src
+
+  product-factory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --project examples/product-factory --all-groups --all-extras
+      - run: uv run --project examples/product-factory pytest -q
+      - run: uv run --project examples/product-factory ruff check src tests
+      - run: uv run --project examples/product-factory mypy src
+
+  sdk-extras:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extra: [anthropic, openai, langchain, langgraph, haystack, all]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv venv /tmp/witdem-extra
+      - run: uv pip install --python /tmp/witdem-extra/bin/python "./witdem-sdk[${{ matrix.extra }}]"
+      - name: Import selected integration
+        run: |
+          case "${{ matrix.extra }}" in
+            openai) module=openai_agents ;;
+            all) module=anthropic ;;
+            *) module="${{ matrix.extra }}" ;;
+          esac
+          /tmp/witdem-extra/bin/python -c "import witdem_sdk; import witdem_sdk.integrations.${module}"
+
+  sdk-integrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --project witdem-sdk --all-groups --all-extras
+      - run: uv run --project witdem-sdk pytest -q tests/test_optional_integrations.py

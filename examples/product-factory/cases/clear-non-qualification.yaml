@@ -1,0 +1,20 @@
+case_id: clear-non-qualification
+company:
+  name: Cedar Workshop
+  website: https://example.invalid/cedar
+expected_status: rejected
+expected_targeted_research: false
+policy:
+  qualification_threshold: 0.80
+  escalation_margin: 0.05
+  minimum_profile_completeness: 0.85
+  minimum_evidence_coverage: 0.80
+pass_one:
+  - {id: cn-1, dimension: catalog_complexity, claim: "The store carries 480 simple products.", reliability: 0.98, score_signal: 0.18}
+  - {id: cn-2, dimension: market_scale, claim: "Sales are limited to one domestic market and one language.", reliability: 0.97, score_signal: 0.15}
+  - {id: cn-3, dimension: data_fragmentation, claim: "Product data is maintained in one commerce platform.", reliability: 0.96, score_signal: 0.12}
+  - {id: cn-4, dimension: operational_pain, claim: "No product-data onboarding or publishing bottleneck was reported.", reliability: 0.92, score_signal: 0.10}
+targeted_research: {}
+ground_truth:
+  required_claim_ids: [cn-1, cn-2, cn-3, cn-4]
+  expected_dimensions: [catalog_complexity, market_scale, data_fragmentation, operational_pain]

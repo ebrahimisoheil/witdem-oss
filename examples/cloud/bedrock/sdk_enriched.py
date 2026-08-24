@@ -1,0 +1,19 @@
+"""Amazon Bedrock with Witdem traces and application semantics."""
+
+import os
+from pathlib import Path
+
+from app import run
+from dotenv import load_dotenv
+from witdem_sdk.integrations.generic import instrument
+
+load_dotenv(Path(__file__).with_name(".env"))
+model = os.getenv("BEDROCK_MODEL", "amazon.nova-lite-v1:0")
+
+observed_run = instrument(
+    run,
+    operation_name="bedrock.converse",
+    provider="aws.bedrock",
+    model=model,
+)
+print(observed_run().answer)

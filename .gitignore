@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.duckdb
+/data/backups/
+.env
+.DS_Store
+!data/synthetic-ui-v2/
+!data/synthetic-ui-v2/**
+!data/synthetic-ui-v2/analytics.duckdb
+data/live/
+.claude/
+data/**/.DS_Store
+
+# Dashboard contributor build artifacts
+web/node_modules/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+web/tailwind.config.js
+web/tailwind.config.d.ts
+
+# Locally generated live-matrix reports
+examples/product-factory/reports/

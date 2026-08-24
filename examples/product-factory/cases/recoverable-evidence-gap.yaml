@@ -1,0 +1,23 @@
+case_id: recoverable-evidence-gap
+company:
+  name: Meridian Industrial
+  website: https://example.invalid/meridian
+expected_status: accepted
+expected_targeted_research: true
+policy:
+  qualification_threshold: 0.80
+  escalation_margin: 0.05
+  minimum_profile_completeness: 0.85
+  minimum_evidence_coverage: 0.80
+pass_one:
+  - {id: rg-1, dimension: catalog_complexity, claim: "The public catalog lists more than 120,000 industrial parts.", reliability: 0.96, score_signal: 0.91}
+  - {id: rg-2, dimension: market_scale, claim: "Products are distributed across nine European markets.", reliability: 0.93, score_signal: 0.87}
+  - {id: rg-3, dimension: data_fragmentation, claim: "Supplier feeds are normalized before publication.", reliability: 0.58, score_signal: 0.82}
+targeted_research:
+  data_fragmentation:
+    - {id: rg-4, dimension: data_fragmentation, claim: "A technical case study confirms seven supplier formats plus ERP and PIM sources.", reliability: 0.96, score_signal: 0.91}
+  operational_pain:
+    - {id: rg-5, dimension: operational_pain, claim: "The product team reports a six-day manual onboarding cycle per supplier.", reliability: 0.94, score_signal: 0.90}
+ground_truth:
+  required_claim_ids: [rg-1, rg-2, rg-4, rg-5]
+  expected_dimensions: [catalog_complexity, market_scale, data_fragmentation, operational_pain]

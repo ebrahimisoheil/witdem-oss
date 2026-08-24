@@ -1,0 +1,32 @@
+name: Release witdem-analytics
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["analytics-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest -q tests/test_protocol_compatibility.py
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - name: Smoke-test built wheel
+        run: |
+          python -m venv /tmp/witdem-wheel
+          /tmp/witdem-wheel/bin/pip install dist/*.whl
+          /tmp/witdem-wheel/bin/witdem version
+          /tmp/witdem-wheel/bin/witdem doctor --port 14318 --dashboard-port 18501
+      - uses: pypa/gh-action-pypi-publish@release/v1
