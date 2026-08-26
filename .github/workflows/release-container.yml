@@ -65,12 +65,11 @@ jobs:
           done
           docker compose logs
           exit 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: https://registry.npmjs.org
-          cache: npm
-          cache-dependency-path: npm/package-lock.json
+          package-manager-cache: false
       - name: Test npm launcher
         working-directory: npm
         run: |
@@ -84,6 +83,4 @@ jobs:
           docker manifest inspect ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ inputs.version }} >/dev/null
       - name: Publish npm launcher
         working-directory: npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public
