@@ -28,10 +28,10 @@ npx -y witdem@0.2.0 logs
 npx -y witdem@0.2.0 down
 ```
 
-Add the SDK to an existing Haystack 3 project from the checkout:
+Add the SDK to an existing Haystack 3 project:
 
 ```bash
-python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[haystack]"
+python -m pip install "witdem-sdk[haystack]==0.2.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
@@ -80,8 +80,6 @@ contracts:
 ```
 
 Run the application normally. The execution and its business result appear at **http://localhost:8501**.
-
-> `witdem-sdk` 0.2.0 is not yet published to the package index. The source-checkout command above is the verified installation path for this release. Publishing the package is the remaining installation launch blocker.
 
 ## What you get
 

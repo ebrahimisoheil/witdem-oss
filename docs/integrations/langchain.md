@@ -12,7 +12,7 @@ The LangChain integration wraps a runnable and appends a callback that records c
 - The model-provider package used by your chain
 
 ```bash
-python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[langchain]"
+python -m pip install "witdem-sdk[langchain]==0.2.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 

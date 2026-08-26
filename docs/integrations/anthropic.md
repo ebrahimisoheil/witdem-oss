@@ -7,7 +7,7 @@
 Install the Anthropic extra:
 
 ```bash
-python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[anthropic]"
+python -m pip install "witdem-sdk[anthropic]==0.2.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 export ANTHROPIC_API_KEY=...
 ```

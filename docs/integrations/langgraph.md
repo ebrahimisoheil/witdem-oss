@@ -11,7 +11,7 @@ LangGraph defines the application's possible graph. Witdem analyzes what actuall
 - `witdem-sdk[langgraph]` 0.2.x
 
 ```bash
-python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[langgraph]"
+python -m pip install "witdem-sdk[langgraph]==0.2.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 

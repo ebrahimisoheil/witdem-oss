@@ -43,10 +43,10 @@ npx](npm-launcher.md) for lifecycle and port options.
 | Custom Python workflow | [Instrumenting custom AI workflows](integrations/native-python.md) | none |
 | Existing OpenTelemetry | [OTLP-only mode](concepts.md#two-ingestion-modes) | no Witdem dependency |
 
-The SDK is not yet published to the package index. Install the selected extra from the cloned checkout:
+Install the SDK with the framework extra selected above:
 
 ```bash
-python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[haystack]"
+python -m pip install "witdem-sdk[haystack]==0.2.0"
 ```
 
 Replace `haystack` with the extra in the table. The provider-specific packages remain dependencies of your application.

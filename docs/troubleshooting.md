@@ -114,7 +114,7 @@ Use a clean virtual environment and install one framework extra. In particular, 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[haystack]"
+python -m pip install "witdem-sdk[haystack]==0.2.0"
 python -m pip check
 ```
 
