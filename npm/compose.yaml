@@ -1,0 +1,58 @@
+name: witdem
+
+services:
+  receiver:
+    image: ${WITDEM_IMAGE}
+    command: ["witdem", "serve", "--host", "0.0.0.0", "--port", "4318", "--db", "/app/data/live.duckdb"]
+    ports:
+      - "127.0.0.1:${WITDEM_RECEIVER_PORT}:4318"
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_DB_PATH: /app/data/live.duckdb
+      WITDEM_API_KEY: ${WITDEM_API_KEY:-}
+    volumes:
+      - witdem-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:4318/readiness', timeout=2)"]
+      interval: 3s
+      timeout: 2s
+      start_period: 5s
+      retries: 20
+
+  worker:
+    image: ${WITDEM_IMAGE}
+    command: ["witdem", "elt", "worker", "--poll-interval", "0.25"]
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_DB_PATH: /app/data/live.duckdb
+    volumes:
+      - witdem-data:/app/data
+    depends_on:
+      receiver:
+        condition: service_healthy
+
+  dashboard:
+    image: ${WITDEM_IMAGE}
+    command: ["witdem", "dashboard", "--db", "/app/data/live.duckdb", "--dashboard-host", "0.0.0.0", "--dashboard-port", "8501"]
+    ports:
+      - "127.0.0.1:${WITDEM_DASHBOARD_PORT}:8501"
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_DB_PATH: /app/data/live.duckdb
+    volumes:
+      - witdem-data:/app/data
+    depends_on:
+      receiver:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8501/health', timeout=2)"]
+      interval: 5s
+      timeout: 2s
+      start_period: 8s
+      retries: 20
+
+volumes:
+  witdem-data:
+    name: witdem-data

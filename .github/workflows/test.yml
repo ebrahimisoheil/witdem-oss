@@ -6,6 +6,29 @@ on:
     branches: [main]
 
 jobs:
+  npm-launcher:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: npm/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm test
+      - run: npm pack --dry-run
+      - name: Validate the packaged Compose definition
+        env:
+          WITDEM_IMAGE: ghcr.io/ebrahimisoheil/witdem-analytics:0.2.0
+          WITDEM_RECEIVER_PORT: "4318"
+          WITDEM_DASHBOARD_PORT: "8501"
+        run: docker compose --file compose.yaml config --quiet
+
   packages:
     runs-on: ubuntu-latest
     strategy:

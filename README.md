@@ -15,12 +15,18 @@ Tracing tells you what executed. Witdem connects those executions to application
 Start the local receiver, ELT worker, and dashboard:
 
 ```bash
-git clone https://github.com/ebrahimisoheil/witdem-oss.git Witdem-Analytics
-cd Witdem-Analytics
-docker compose up -d
+npx -y witdem@0.2.0 up
 ```
 
-Open `http://localhost:8501` in a browser.
+That pulls the version-matched container, starts all three services, waits for
+them to become healthy, and opens `http://localhost:8501`. Docker with Compose
+is the only prerequisite. Data persists across `down` and package upgrades.
+
+```bash
+npx -y witdem@0.2.0 status
+npx -y witdem@0.2.0 logs
+npx -y witdem@0.2.0 down
+```
 
 Add the SDK to an existing Haystack 3 project from the checkout:
 
@@ -131,7 +137,9 @@ The runnable [Haystack parallel pipeline](examples/haystack/pipeline/README.md) 
 
 ## Self-hosting
 
-Docker Compose is the recommended backend path:
+The npm launcher is the recommended local backend path. It is deliberately a
+small, dependency-free Docker launcher rather than a second implementation of
+Witdem. It never runs an npm `postinstall` script.
 
 | Service | Address | Purpose |
 | --- | --- | --- |
@@ -140,10 +148,14 @@ Docker Compose is the recommended backend path:
 | ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
-docker compose ps
+npx -y witdem@0.2.0 status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
+
+For source development, clone the repository and run `docker compose up -d`.
+See [Running Witdem with npx](docs/npm-launcher.md) for ports, lifecycle, image
+pinning, and troubleshooting.
 
 The Python-only development path is also available:
 
@@ -155,6 +167,7 @@ uv run witdem dev --open
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
+- [Running Witdem with npx](docs/npm-launcher.md)
 - [Concepts: tracing and business meaning](docs/concepts.md)
 - [Tutorial: defining a YAML contract](docs/contract-tutorial.md)
 - [YAML configuration](docs/configuration.md)

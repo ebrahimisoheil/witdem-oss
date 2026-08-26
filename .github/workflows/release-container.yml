@@ -1,4 +1,4 @@
-name: Release container
+name: Release container and npm launcher
 
 on:
   workflow_dispatch:
@@ -18,6 +18,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify release versions agree
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path(".")
+          python_version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+          npm_version = json.loads((root / "npm/package.json").read_text())["version"]
+          expected = os.environ["RELEASE_VERSION"]
+          assert python_version == expected, (python_version, expected)
+          assert npm_version == expected, (npm_version, expected)
+          PY
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -33,7 +50,6 @@ jobs:
           push: true
           sbom: true
           provenance: mode=max
-          build-args: WITDEM_ANALYTICS_REQUIREMENT=witdem-analytics==${{ inputs.version }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ inputs.version }}
             ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ github.sha }}
@@ -49,3 +65,25 @@ jobs:
           done
           docker compose logs
           exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: npm/package-lock.json
+      - name: Test npm launcher
+        working-directory: npm
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npm test
+          npm pack --dry-run
+      - name: Confirm the matching public image is pullable
+        run: |
+          docker logout ghcr.io
+          docker manifest inspect ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ inputs.version }} >/dev/null
+      - name: Publish npm launcher
+        working-directory: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance

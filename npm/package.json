@@ -1,0 +1,36 @@
+{
+  "name": "witdem",
+  "version": "0.2.0",
+  "description": "Run the local Witdem analytics environment with one command.",
+  "type": "module",
+  "bin": {
+    "witdem": "bin/witdem.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "compose.yaml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ebrahimisoheil/witdem-oss.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/ebrahimisoheil/witdem-oss#readme",
+  "bugs": "https://github.com/ebrahimisoheil/witdem-oss/issues",
+  "keywords": [
+    "ai",
+    "agents",
+    "analytics",
+    "opentelemetry",
+    "duckdb"
+  ],
+  "scripts": {
+    "check": "node --check bin/witdem.mjs && node --check src/cli.mjs",
+    "test": "node --test"
+  }
+}

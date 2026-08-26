@@ -12,20 +12,21 @@ This guide takes one application execution from code to the local Witdem dashboa
 ## 1. Start Witdem
 
 ```bash
-git clone https://github.com/ebrahimisoheil/witdem-oss.git Witdem-Analytics
-cd Witdem-Analytics
-docker compose up -d
+npx -y witdem@0.2.0 up
 ```
 
 Verify both public services:
 
 ```bash
-docker compose ps
+npx -y witdem@0.2.0 status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
 
 The receiver is at `http://localhost:4318`; the dashboard is at `http://localhost:8501`.
+The launcher uses the container release matching its npm version and preserves
+data in the `witdem-data` Docker volume. See [Running Witdem with
+npx](npm-launcher.md) for lifecycle and port options.
 
 ## 2. Choose an integration
 
