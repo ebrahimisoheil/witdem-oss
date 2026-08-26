@@ -22,21 +22,27 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run mypy src
       - run: uv sync --project witdem-sdk --all-groups
-      - run: uv run --project witdem-sdk pytest -q
-      - run: uv run --project witdem-sdk ruff check src tests
-      - run: uv run --project witdem-sdk mypy src
+      - run: uv run pytest -q
+        working-directory: witdem-sdk
+      - run: uv run ruff check src tests
+        working-directory: witdem-sdk
+      - run: uv run mypy src
+        working-directory: witdem-sdk
 
   product-factory:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/product-factory
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync --project examples/product-factory --all-groups --all-extras
-      - run: uv run --project examples/product-factory pytest -q
-      - run: uv run --project examples/product-factory ruff check src tests
-      - run: uv run --project examples/product-factory mypy src
+      - run: uv sync --all-groups --all-extras
+      - run: uv run pytest -q
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
 
   sdk-extras:
     runs-on: ubuntu-latest
@@ -62,10 +68,13 @@ jobs:
 
   sdk-integrations:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: witdem-sdk
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync --project witdem-sdk --all-groups --all-extras
-      - run: uv run --project witdem-sdk pytest -q tests/test_optional_integrations.py
+      - run: uv sync --all-groups --all-extras
+      - run: uv run pytest -q tests/test_optional_integrations.py
