@@ -1,0 +1,35 @@
+version: 1
+service:
+  name: boolean-answer-agent
+  runtime: langgraph
+telemetry:
+  capture_content: false
+contracts:
+  answer:
+    mode: expression
+    description: Return one non-empty answer.
+    application_outcome:
+      status:
+        choose:
+          when:
+            non_empty: $.answer
+          then: completed
+          else: unresolved
+    artifact:
+      name: Agent answer
+      description: The final answer returned to the user.
+      valid:
+        non_empty: $.answer
+    decision:
+      name: Answer validity
+      expected: true
+      observed: $.witdem.artifact_valid
+    product_goal:
+      name: Useful answer returned
+      description: Give the user a non-empty answer.
+      achieved: $.witdem.artifact_valid
+      closest_blocker:
+        choose:
+          when: $.witdem.artifact_valid
+          then: none
+          else: empty answer

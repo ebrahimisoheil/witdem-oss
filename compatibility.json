@@ -1,6 +1,43 @@
 {
   "semantic_record_protocol": "1.0",
   "python": ">=3.10",
+  "frameworks": {
+    "haystack-ai": ">=3.0,<4",
+    "langgraph": ">=0.2,<2",
+    "langchain-core": ">=0.3,<2",
+    "openai-agents": ">=0.0.10,<1",
+    "anthropic": ">=0.50,<1",
+    "litellm": ">=1.86,<2",
+    "openai": ">=1.68,<4",
+    "smolagents": ">=1.18,<2",
+    "openinference-instrumentation-smolagents": ">=0.1.20,<1"
+  },
+  "integration_maturity": {
+    "haystack": "stable",
+    "langgraph": "beta",
+    "langchain": "beta",
+    "native_python": "supported",
+    "openai_agents": "beta",
+    "anthropic_messages": "beta",
+    "claude_agent": "beta",
+    "generic_provider": "experimental",
+    "litellm": "beta",
+    "openrouter": "beta",
+    "smolagents": "beta"
+  },
+  "provider_paths": {
+    "openai": ["native", "framework", "otel", "generic"],
+    "anthropic": ["native", "framework", "otel", "generic"],
+    "deepseek": ["framework", "otel", "generic"],
+    "mistral": ["framework", "otel", "generic"],
+    "azure_openai": ["framework", "otel", "generic"],
+    "amazon_bedrock": ["framework", "otel", "generic"],
+    "google_vertex": ["framework", "otel", "generic"],
+    "ollama": ["otel", "generic"],
+    "cohere": ["framework", "otel", "generic"],
+    "huggingface": ["smolagents", "litellm", "openinference", "otel", "generic"],
+    "openrouter": ["native", "litellm", "otel", "generic"]
+  },
   "releases": [
     {
       "witdem_analytics": ">=0.2.0,<0.3.0",

@@ -93,15 +93,30 @@ def _operation_from_normalized(
         attrs["tool.call.id"] = item.tool_call_id
     if item.agent_name is not None:
         attrs["agent.name"] = item.agent_name
-    explicit_cost = _first(attrs, "cost_usd", "pf.cost.amount", "gen_ai.cost.usd", "pf.cost_usd")
+    explicit_cost = _first(
+        attrs,
+        "cost_usd",
+        "pf.cost.amount",
+        "gen_ai.cost.usd",
+        "openrouter.usage.cost",
+        "litellm.response_cost",
+        "pf.cost_usd",
+    )
     if isinstance(explicit_cost, (int, float)) and not isinstance(explicit_cost, bool):
         attrs["cost_usd"] = float(explicit_cost)
         attrs.setdefault(
             "cost_source",
-            _first(attrs, "gen_ai.cost.source", "cost.source", "pf.cost.source") or "telemetry",
+            _first(attrs, "gen_ai.cost.source", "cost.source", "pf.cost.source")
+            or (
+                "openrouter_reported"
+                if attrs.get("openrouter.usage.cost") is not None
+                else "litellm_reported"
+                if attrs.get("litellm.response_cost") is not None
+                else "telemetry"
+            ),
         )
     elif item.provider is not None and model is not None:
-        estimated_cost = estimate_chat_cost(item.provider, model, item.usage)
+        estimated_cost = estimate_chat_cost(item.provider, model, item.usage, context=attrs)
         if estimated_cost is not None:
             resolution = resolve_pricing_model(item.provider, model)
             attrs["cost_usd"] = estimated_cost
@@ -113,7 +128,7 @@ def _operation_from_normalized(
             attrs["cost_model_match"] = resolution.match
     resolved_kind = kind_override or item.kind
     if resolved_kind == "model" and "cost_usd" not in attrs:
-        reason = cost_unavailable_reason(item.provider, model, item.usage)
+        reason = cost_unavailable_reason(item.provider, model, item.usage, context=attrs)
         if reason is not None:
             attrs["cost_unavailable_reason"] = reason
     if item.span is not None:

@@ -13,7 +13,7 @@ def build_pipeline(
     openai_model: str = "gpt-4o-mini",
 ):
     """Build two independent starting branches that converge on one answer."""
-    from haystack import AsyncPipeline, component
+    from haystack import Pipeline, component
 
     generator = None
     if use_openai:
@@ -50,7 +50,7 @@ def build_pipeline(
                 return {"answer": reply.text}
             return {"answer": " | ".join(evidence) + " — both branches completed."}
 
-    pipeline = AsyncPipeline()
+    pipeline = Pipeline()
     pipeline.add_component("keyword_retriever", KeywordRetriever())
     pipeline.add_component("semantic_retriever", SemanticRetriever())
     pipeline.add_component("answer", Answer())

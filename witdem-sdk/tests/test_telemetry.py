@@ -95,7 +95,14 @@ def test_execution_model_and_tool_emit_canonical_attributes(monkeypatch: Any) ->
 
     with client.execution(execution_id="exec-1"):
         with client.model("claude.messages", provider="anthropic", model="claude-haiku-4-5") as call:
-            call.response_model("claude-haiku-4-5-20251001").usage(input_tokens=10, output_tokens=2)
+            call.response_model("claude-haiku-4-5-20251001").usage(
+                input_tokens=10,
+                output_tokens=2,
+                reasoning_tokens=1,
+                audio_input_tokens=3,
+                search_queries=1,
+                meters={"provisioned_unit_seconds": 2.5},
+            )
         with client.tool("search", call_id="tool-1"):
             pass
 
@@ -106,6 +113,10 @@ def test_execution_model_and_tool_emit_canonical_attributes(monkeypatch: Any) ->
     assert model.attributes["witdem.execution_id"] == "exec-1"
     assert model.attributes["gen_ai.provider.name"] == "anthropic"
     assert model.attributes["gen_ai.usage.input_tokens"] == 10
+    assert model.attributes["gen_ai.usage.reasoning.output_tokens"] == 1
+    assert model.attributes["gen_ai.usage.audio.input_tokens"] == 3
+    assert model.attributes["gen_ai.usage.search_queries"] == 1
+    assert model.attributes["gen_ai.usage.provisioned_unit_seconds"] == 2.5
     assert tool.attributes["gen_ai.tool.name"] == "search"
     assert tool.attributes["gen_ai.cost.usd"] == 0.0
 

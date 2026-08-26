@@ -52,6 +52,7 @@ from opentelemetry.sdk.trace import ReadableSpan
 from witdem.analytics.core import Execution, Operation
 from witdem.analytics.identity import canonical_operation_key, canonical_path_signature
 from witdem.analytics.runtime import NormalizedExecutionGraph, derive_repeated_patterns
+from witdem.elt.worker import run_pending
 from witdem.ingest import live_db
 from witdem.ingest.otlp_http import router as otlp_router
 from witdem.ingest.sdk_ingest import router as sdk_router
@@ -161,7 +162,14 @@ def _route_witdem_sdk_through_the_real_local_receiver(
 
     class _ImmediateExecutor:
         def submit(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
-            fn(*args, **kwargs)
+            from concurrent.futures import Future
+
+            future: Future[Any] = Future()
+            try:
+                future.set_result(fn(*args, **kwargs))
+            except BaseException as exc:
+                future.set_exception(exc)
+            return future
 
     monkeypatch.setattr(transport, "_send", _send_via_real_router)
     monkeypatch.setattr(transport, "_executor", _ImmediateExecutor())
@@ -190,6 +198,7 @@ def _ingest_via_real_otlp_receiver(witdem_otlp_client: TestClient, spans: list[R
         "/v1/traces", content=export_request.SerializeToString(), headers={"content-type": _OTLP_MEDIA_TYPE}
     )
     assert response.status_code == 200, response.text
+    assert run_pending()["status"] == "ready"
 
 
 def _load_operations(execution_id: str) -> list[Operation]:

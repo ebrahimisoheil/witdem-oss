@@ -119,6 +119,8 @@ class OverviewSnapshot(_ReadModel):
     evaluations: tuple[dict[str, Any], ...]
     goal_misses: tuple[dict[str, Any], ...]
     goal_trend: tuple[dict[str, Any], ...]
+    goal_portfolio: tuple[dict[str, Any], ...]
+    assurance_summary: dict[str, int | float]
     contracts: tuple[dict[str, Any], ...]
     metadata: MetadataSnapshot
 

@@ -1,0 +1,38 @@
+version: 1
+service:
+  name: measured-agent
+  runtime: native
+telemetry:
+  capture_content: false
+contracts:
+  answer:
+    mode: expression
+    description: Separate business success from diagnostic measurements.
+    application_outcome:
+      status: $.status
+    artifact:
+      name: Agent answer
+      valid:
+        non_empty: $.answer
+    decision:
+      name: Answer validity
+      expected: true
+      observed: $.witdem.artifact_valid
+    product_goal:
+      name: Useful answer returned
+      description: Return a non-empty answer; diagnostic metrics do not change this goal.
+      achieved: $.witdem.artifact_valid
+    metrics:
+      - name: Iterations
+        description: Number of workflow iterations.
+        value: $.iterations
+        unit: iterations
+      - name: Tool calls
+        description: Number of tools invoked.
+        value: $.tool_calls
+        unit: calls
+      - name: Answer characters
+        description: Length of the final answer.
+        value:
+          length: $.answer
+        unit: characters

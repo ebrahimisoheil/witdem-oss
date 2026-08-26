@@ -16,7 +16,7 @@ services:
       WITDEM_PRICING_FILE: /app/config/pricing.yaml
     volumes:
       - witdem-live-data:/app/data
-      - ${WITDEM_PRICING_FILE:-./deploy/empty-pricing.yaml}:/app/config/pricing.yaml:ro
+      - ${WITDEM_PRICING_FILE:-./src/witdem/pricing/catalog.yaml}:/app/config/pricing.yaml:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:4318/readiness', timeout=2)"]
       interval: 5s
@@ -36,7 +36,7 @@ services:
       WITDEM_PRICING_FILE: /app/config/pricing.yaml
     volumes:
       - witdem-live-data:/app/data
-      - ${WITDEM_PRICING_FILE:-./deploy/empty-pricing.yaml}:/app/config/pricing.yaml:ro
+      - ${WITDEM_PRICING_FILE:-./src/witdem/pricing/catalog.yaml}:/app/config/pricing.yaml:ro
     depends_on:
       witdem:
         condition: service_healthy

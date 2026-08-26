@@ -1,6 +1,6 @@
 # SDK and instrumentation
 
-Witdem works without its SDK whenever an application emits standard OTLP/HTTP traces. Install `witdem-sdk` only when the application needs to report explicit business meaning or use a framework helper.
+Witdem works without its SDK whenever an application emits standard OTLP/HTTP traces. Install `witdem-sdk` only when the application needs to report explicit business meaning or use a framework helper. Version 0.2.0 is not yet published to the package index; commands in this guide therefore use the source checkout.
 
 ## Declarative contract
 
@@ -8,19 +8,36 @@ The application owns `.witdem/witdem.yaml`. Write it explicitly with the human n
 
 `witdem.report(...)` sends values already known by the application. It does not infer runtime telemetry.
 
+Result and decision labels are owned by the contract; Witdem does not attach meaning to names such as `approved`, `rejected`, or `escalated`. A descriptive contract may optionally classify a value with a semantic dashboard tone:
+
+```yaml
+contracts:
+  - name: research_report
+    result:
+      name: Editorial result
+      values:
+        approved:
+          description: The report passed editorial review.
+          tone: success
+        revision_limit_reached:
+          description: The report was not approved before the revision limit.
+          tone: warning
+    product_goal:
+      name: Approved research report
+      description: Deliver a report approved by the critic.
+```
+
+Supported tones are `success`, `warning`, `failure`, and `neutral`. They select design-system colors rather than arbitrary hex values. Existing `value: Description` entries remain valid; values without a tone receive distinct categorical colors without implying success or failure.
+
 ## LangGraph with one integration point
 
 Install the optional dependency with the SDK:
 
 ```bash
-pip install "witdem-sdk[langgraph]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[langgraph]"
 ```
 
-The `langgraph` extra supports LangGraph `>=0.2,<2`, including the current 1.x line. From a source checkout before a package release, use:
-
-```bash
-pip install -e "./witdem-sdk[langgraph]"
-```
+The `langgraph` extra supports LangGraph `>=0.2,<2`, including the current 1.x line.
 
 Wrap the compiled graph once:
 
@@ -83,9 +100,14 @@ Every high-level integration owns SDK configuration, one execution, correlation,
 | OpenAI Agents | `openai_agents.instrument(run_agent, ...)` | `observed_run(...)` |
 | Anthropic Messages | `anthropic.instrument(run_agent, client=client, ...)` | `observed_run(...)` |
 | Claude Agent SDK | `claude_agent.instrument(message_stream, model=...)` | `async for message in stream` |
+| Hugging Face smolagents | `smolagents.instrument(agent, ...)` | `agent.run(...)` |
+| LiteLLM | `litellm.instrument(run_agent, ...)` | `observed_run(...)` |
+| OpenRouter | `openrouter.instrument(run_agent, client=client, ...)` | `observed_run(...)` |
 | Other providers | `generic.instrument(provider_call, ...)` | `observed_call(...)` |
 
-LangChain runnables support synchronous, asynchronous, and streaming invocation. Haystack pipelines support `run` and `run_async`. Callable integrations preserve synchronous or asynchronous functions automatically.
+LangChain runnables support synchronous, asynchronous, and streaming invocation. Haystack 3 pipelines support `run`, `run_async`, and `run_async_generator`; installing or instrumenting with Haystack 2 raises an explicit compatibility error. Supported framework ranges are also published in the repository's machine-readable `compatibility.json`. Callable integrations preserve synchronous or asynchronous functions automatically.
+
+For Haystack pipelines and agents, the wrapper observes provider response metadata at each native model boundary and enriches that same Haystack span with provider, model, and token usage. This supports different generator components, parallel branches, loops, nested pipelines, and multiple providers without application-specific result parsing or fabricated calls. When a runtime exposes only one aggregate usage total and exactly one configured model identity, Witdem uses that aggregate as a clearly marked fallback; it never invents per-call splits.
 
 Anthropic instrumentation scopes all message calls made by one workload to one execution, including multi-turn tool loops:
 
@@ -133,11 +155,14 @@ The existing low-level callbacks, client proxies, trace processors, and registra
 ## Integrations
 
 ```bash
-pip install "witdem-sdk[anthropic]"
-pip install "witdem-sdk[openai]"
-pip install "witdem-sdk[langchain]"
-pip install "witdem-sdk[langgraph]"
-pip install "witdem-sdk[haystack]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[anthropic]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[openai]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[langchain]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[langgraph]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[haystack]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[smolagents]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[litellm]"
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[openrouter]"
 ```
 
 Supported input evidence includes generic OpenTelemetry, OTel GenAI attributes, OpenInference, LangChain, LangGraph, OpenAI Agents, Anthropic Messages/Claude Agent telemetry, Haystack, and explicit SDK integration callbacks.

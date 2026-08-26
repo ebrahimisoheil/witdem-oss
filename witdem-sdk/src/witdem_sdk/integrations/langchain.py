@@ -16,6 +16,55 @@ except ImportError as exc:  # pragma: no cover - exercised by clean extra-instal
     raise ImportError("WitdemCallbackHandler requires witdem-sdk[langchain]") from exc
 
 
+def _usage_mapping(value: Any) -> Mapping[str, Any] | None:
+    """Return provider usage as a mapping without depending on its SDK type."""
+
+    if isinstance(value, Mapping):
+        return value
+    for method_name in ("model_dump", "dict"):
+        method = getattr(value, method_name, None)
+        if callable(method):
+            try:
+                converted = method()
+            except TypeError:
+                continue
+            if isinstance(converted, Mapping):
+                return converted
+    if value is not None:
+        fields = {
+            key: getattr(value, key)
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "prompt_tokens",
+                "completion_tokens",
+                "prompt_token_count",
+                "candidates_token_count",
+                "total_token_count",
+                "cached_content_token_count",
+                "thoughts_token_count",
+            )
+            if getattr(value, key, None) is not None
+        }
+        if fields:
+            return fields
+    return None
+
+
+def _usage_value(usage: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = usage.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _nested_usage_value(usage: Mapping[str, Any], group: str, *keys: str) -> Any:
+    nested = _usage_mapping(usage.get(group))
+    return _usage_value(nested, *keys) if nested is not None else None
+
+
 class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ignore]
     def __init__(
         self,
@@ -176,23 +225,56 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
 
     def _record_usage(self, run_id: Any, response: Any) -> None:
         active = self._operations.get(str(run_id))
-        usage = getattr(getattr(response, "llm_output", None), "get", lambda *_: None)("token_usage")
+        llm_output = _usage_mapping(getattr(response, "llm_output", None)) or {}
         generations = getattr(response, "generations", None) or []
         first_generation = generations[0][0] if generations and generations[0] else None
         message = getattr(first_generation, "message", None)
-        message_usage = getattr(message, "usage_metadata", None)
-        if not isinstance(usage, dict) and isinstance(message_usage, dict):
-            usage = message_usage
-        if active is not None and isinstance(usage, dict):
-            active.set_attribute(
-                "gen_ai.usage.input_tokens", usage.get("prompt_tokens", usage.get("input_tokens", 0))
-            )
-            active.set_attribute(
-                "gen_ai.usage.output_tokens", usage.get("completion_tokens", usage.get("output_tokens", 0))
-            )
-            model = getattr(message, "response_metadata", {}).get("model_name") if message is not None else None
-            if model:
-                active.set_attribute("gen_ai.response.model", str(model))
+        response_metadata = _usage_mapping(getattr(message, "response_metadata", None)) or {}
+        usage = next(
+            (
+                candidate
+                for candidate in (
+                    _usage_mapping(llm_output.get("token_usage")),
+                    _usage_mapping(llm_output.get("usage_metadata")),
+                    _usage_mapping(getattr(response, "usage_metadata", None)),
+                    _usage_mapping(getattr(message, "usage_metadata", None)),
+                    _usage_mapping(response_metadata.get("token_usage")),
+                    _usage_mapping(response_metadata.get("usage_metadata")),
+                )
+                if candidate is not None
+            ),
+            None,
+        )
+        if active is None or usage is None:
+            return
+
+        input_tokens = _usage_value(usage, "prompt_tokens", "input_tokens", "prompt_token_count")
+        output_tokens = _usage_value(
+            usage, "completion_tokens", "output_tokens", "candidates_token_count"
+        )
+        total_tokens = _usage_value(usage, "total_tokens", "total_token_count")
+        cache_read_tokens = _usage_value(
+            usage, "cache_read_tokens", "cache_read_input_tokens", "cached_content_token_count"
+        )
+        if cache_read_tokens is None:
+            cache_read_tokens = _nested_usage_value(usage, "input_token_details", "cache_read")
+        reasoning_tokens = _usage_value(usage, "reasoning_tokens", "thoughts_token_count")
+        if reasoning_tokens is None:
+            reasoning_tokens = _nested_usage_value(usage, "output_token_details", "reasoning")
+
+        for key, value in (
+            ("gen_ai.usage.input_tokens", input_tokens),
+            ("gen_ai.usage.output_tokens", output_tokens),
+            ("gen_ai.usage.total_tokens", total_tokens),
+            ("gen_ai.usage.cache_read.input_tokens", cache_read_tokens),
+            ("gen_ai.usage.reasoning.output_tokens", reasoning_tokens),
+        ):
+            if value is not None:
+                active.set_attribute(key, value)
+
+        model = _usage_value(response_metadata, "model_name", "model_version", "model")
+        if model:
+            active.set_attribute("gen_ai.response.model", str(model))
 
 
 def _with_callback(config: Any, callback: WitdemCallbackHandler) -> dict[str, Any]:

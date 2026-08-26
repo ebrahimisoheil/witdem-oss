@@ -6,6 +6,7 @@ telemetry:
   capture_content: false
 contracts:
   - name: answer
+    mode: expression
     description: Return one useful answer from the multi-agent workflow.
     application_outcome:
       status:

@@ -1,0 +1,45 @@
+version: 1
+service:
+  name: classification-agent
+  runtime: langgraph
+telemetry:
+  capture_content: false
+contracts:
+  qualification:
+    mode: expression
+    description: Classify a company using the expected business policy.
+    application_outcome:
+      status: $.decision
+    artifact:
+      name: Company profile
+      description: The evidence-backed profile used for classification.
+      valid:
+        non_empty: $.profile
+    decision:
+      name: Qualification decision
+      description: The terminal classification selected by the workflow.
+      outcomes:
+        accepted: The company qualifies.
+        rejected: The company does not qualify.
+        escalated: Human review is required.
+      expected: $.expected_decision
+      observed: $.decision
+      reason: $.reason
+    product_goal:
+      name: Correct company qualification
+      description: Return the expected classification from a non-empty profile.
+      achieved:
+        all:
+          - $.witdem.artifact_valid
+          - $.witdem.decision_correct
+      closest_blocker:
+        choose:
+          when: $.witdem.artifact_valid
+          then:
+            choose:
+              when: $.witdem.decision_correct
+              then: none
+              else: decision mismatch
+          else: missing company profile
+    attributes:
+      case_id: $.case_id

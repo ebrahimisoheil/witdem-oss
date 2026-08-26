@@ -249,7 +249,75 @@ def _display_name(span: Mapping[str, Any], kind: str) -> str:
         return str(_attribute(span, "haystack.component.name") or raw_name)
     if kind == "tool":
         return str(_attribute(span, "haystack.tool.name") or raw_name)
+    if kind == "agent_step":
+        return str(_attribute(span, "witdem.agent.step.name") or raw_name)
     return raw_name
+
+
+def _span_failed(span: Mapping[str, Any]) -> bool:
+    status = span.get("status")
+    if not isinstance(status, Mapping):
+        return False
+    return str(status.get("status_code") or "").casefold().endswith("error")
+
+
+def _enrich_haystack_agent_steps(rows: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Name native Haystack Agent iterations from their observed children.
+
+    Haystack emits the stable parent name ``haystack.agent.step`` plus a
+    zero-based index. Its direct tool children contain the useful action name.
+    A successful model-only step is the terminal answer step. This structural
+    enrichment also upgrades retained telemetry produced before the SDK began
+    writing the equivalent attributes.
+    """
+
+    enriched: list[dict[str, Any]] = [dict(row) for row in rows]
+    children: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for row in enriched:
+        parent = row.get("parent_span_id")
+        if parent:
+            children[str(parent)].append(row)
+    for row in enriched:
+        if str(row.get("name") or "").casefold() != "haystack.agent.step":
+            continue
+        attributes = dict(row.get("attributes") or {})
+        if attributes.get("witdem.agent.step.name"):
+            continue
+        direct_children = children.get(str(row.get("span_id") or ""), [])
+        tool_names = [
+            str(name)
+            for child in direct_children
+            if str(child.get("name") or "").casefold().endswith(".tool")
+            and (name := _attribute(child, "haystack.tool.name"))
+        ]
+        if tool_names:
+            unique_tools = list(dict.fromkeys(tool_names))
+            attributes["witdem.agent.step.name"] = (
+                tool_names[0] if len(tool_names) == 1 else f"{len(tool_names)} tool calls"
+            )
+            attributes["witdem.agent.step.action"] = "tool_call"
+            attributes["witdem.agent.step.tools"] = unique_tools
+            attributes["witdem.agent.step.name_provenance"] = "observed_child_tool"
+        else:
+            model_children = [
+                child
+                for child in direct_children
+                if str(child.get("name") or "").casefold().endswith(".llm")
+            ]
+            if model_children:
+                failed = _span_failed(row) or any(_span_failed(child) for child in model_children)
+                attributes["witdem.agent.step.name"] = "failed_step" if failed else "final_answer"
+                attributes["witdem.agent.step.action"] = "failed" if failed else "final_answer"
+                attributes["witdem.agent.step.name_provenance"] = "observed_tool_free_model_step"
+            else:
+                step = attributes.get("haystack.agent.step")
+                number = int(step) + 1 if isinstance(step, (int, float)) and not isinstance(step, bool) else 1
+                attributes["witdem.agent.step.name"] = f"step_{number}"
+                attributes["witdem.agent.step.name_provenance"] = "observed_step_index"
+        row["attributes"] = attributes
+    result: list[Mapping[str, Any]] = []
+    result.extend(enriched)
+    return result
 
 
 def _kind(name: str, attributes: Mapping[str, Any] | None = None) -> str:
@@ -314,6 +382,59 @@ def _metadata_by_role(providers: Sequence[Mapping[str, Any]] | None) -> dict[str
     return result
 
 
+def _merge_haystack_usage_summary(rows: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Merge SDK aggregate usage into native Haystack model spans.
+
+    Haystack exposes aggregate usage on the Agent result but omits it from its
+    native LLM spans. The SDK records that result as a temporary summary span;
+    this adapter applies identity to every physical model call, applies the
+    aggregate usage once, and removes the temporary span from the graph.
+    """
+
+    summaries = [row for row in rows if _attribute(row, "witdem.haystack.usage_summary") is True]
+    if not summaries:
+        return rows
+    physical = [row for row in rows if row not in summaries]
+    model_rows = [
+        row
+        for row in physical
+        if _kind(str(row.get("name") or "operation"), row.get("attributes")) == "model"
+    ]
+    if not model_rows:
+        return rows
+
+    summary = summaries[-1]
+    provider = _attribute(summary, "provider", "gen_ai.provider.name")
+    model = _attribute(summary, "model", "gen_ai.response.model", "gen_ai.request.model")
+    for row in model_rows:
+        attributes = dict(row.get("attributes") or {})
+        if provider is not None:
+            attributes.setdefault("gen_ai.provider.name", provider)
+            attributes.setdefault("pf.provider_provenance", "observed_invocation_configuration")
+        if model is not None:
+            attributes.setdefault("gen_ai.request.model", model)
+            attributes.setdefault("pf.model_provenance", "observed_invocation_configuration")
+        cast(dict[str, Any], row)["attributes"] = attributes
+
+    usage_target = max(
+        model_rows,
+        key=lambda row: _timestamp(row.get("start_time_unix_nano")) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    target_attributes = dict(usage_target.get("attributes") or {})
+    for name in (
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.total_tokens",
+    ):
+        value = _attribute(summary, name)
+        if value is not None:
+            target_attributes[name] = value
+    target_attributes["pf.usage_provenance"] = "observed_provider_response"
+    target_attributes["witdem.haystack.aggregate_usage"] = True
+    cast(dict[str, Any], usage_target)["attributes"] = target_attributes
+    return physical
+
+
 def normalize_haystack_spans(
     spans: Sequence[Mapping[str, Any]],
     *,
@@ -327,7 +448,7 @@ def normalize_haystack_spans(
     semantic events, and Product Factory configuration are not required.
     """
 
-    rows = list(spans)
+    rows = _enrich_haystack_agent_steps(_merge_haystack_usage_summary([dict(span) for span in spans]))
     requested_id = execution_id
     def span_execution_id(row: Mapping[str, Any]) -> Any:
         return _attribute(row, "witdem.execution_id")
@@ -409,6 +530,12 @@ def normalize_haystack_spans(
         model_usage = {
             "prompt_tokens": usage.get("input_tokens"),
             "completion_tokens": usage.get("output_tokens"),
+            **{
+                key: value
+                for key, value in usage.items()
+                if key not in {"input_tokens", "output_tokens", "usage_provenance"}
+                and isinstance(value, (int, float))
+            },
         }
         if (
             known_cost is None
@@ -420,7 +547,7 @@ def normalize_haystack_spans(
             and model_provenance in {"observed_span", "observed_provider_response", "observed_invocation_configuration"}
             and all(isinstance(value, (int, float)) for value in model_usage.values())
         ):
-            known_cost = estimate_chat_cost(str(provider), str(model), model_usage)
+            known_cost = estimate_chat_cost(str(provider), str(model), model_usage, context=attributes)
             if known_cost is not None:
                 pricing_resolution = resolve_pricing_model(str(provider), str(model))
                 cost_source = "price_snapshot"
@@ -449,6 +576,7 @@ def normalize_haystack_spans(
                 str(provider) if provider is not None else None,
                 str(model) if model is not None else None,
                 model_usage if kind == "model" else None,
+                context=attributes,
             )
             if reason is not None:
                 attributes.setdefault("cost_unavailable_reason", reason)

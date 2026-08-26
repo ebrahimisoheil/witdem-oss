@@ -6,6 +6,17 @@ from app import build_pipeline
 
 def test_independent_retrievers_run_concurrently() -> None:
     pipeline = build_pipeline(branch_delay_seconds=0.2)
+    # Keep one-time Haystack scheduler initialization out of the concurrency
+    # measurement. The assertion below is about branch execution, not imports.
+    asyncio.run(
+        pipeline.run_async(
+            {
+                "keyword_retriever": {"query": "warm up"},
+                "semantic_retriever": {"query": "warm up"},
+            },
+            concurrency_limit=2,
+        )
+    )
     started = time.perf_counter()
     result = asyncio.run(
         pipeline.run_async(

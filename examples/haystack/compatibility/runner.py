@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any, cast
 
@@ -45,36 +46,40 @@ OFFICIAL_SOURCES: dict[str, dict[str, str]] = {
     "linear": {
         "name": "Your First QA Pipeline with Retrieval-Augmentation / Pipelines",
         "url": "https://docs.haystack.deepset.ai/docs/pipelines",
-        "context": "Haystack 3.0.0; deterministic local chat generator substituted for the provider generator.",
+        "context": "Haystack 3.x; deterministic local chat generator substituted for the provider generator.",
     },
     "conditional": {
         "name": "ConditionalRouter",
         "url": "https://docs.haystack.deepset.ai/docs/conditionalrouter",
-        "context": "Haystack 3.0.0; the documented length-based route is run with short and long inputs.",
+        "context": "Haystack 3.x; the documented length-based route is run with short and long inputs.",
     },
     "loop": {
         "name": "Generating Structured Output with Loop-Based Auto-Correction",
         "url": "https://docs.haystack.deepset.ai/docs/branchjoiner",
-        "context": "Haystack 3.0.0; documented BranchJoiner/validator loop with a local generator.",
+        "context": "Haystack 3.x; documented BranchJoiner/validator loop with a local generator.",
     },
     "agent": {
         "name": "Agent / Build a Tool-Calling Agent",
         "url": "https://docs.haystack.deepset.ai/docs/agent",
-        "context": "Haystack 3.0.0; deterministic local chat generator emits one tool call then a final reply.",
+        "context": "Haystack 3.x; deterministic local chat generator emits one tool call then a final reply.",
     },
     "fallback": {
         "name": "Building an Agentic RAG with Fallback to Websearch",
         "url": "https://docs.haystack.deepset.ai/docs/agents",
         "context": (
-            "Haystack 3.0.0; the primary route returns a deterministic failure condition and the fallback succeeds."
+            "Haystack 3.x; the primary route returns a deterministic failure condition and the fallback succeeds."
         ),
     },
     "nested": {
         "name": "PipelineTool",
         "url": "https://docs.haystack.deepset.ai/docs/pipelinetool",
-        "context": "Haystack 3.0.0; a retrieval pipeline is exposed as an Agent tool.",
+        "context": "Haystack 3.x; a retrieval pipeline is exposed as an Agent tool.",
     },
 }
+
+
+def _haystack_version() -> str:
+    return package_version("haystack-ai")
 
 
 @dataclass
@@ -593,7 +598,7 @@ def run_compatibility_suite(root: Path) -> dict[str, Any]:
     results = [_run_case(case, root / "scenarios") for case in compatibility_cases()]
     report = {
         "suite": "haystack-public-example-compatibility",
-        "haystack_version": "3.0.0",
+        "haystack_version": _haystack_version(),
         "normalization_input": "Haystack/OpenTelemetry raw span envelopes only",
         "core_schema": ["Execution", "Operation", "Link", "Event", "Evaluation", "Outcome"],
         "results": results,
@@ -643,7 +648,7 @@ def run_live_compatibility_suite(
         )
     report = {
         "suite": "haystack-public-example-compatibility-live",
-        "haystack_version": "3.0.0",
+        "haystack_version": _haystack_version(),
         "mode": "live",
         "provider": provider,
         "model": live_model,

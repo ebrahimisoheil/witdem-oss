@@ -28,19 +28,21 @@ def test_tutorials_have_symmetric_external_consumer_shape() -> None:
         }
 
 
-def test_workloads_and_otel_only_entrypoints_are_sdk_free() -> None:
+def test_workloads_and_otel_only_entrypoints_do_not_import_the_sdk() -> None:
     for name in TUTORIALS:
         directory = ROOT / "examples" / name
         workload = (directory / "app.py").read_text(encoding="utf-8")
         assert "from witdem" not in workload and "import witdem" not in workload
         assert "witdem_sdk" not in (directory / "otel_only.py").read_text(encoding="utf-8")
-        base_project = (directory / "pyproject.toml").read_text(encoding="utf-8").casefold()
-        assert "witdem-sdk" not in base_project and "witdem_sdk" not in base_project
 
 
 def test_enriched_entrypoints_use_the_native_minimal_integration() -> None:
     for name in TUTORIALS:
-        source = (ROOT / "examples" / name / "sdk_enriched.py").read_text(encoding="utf-8")
+        directory = ROOT / "examples" / name
+        source = (directory / "sdk_enriched.py").read_text(encoding="utf-8")
+        project = (directory / "pyproject.toml").read_text(encoding="utf-8").casefold()
+        assert "witdem-sdk" in project
+        assert "[tool.uv.sources]" in project
         assert "from witdem_sdk.integrations." in source
         assert " import instrument" in source
         if name in {"cloud/azure", "cloud/bedrock", "cloud/vertex", "ollama/basic"}:

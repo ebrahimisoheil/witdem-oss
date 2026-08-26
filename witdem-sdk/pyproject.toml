@@ -27,14 +27,24 @@ anthropic = ["anthropic>=0.50,<1"]
 openai = ["openai-agents>=0.0.10,<1"]
 langchain = ["langchain-core>=0.3,<2"]
 langgraph = ["langgraph>=0.2,<2"]
-haystack = ["haystack-ai>=2.9,<3", "opentelemetry-haystack>=1,<2"]
+haystack = ["haystack-ai>=3.0,<4", "opentelemetry-haystack>=1,<2"]
+litellm = ["litellm>=1.86,<2"]
+openrouter = ["openai>=1.68,<4"]
+smolagents = [
+  "smolagents>=1.18,<2",
+  "openinference-instrumentation-smolagents>=0.1.20,<1",
+]
 all = [
   "anthropic>=0.50,<1",
   "openai-agents>=0.0.10,<1",
   "langchain-core>=0.3,<2",
   "langgraph>=0.2,<2",
-  "haystack-ai>=2.9,<3",
+  "haystack-ai>=3.0,<4",
   "opentelemetry-haystack>=1,<2",
+  "litellm>=1.86,<2",
+  "openai>=1.68,<4",
+  "smolagents>=1.18,<2",
+  "openinference-instrumentation-smolagents>=0.1.20,<1",
 ]
 
 [dependency-groups]
@@ -67,3 +77,8 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 python_version = "3.10"
 strict = true
 packages = ["witdem_sdk"]
+follow_imports_for_stubs = true
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"

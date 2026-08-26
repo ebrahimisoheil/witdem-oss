@@ -6,6 +6,7 @@ telemetry:
   capture_content: false
 contracts:
   - name: answer
+    mode: expression
     description: Return one useful answer from the state graph.
     application_outcome:
       status:

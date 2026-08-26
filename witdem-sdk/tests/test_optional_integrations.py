@@ -211,6 +211,50 @@ def test_langchain_callbacks_cover_usage_retrievers_and_async(monkeypatch: pytes
     assert "langchain.tool.lookup" in spans
 
 
+def test_langchain_callbacks_extract_native_gemini_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("langchain_core")
+    from witdem_sdk.integrations import langchain
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(langchain.trace, "get_tracer", provider.get_tracer)
+    handler = langchain.WitdemCallbackHandler(
+        SimpleNamespace(),
+        provider="google",
+        model="gemini-3.7-flash",
+    )
+
+    handler.on_chat_model_start(
+        {"kwargs": {"model": "gemini-3.7-flash"}}, [], run_id="gemini-model"
+    )
+    native_usage = SimpleNamespace(
+        prompt_token_count=11,
+        candidates_token_count=7,
+        total_token_count=21,
+        cached_content_token_count=2,
+        thoughts_token_count=3,
+    )
+    message = SimpleNamespace(
+        usage_metadata=None,
+        response_metadata={
+            "model_name": "gemini-3.7-flash-001",
+            "usage_metadata": native_usage,
+        },
+    )
+    response = SimpleNamespace(llm_output={}, generations=[[SimpleNamespace(message=message)]])
+
+    handler.on_llm_end(response, run_id="gemini-model")
+
+    span = exporter.get_finished_spans()[0]
+    assert span.attributes["gen_ai.usage.input_tokens"] == 11
+    assert span.attributes["gen_ai.usage.output_tokens"] == 7
+    assert span.attributes["gen_ai.usage.total_tokens"] == 21
+    assert span.attributes["gen_ai.usage.cache_read.input_tokens"] == 2
+    assert span.attributes["gen_ai.usage.reasoning.output_tokens"] == 3
+    assert span.attributes["gen_ai.response.model"] == "gemini-3.7-flash-001"
+
+
 def test_langgraph_marks_nodes_and_steps(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("langgraph")
     from witdem_sdk.integrations import langchain

@@ -6,6 +6,7 @@ telemetry:
   capture_content: false
 contracts:
   - name: answer
+    mode: expression
     description: Return one useful Amazon Bedrock answer.
     application_outcome:
       status:

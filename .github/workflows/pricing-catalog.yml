@@ -1,0 +1,46 @@
+name: Refresh pricing catalog
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pricing-catalog-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-groups
+      - run: uv run python -m witdem.pricing.update
+      - run: uv run pytest -q tests/test_pricing_catalog.py tests/test_pricing_update.py
+      - name: Open or update the review pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/pricing-catalog
+        run: |
+          if git diff --quiet -- src/witdem/pricing/catalog.yaml; then
+            echo "Pricing catalog is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add src/witdem/pricing/catalog.yaml
+          git commit -m "chore: refresh pricing catalog"
+          git push --force origin "$BRANCH"
+          test "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" != "0" || gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: refresh pricing catalog" \
+            --body "Automated weekly pricing snapshot refresh. Review every changed rate against the official source URL stored on the catalog entry before merging."

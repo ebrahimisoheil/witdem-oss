@@ -105,6 +105,8 @@ def overview(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
                 "evaluations": snapshot.evaluations,
                 "goal_misses": snapshot.goal_misses,
                 "goal_trend": snapshot.goal_trend,
+                "goal_portfolio": snapshot.goal_portfolio,
+                "assurance_summary": snapshot.assurance_summary,
                 "paths": [],
                 "contracts": snapshot.contracts,
                 "metadata": _metadata_payload(snapshot.metadata),

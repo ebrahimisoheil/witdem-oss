@@ -31,25 +31,60 @@ class GenAIDialectNormalizer:
     def normalize(self, span: NormalizedSpan) -> NormalizedOperation:
         attrs = span.attributes
         operation_name = str(_first(attrs, "gen_ai.operation.name") or "").casefold()
-        provider = _first(attrs, "gen_ai.provider.name")
-        request_model = _first(attrs, "gen_ai.request.model")
-        response_model = _first(attrs, "gen_ai.response.model")
+        provider = _first(
+            attrs,
+            "witdem.route.provider",
+            "openrouter.provider.name",
+            "litellm.provider",
+            "gen_ai.provider.name",
+        )
+        request_model = _first(attrs, "gen_ai.request.model", "openrouter.request.model", "litellm.request.model")
+        response_model = _first(attrs, "gen_ai.response.model", "openrouter.response.model", "litellm.response.model")
         tool_name = _first(attrs, "gen_ai.tool.name")
         tool_call_id = _first(attrs, "gen_ai.tool.call.id")
         agent_name = _first(attrs, "gen_ai.agent.name")
         usage: dict[str, int | float] = {}
         usage_aliases = {
-            "input_tokens": ("gen_ai.usage.input_tokens",),
-            "output_tokens": ("gen_ai.usage.output_tokens",),
-            "cache_read_tokens": ("gen_ai.usage.cache_read.input_tokens",),
-            "cache_creation_tokens": ("gen_ai.usage.cache_creation.input_tokens",),
-            "reasoning_tokens": ("gen_ai.usage.reasoning.output_tokens",),
-            "total_tokens": ("gen_ai.usage.total_tokens",),
+            "input_tokens": (
+                "gen_ai.usage.input_tokens",
+                "openrouter.usage.prompt_tokens",
+                "litellm.usage.prompt_tokens",
+            ),
+            "output_tokens": (
+                "gen_ai.usage.output_tokens",
+                "openrouter.usage.completion_tokens",
+                "litellm.usage.completion_tokens",
+            ),
+            "cache_read_tokens": (
+                "gen_ai.usage.cache_read.input_tokens",
+                "openrouter.usage.cached_tokens",
+            ),
+            "cache_creation_tokens": (
+                "gen_ai.usage.cache_creation.input_tokens",
+                "openrouter.usage.cache_write_tokens",
+            ),
+            "reasoning_tokens": (
+                "gen_ai.usage.reasoning.output_tokens",
+                "openrouter.usage.reasoning_tokens",
+            ),
+            "total_tokens": (
+                "gen_ai.usage.total_tokens",
+                "openrouter.usage.total_tokens",
+                "litellm.usage.total_tokens",
+            ),
         }
         for target, aliases in usage_aliases.items():
             value = _number(_first(attrs, *aliases))
             if value is not None:
                 usage[target] = value
+        for key, raw_value in attrs.items():
+            if not key.startswith("gen_ai.usage."):
+                continue
+            value = _number(raw_value)
+            if value is None:
+                continue
+            target = key.removeprefix("gen_ai.usage.").replace(".", "_")
+            usage.setdefault(target, value)
         if "total_tokens" not in usage and {"input_tokens", "output_tokens"} <= usage.keys():
             usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
 

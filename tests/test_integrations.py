@@ -61,6 +61,8 @@ def test_genai_normalizer_maps_provider_models_tokens_and_tool_identity() -> Non
                 "gen_ai.usage.input_tokens": 4,
                 "gen_ai.usage.output_tokens": 3,
                 "gen_ai.usage.cache_read.input_tokens": 2,
+                "gen_ai.usage.audio.input_tokens": 11,
+                "gen_ai.usage.vendor.future_meter": 4.5,
                 "gen_ai.tool.name": "search",
                 "gen_ai.tool.call.id": "call-1",
             },
@@ -71,6 +73,8 @@ def test_genai_normalizer_maps_provider_models_tokens_and_tool_identity() -> Non
     assert operation.provider == "openai"
     assert operation.request_model == "gpt-test"
     assert operation.usage["total_tokens"] == 7
+    assert operation.usage["audio_input_tokens"] == 11
+    assert operation.usage["vendor_future_meter"] == 4.5
     assert operation.tool_call_id == "call-1"
 
 
@@ -87,6 +91,38 @@ def test_genai_explicit_chat_beats_framework_name_containing_agent() -> None:
         )
     )
     assert GenAIDialectNormalizer().normalize(span).kind == "model"
+
+
+def test_genai_normalizer_prefers_routed_provider_and_gateway_usage_aliases() -> None:
+    span = OTelEnvelopeNormalizer().normalize(
+        _span(
+            "route",
+            "openrouter.chat",
+            attributes={
+                "gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": "openrouter",
+                "witdem.gateway.name": "openrouter",
+                "witdem.route.provider": "together",
+                "openrouter.request.model": "openrouter/auto",
+                "openrouter.response.model": "meta-llama/llama-4",
+                "openrouter.usage.prompt_tokens": 8,
+                "openrouter.usage.completion_tokens": 3,
+                "openrouter.usage.cost": 0.0007,
+            },
+        )
+    )
+
+    normalized = GenAIDialectNormalizer().normalize(span)
+    operation = graph_from_spans(
+        [span], execution_id="execution", runtime="openrouter", telemetry_path="otel"
+    ).operations[0]
+
+    assert normalized.provider == "together"
+    assert normalized.request_model == "openrouter/auto"
+    assert normalized.response_model == "meta-llama/llama-4"
+    assert normalized.usage["total_tokens"] == 11
+    assert operation.attributes["cost_usd"] == 0.0007
+    assert operation.attributes["cost_source"] == "openrouter_reported"
 
 
 def test_shared_mapping_estimates_anthropic_cost_from_observed_usage() -> None:
@@ -200,6 +236,7 @@ def test_shared_mapping_prices_dated_gpt_4o_mini_response_model() -> None:
     ("provider", "model", "canonical"),
     [
         ("openai", "gpt-5.4-mini-2026-03-17", "gpt-5.4-mini"),
+        ("openai", "openai/gpt-5.4-mini", "gpt-5.4-mini"),
         ("openai", "gpt-5.4-2026-03-05", "gpt-5.4"),
         ("anthropic", "claude-haiku-4-5-20251001", "claude-haiku-4-5"),
         ("anthropic", "claude-sonnet-5", "claude-sonnet-5"),

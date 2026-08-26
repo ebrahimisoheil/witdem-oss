@@ -1,0 +1,52 @@
+version: 1
+service:
+  name: support-agent
+  runtime: haystack
+telemetry:
+  capture_content: false
+contracts:
+  support_case:
+    mode: reported
+    description: Resolve a customer request with independently computed assurance checks.
+    result:
+      name: Customer support result
+      description: The terminal result delivered by the support workflow.
+      values:
+        answered:
+          description: A useful answer was returned.
+          tone: success
+        escalated:
+          description: Human assistance was requested.
+          tone: warning
+        unresolved:
+          description: The request could not be resolved.
+          tone: failure
+    decision:
+      name: Support route
+      description: The route selected by the application.
+      values:
+        answer:
+          description: Answer the customer directly.
+          tone: success
+        escalate:
+          description: Route the request to a person.
+          tone: warning
+    product_goal:
+      name: Correct support resolution
+      description: Resolve the request through the expected route with sufficient answer evidence.
+    evaluations:
+      answer_validity:
+        name: Customer support answer validity
+        description: Whether the returned answer is usable.
+        target: true
+      reference_coverage:
+        name: Reference answer coverage
+        description: Share of required reference facts present in the answer.
+        target: 0.8
+        direction: higher_is_better
+        unit: ratio
+    dimensions:
+      case_id:
+        name: Support case
+      customer_tier:
+        name: Customer tier

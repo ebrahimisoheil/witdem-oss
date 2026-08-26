@@ -9,13 +9,24 @@ from witdem import __version__
 
 _PROVIDER_ALIASES = {
     "openai": "openai",
-    "azure_openai": "openai",
-    "azure.openai": "openai",
+    "azure_openai": "azure_openai",
+    "azure.openai": "azure_openai",
+    "azure": "azure_openai",
     "anthropic": "anthropic",
     "claude": "anthropic",
     "deepseek": "deepseek",
     "mistral": "mistral",
     "mistralai": "mistral",
+    "amazon_bedrock": "amazon_bedrock",
+    "aws.bedrock": "amazon_bedrock",
+    "bedrock": "amazon_bedrock",
+    "google": "google",
+    "google.vertex": "google",
+    "vertex": "google",
+    "vertex_ai": "google",
+    "gemini": "google",
+    "cohere": "cohere",
+    "ollama": "ollama",
 }
 
 _MODEL_PREFIXES = {
@@ -66,8 +77,17 @@ def normalize_provider_spans(
         provider, source = _provider(attributes)
         if provider is not None:
             adapters.add(provider)
-            attributes.setdefault("provider", provider)
-            attributes.setdefault("gen_ai.provider.name", provider)
+            observed_provider = _first(
+                attributes,
+                "gen_ai.provider.name",
+                "gen_ai.system",
+                "provider",
+                "llm.provider",
+            )
+            if observed_provider is not None and str(observed_provider).strip().casefold() != provider:
+                attributes["witdem.provider_adapter.observed"] = str(observed_provider)
+            attributes["provider"] = provider
+            attributes["gen_ai.provider.name"] = provider
             attributes["witdem.provider_adapter.name"] = provider
             attributes["witdem.provider_adapter.version"] = __version__
             attributes["witdem.provider_adapter.source"] = source

@@ -10,10 +10,13 @@ dependencies = [
   "opentelemetry-sdk>=1.27,<2",
   "langchain-core>=0.3,<2",
   "langchain-openai>=0.3,<2",
+  "witdem-sdk[langchain]",
 ]
 
 [tool.uv]
 package = false
+[tool.uv.sources]
+witdem-sdk = { path = "../../../witdem-sdk", editable = true }
 [dependency-groups]
 dev = ["pytest>=8.3,<9"]
 

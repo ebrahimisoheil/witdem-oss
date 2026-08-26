@@ -1,0 +1,41 @@
+version: 1
+service:
+  name: quality-scored-agent
+  runtime: native
+telemetry:
+  capture_content: false
+contracts:
+  reviewed_answer:
+    mode: expression
+    description: Return an answer whose evaluator score meets the declared quality bar.
+    application_outcome:
+      status:
+        choose:
+          when:
+            all:
+              - non_empty: $.answer
+              - $.quality_passed
+          then: accepted
+          else: needs_review
+    artifact:
+      name: Reviewed answer
+      valid:
+        non_empty: $.answer
+    decision:
+      name: Quality gate
+      expected: true
+      observed: $.quality_passed
+    product_goal:
+      name: Answer meets quality threshold
+      description: Return a non-empty answer with quality of at least 0.8.
+      achieved:
+        all:
+          - $.witdem.artifact_valid
+          - $.witdem.decision_correct
+    evaluations:
+      - name: Answer quality
+        description: Evaluator score for correctness and completeness.
+        score: $.quality_score
+        target: 0.8
+        direction: higher_is_better
+        unit: ratio

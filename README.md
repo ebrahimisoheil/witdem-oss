@@ -2,33 +2,17 @@
 
 # Witdem
 
-**See how your AI application ran, what it cost, where it failed, and whether it achieved its product goal.**
+**Analytics for AI agents and multi-step AI applications.**
 
-Witdem turns OpenTelemetry traces into a local analytics dashboard for agents, graphs, tools, models, workflows, evaluations, and business outcomes.
+Tracing tells you what executed. Witdem connects those executions to application outcomes: which paths ran, what they cost, where they failed, and whether they achieved the product goal you defined.
 
-[Get started](#run-witdem) · [Connect an application](#connect-an-application) · [Run the example matrix](#run-the-product-factory-example) · [Documentation](#documentation)
+[Get started](docs/getting-started.md) · [YAML contracts](docs/contract-tutorial.md) · [Haystack](docs/integrations/haystack.md) · [Frameworks](#integration-status) · [Providers](docs/providers.md) · [Troubleshooting](docs/troubleshooting.md)
 
 </div>
 
-## See parallel and asynchronous execution
+## First run
 
-Witdem preserves observed concurrency in workflow replays. When sibling operations overlap in the trace, the dashboard renders the real fan-out and fan-in instead of flattening them into a misleading sequence:
-
-```text
-             ┌→ semantic retriever ─┐
-execution ───┤                       ├→ answer
-             └→ keyword retriever ──┘
-```
-
-This is based on recorded span relationships and timestamps—not an assumed static diagram. Each branch keeps its own duration, status, model/tool activity, tokens, and measured cost. The next observed stage is shown after the concurrent branch group finishes.
-
-This works with asynchronous framework execution, including Haystack `AsyncPipeline`. See the [runnable Haystack + OpenAI example](examples/haystack/pipeline/README.md), which starts two retrievers concurrently and joins their evidence before producing an answer.
-
-## Run Witdem
-
-### Docker — recommended
-
-You need Docker with Compose. Clone the repository and start the stack:
+Start the local receiver, ELT worker, and dashboard:
 
 ```bash
 git clone https://github.com/ebrahimisoheil/witdem-oss.git Witdem-Analytics
@@ -36,17 +20,124 @@ cd Witdem-Analytics
 docker compose up -d
 ```
 
-Open **http://localhost:8501**.
+Open `http://localhost:8501` in a browser.
 
-The stack starts three services:
+Add the SDK to an existing Haystack 3 project from the checkout:
+
+```bash
+python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[haystack]"
+export WITDEM_ENDPOINT=http://localhost:4318
+```
+
+Wrap the pipeline once. Its existing `run`, `run_async`, and `run_async_generator` calls stay unchanged:
+
+```python
+from witdem_sdk.integrations.haystack import instrument
+
+pipeline = instrument(build_pipeline())
+result = pipeline.run(data)
+```
+
+Add `.witdem/witdem.yaml` to describe what a useful result means:
+
+```yaml
+version: 1
+service:
+  name: support-agent
+  runtime: haystack
+telemetry:
+  capture_content: false
+contracts:
+  - name: answer
+    mode: expression
+    artifact:
+      name: Support answer
+      valid:
+        non_empty: $.answer
+    decision:
+      name: Result validity
+      expected: true
+      observed: $.witdem.artifact_valid
+    product_goal:
+      name: Useful answer returned
+      achieved: $.witdem.artifact_valid
+```
+
+Run the application normally. The execution and its business result appear at **http://localhost:8501**.
+
+> `witdem-sdk` 0.2.0 is not yet published to the package index. The source-checkout command above is the verified installation path for this release. Publishing the package is the remaining installation launch blocker.
+
+## What you get
+
+- Actual execution paths, branches, loops, retries, tools, model calls, and failures
+- Per-run latency, token usage, and cost when provider/model/usage evidence is sufficient
+- Application outcomes and product-goal success defined by your application
+- Provider and model comparisons using attributable time, usage, cost, and quality
+- Workflow/path analytics and run-linked issue investigation
+- Local DuckDB storage and a self-hosted dashboard; prompt and response capture is off by default
+
+Witdem does not infer business success from a completed LLM call. Framework instrumentation records what happened technically; `.witdem/witdem.yaml` explains what the final result means.
+
+## Integration status
+
+Statuses reflect current implementation and test evidence, not roadmap intent.
+
+| Integration | Status | Verified surface |
+| --- | --- | --- |
+| [Haystack 3](docs/integrations/haystack.md) | **Stable** | Pipelines, agents, components, provider calls, loops, parallel branches, `run`, `run_async`, async generators |
+| [LangGraph](docs/integrations/langgraph.md) | **Beta** | Compiled graphs, nodes, tools, models, errors, sync/async invocation and streaming |
+| [LangChain](docs/integrations/langchain.md) | **Beta** | Runnables, chains, chat/LLM calls, tools, retrievers, sync/async invocation and streaming |
+| [Native Python](docs/integrations/native-python.md) | **Supported** | Execution, operation, model, tool, decision, evaluation, outcome, and metric primitives |
+| [OpenAI Agents](docs/integrations/openai-agents.md) | **Beta** | Native trace processor, agents, generations, tools, handoffs, sync/async workloads |
+| [Anthropic Messages and Claude Agent SDK](docs/integrations/anthropic.md) | **Beta** | Messages calls, usage, tool-use IDs, multi-turn workloads, Claude Agent message streams |
+| [Hugging Face smolagents](docs/integrations/smolagents.md) | **Beta** | Official OpenInference agent, step, model, and tool spans; sync and streaming execution |
+| [LiteLLM](docs/integrations/litellm.md) | **Beta** | SDK callback and proxy OTLP paths, provider/model usage, reported cost, failures, routing metadata |
+| [OpenRouter](docs/providers/openrouter.md) | **Beta** | OpenAI-compatible sync/async and streaming calls, selected provider, route attempts, authoritative cost |
+| Generic provider calls | **Experimental** | Sync/async callable wrapper with explicit provider/model and observed result metadata |
+| Standard OTLP/HTTP | **Supported** | Generic OpenTelemetry, OTel GenAI, and OpenInference evidence |
+
+See [`compatibility.json`](compatibility.json) for machine-readable version constraints and [Providers](docs/providers.md) for the difference between native, framework-observed, and generic support.
+
+## Providers
+
+Witdem currently has verified paths for:
+
+- [OpenAI](docs/providers/openai.md) and [Azure OpenAI](docs/providers/azure-openai.md)
+- [Anthropic](docs/providers/anthropic.md), including Claude Agent SDK telemetry
+- [DeepSeek](docs/providers/deepseek.md)
+- [Mistral](docs/providers/mistral.md)
+- [Amazon Bedrock](docs/providers/bedrock.md)
+- [Google Vertex AI](docs/providers/vertex-ai.md)
+- [Ollama](docs/providers/ollama.md)
+- [Cohere](docs/providers/cohere.md) (structurally tested, not live-validated)
+- [OpenRouter](docs/providers/openrouter.md), including selected upstream provider and fallback metadata
+- Hugging Face inference through [smolagents](docs/integrations/smolagents.md) or [LiteLLM](docs/integrations/litellm.md)
+
+OpenAI and Anthropic have dedicated SDK integrations. Haystack observes the generator actually used at each model boundary. The remaining provider examples use standard GenAI OpenTelemetry attributes or `witdem_sdk.integrations.generic`; this is explicit in every provider guide.
+
+Cost is not assumed from a provider name. Witdem uses provider-reported money when present, or the versioned server catalog when provider, model, and token usage match a catalog entry. Unknown prices remain **Not measured** with a diagnostic reason.
+
+## Parallel and asynchronous execution
+
+When sibling spans overlap, Witdem preserves the observed fan-out and fan-in rather than flattening them into a false sequence:
+
+```text
+             ┌─ semantic retriever ─┐
+execution ───┤                      ├─ answer
+             └─ keyword retriever ──┘
+```
+
+The runnable [Haystack parallel pipeline](examples/haystack/pipeline/README.md) demonstrates this with two concurrent retrievers and an OpenAI answer component.
+
+## Self-hosting
+
+Docker Compose is the recommended backend path:
 
 | Service | Address | Purpose |
 | --- | --- | --- |
-| Dashboard | `http://localhost:8501` | Explore runs, workflows, issues, comparisons, and replay graphs |
-| Receiver | `http://localhost:4318` | Accept OpenTelemetry and Witdem SDK telemetry |
-| ELT worker | internal | Transform the durable corpus into dashboard-ready analytics |
-
-Confirm that everything is running:
+| Dashboard | `http://localhost:8501` | Overview, runs, compare, workflows, and issues |
+| Receiver | `http://localhost:4318` | OTLP/HTTP and SDK record ingestion |
+| ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
 docker compose ps
@@ -54,162 +145,41 @@ curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
 
-Stop Witdem without deleting its data:
+The Python-only development path is also available:
 
 ```bash
-docker compose down
-```
-
-### Python
-
-Witdem requires Python 3.10 or newer. DuckDB and Duckle are installed automatically.
-
-```bash
-pip install witdem-analytics
-witdem dev
-```
-
-Then open **http://localhost:8501**. The receiver listens on **http://localhost:4318**.
-
-To run the current checkout instead of the published package:
-
-```bash
-git clone https://github.com/ebrahimisoheil/witdem-oss.git Witdem-Analytics
-cd Witdem-Analytics
 uv sync
-uv run witdem dev
+uv run witdem dev --open
 ```
 
-## Connect an application
+## Documentation
 
-### Standard OpenTelemetry
-
-An application that already emits OpenTelemetry needs no Witdem dependency. Point its OTLP/HTTP exporter at the receiver:
-
-```bash
-export OTEL_SERVICE_NAME=my-agent
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-```
-
-Run the application normally. Its executions will appear in the dashboard.
-
-### Witdem SDK
-
-Use the SDK when you also want application outcomes, evaluations, decisions, metrics, and product goals. Install the extra for your framework:
-
-```bash
-pip install "witdem-sdk[langgraph]"
-```
-
-Describe the application result in `.witdem/witdem.yaml`:
-
-```yaml
-version: 1
-service:
-  name: research-agent
-  runtime: langgraph
-telemetry:
-  capture_content: false
-contracts:
-  - name: research-report
-    application_outcome:
-      status: $.editorial_decision
-    artifact:
-      name: Research report
-      valid:
-        non_empty: $.report
-    decision:
-      name: Editorial approval
-      expected: approved
-      observed: $.editorial_decision
-    product_goal:
-      name: Approved research report
-      achieved: $.approved
-      closest_blocker: $.blocker
-```
-
-Wrap the compiled graph at the point where it is returned:
-
-```python
-from witdem_sdk.integrations.langgraph import instrument
-
-return instrument(graph.compile())
-```
-
-That is the entire code integration. Existing `invoke`, `ainvoke`, `stream`, and `astream` calls stay unchanged. The SDK owns setup, correlation, framework callbacks, error recording, contract evaluation, flushing, and cleanup.
-
-The same `instrument(...)` boundary is available for OpenAI Agents, Anthropic, LangChain, Haystack, Claude Agent SDK, and provider calls without a native adapter.
-
-## Run the Product Factory example
-
-Product Factory runs the same qualification workload across LangChain, LangGraph, Haystack, OpenAI Agents, and Anthropic Messages.
-
-```bash
-cd examples/product-factory
-cp .env.example ../.env
-```
-
-Add the provider keys requested in `examples/.env`, then run one live case:
-
-```bash
-uv sync --all-extras
-uv run product-factory run \
-  --case clear-qualification \
-  --runtime langgraph \
-  --live \
-  --confirm-live
-```
-
-Run the complete 44-cell live matrix:
-
-```bash
-uv run product-factory matrix \
-  --suite all \
-  --live \
-  --confirm-live
-```
-
-Live runs use paid provider APIs. The command requires explicit confirmation and writes a reproducible report under `examples/product-factory/reports/`.
+- [Getting started](docs/getting-started.md)
+- [Concepts: tracing and business meaning](docs/concepts.md)
+- [Tutorial: defining a YAML contract](docs/contract-tutorial.md)
+- [YAML configuration](docs/configuration.md)
+- [Haystack](docs/integrations/haystack.md)
+- [LangGraph](docs/integrations/langgraph.md)
+- [LangChain](docs/integrations/langchain.md)
+- [Native/custom Python](docs/integrations/native-python.md)
+- [OpenAI Agents](docs/integrations/openai-agents.md)
+- [Anthropic and Claude Agent](docs/integrations/anthropic.md)
+- [Provider support](docs/providers.md)
+- [Pricing catalog and automated refresh](docs/pricing.md)
+- [Dashboard](docs/dashboard.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Examples](docs/examples.md)
+- [Operations](docs/operations.md)
+- [Development and contributing](docs/development.md)
 
 ## Built with
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <img src="docs/assets/duckdb.svg" alt="DuckDB" width="180"><br>
-      Durable local analytics storage
-    </td>
-    <td align="center" width="33%">
-      <img src="docs/assets/duckle.png" alt="Duckle" width="105"><br>
-      Raw-to-serving transformation
-    </td>
-    <td align="center" width="33%">
-      <img src="docs/assets/tanstack.svg" alt="TanStack" width="180"><br>
-      Dashboard routing, queries, and tables
-    </td>
+    <td align="center" width="33%"><img src="docs/assets/duckdb.svg" alt="DuckDB" width="180"><br>Local analytics storage</td>
+    <td align="center" width="33%"><img src="docs/assets/duckle.png" alt="Duckle" width="105"><br>Raw-to-serving transformation</td>
+    <td align="center" width="33%"><img src="docs/assets/tanstack.svg" alt="TanStack" width="180"><br>Dashboard routing, queries, and tables</td>
   </tr>
 </table>
 
-Witdem is an independent project. DuckDB is a trademark of the DuckDB Foundation. Use of these project names and unmodified marks describes the technologies used by Witdem and does not imply endorsement.
-
-## Useful commands
-
-```bash
-witdem doctor       # verify the local installation
-witdem inspect      # inspect current corpus state
-witdem elt status   # check transformation progress
-witdem elt rebuild  # rebuild analytics from the durable corpus
-```
-
-## Documentation
-
-- [SDK and framework integrations](docs/sdk.md)
-- [Examples](docs/examples.md)
-- [Dashboard semantics](docs/dashboard.md)
-- [Architecture and data flow](docs/architecture.md)
-- [Operations and deployment](docs/operations.md)
-- [Development](docs/development.md)
-- [Release notes](docs/changelog.md)
-
-Version compatibility is machine-readable in [`compatibility.json`](compatibility.json).
+Witdem is independent of these projects. Their names and unmodified marks identify the technologies used and do not imply endorsement.

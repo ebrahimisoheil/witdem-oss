@@ -1,105 +1,1004 @@
-schema_version: "1"
-catalog_version: "2026-08-24"
+schema_version: '1'
+catalog_version: '2026-08-26'
 currency: USD
 models:
-  - provider: openai
-    model: gpt-4o-mini
-    aliases: [gpt-4o-mini-2024-07-18]
-    input_per_million: 0.15
-    output_per_million: 0.60
-    effective_date: 2024-07-18
-    source: https://platform.openai.com/docs/pricing
-  - provider: openai
-    model: gpt-5.6-sol
-    aliases: [gpt-5.6]
-    input_per_million: 4.00
-    output_per_million: 20.00
-    cache_read_per_million: 0.40
-    cache_write_per_million: 5.00
-    effective_date: 2026-08-21
-    source: https://developers.openai.com/api/docs/models/gpt-5.6-sol
-  - provider: openai
-    model: gpt-5.6-terra
-    input_per_million: 2.00
-    output_per_million: 12.00
-    cache_read_per_million: 0.20
-    cache_write_per_million: 2.50
-    effective_date: 2026-07-30
-    source: https://developers.openai.com/api/docs/models/gpt-5.6-terra
-  - provider: openai
-    model: gpt-5.6-luna
-    input_per_million: 0.20
-    output_per_million: 1.20
-    cache_read_per_million: 0.02
-    cache_write_per_million: 0.25
-    effective_date: 2026-07-30
-    source: https://developers.openai.com/api/docs/models/gpt-5.6-luna
-  - provider: anthropic
-    model: claude-haiku-4-5
-    aliases: [claude-haiku-4-5-20251001]
-    input_per_million: 1.00
-    output_per_million: 5.00
-    cache_read_per_million: 0.10
-    cache_write_per_million: 1.25
-    effective_date: 2025-10-01
-    source: https://platform.claude.com/docs/en/about-claude/pricing
-  - provider: anthropic
-    model: claude-sonnet-5
-    input_per_million: 2.00
-    output_per_million: 10.00
-    cache_read_per_million: 0.20
-    cache_write_per_million: 2.50
-    effective_date: 2026-08-10
-    source: https://platform.claude.com/docs/en/about-claude/pricing
-  - provider: anthropic
-    model: claude-sonnet-4-6
-    input_per_million: 3.00
-    output_per_million: 15.00
-    cache_read_per_million: 0.30
-    cache_write_per_million: 3.75
-    effective_date: 2026-02-17
-    source: https://platform.claude.com/docs/en/about-claude/models/migration-guide
-  - provider: openai
-    model: gpt-5.4-mini
-    aliases: [gpt-5.4-mini-2026-03-17]
-    input_per_million: 0.75
-    output_per_million: 4.50
-    effective_date: 2026-03-17
-    source: https://developers.openai.com/api/docs/models/gpt-5.4-mini
-  - provider: openai
-    model: gpt-5.4
-    aliases: [gpt-5.4-2026-03-05]
-    input_per_million: 2.50
-    output_per_million: 15.00
-    effective_date: 2026-03-05
-    source: https://developers.openai.com/api/docs/models/gpt-5.4
-  - provider: openai
-    model: gpt-5.4-nano
-    input_per_million: 0.20
-    output_per_million: 1.25
-    effective_date: 2026-03-17
-    source: https://platform.openai.com/docs/pricing
-  - provider: deepseek
-    model: deepseek-v4-flash
-    input_per_million: 0.14
-    output_per_million: 0.28
-    effective_date: 2026-08-23
-    source: https://api-docs.deepseek.com/quick_start/pricing/
-  - provider: deepseek
-    model: deepseek-v4-pro
-    input_per_million: 0.435
-    output_per_million: 0.87
-    effective_date: 2026-08-23
-    source: https://api-docs.deepseek.com/quick_start/pricing/
-  - provider: mistral
-    model: mistral-small-2603
-    input_per_million: 0.15
-    output_per_million: 0.60
-    effective_date: 2026-03-16
-    source: https://docs.mistral.ai/models/mistral-small-4-0-26-03
-  - provider: mistral
-    model: mistral-medium-3-5
-    input_per_million: 1.50
-    output_per_million: 7.50
-    effective_date: 2026-08-23
-    source: https://docs.mistral.ai/getting-started/models/models_overview/
+- provider: openai
+  model: gpt-4o-mini
+  aliases:
+  - gpt-4o-mini-2024-07-18
+  input_per_million: 0.15
+  output_per_million: 0.6
+  cache_read_per_million: 0.075
+  pricing:
+    cache_read_input_token_cost: 7.5e-08
+    cache_read_input_token_cost_priority: 1.25e-07
+    input_cost_per_token: 1.5e-07
+    input_cost_per_token_batches: 7.5e-08
+    input_cost_per_token_priority: 2.5e-07
+    output_cost_per_token: 6.0e-07
+    output_cost_per_token_batches: 3.0e-07
+    output_cost_per_token_priority: 1.0e-06
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-4o
+  aliases:
+  - gpt-4o-2024-08-06
+  - gpt-4o-2024-11-20
+  input_per_million: 2.5
+  output_per_million: 10
+  cache_read_per_million: 1.25
+  pricing:
+    cache_read_input_token_cost: 1.25e-06
+    cache_read_input_token_cost_priority: 2.125e-06
+    input_cost_per_token: 2.5e-06
+    input_cost_per_token_batches: 1.25e-06
+    input_cost_per_token_priority: 4.25e-06
+    output_cost_per_token: 1.0e-05
+    output_cost_per_token_batches: 5.0e-06
+    output_cost_per_token_priority: 1.7e-05
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-4.1
+  aliases:
+  - gpt-4.1-2025-04-14
+  input_per_million: 2
+  output_per_million: 8
+  cache_read_per_million: 0.5
+  pricing:
+    cache_read_input_token_cost: 5.0e-07
+    cache_read_input_token_cost_priority: 8.75e-07
+    input_cost_per_token: 2.0e-06
+    input_cost_per_token_batches: 1.0e-06
+    input_cost_per_token_priority: 3.5e-06
+    output_cost_per_token: 8.0e-06
+    output_cost_per_token_batches: 4.0e-06
+    output_cost_per_token_priority: 1.4e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.025
+      search_context_size_low: 0.025
+      search_context_size_medium: 0.025
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-4.1-mini
+  aliases:
+  - gpt-4.1-mini-2025-04-14
+  input_per_million: 0.4
+  output_per_million: 1.6
+  cache_read_per_million: 0.1
+  pricing:
+    cache_read_input_token_cost: 1.0e-07
+    cache_read_input_token_cost_priority: 1.75e-07
+    input_cost_per_token: 4.0e-07
+    input_cost_per_token_batches: 2.0e-07
+    input_cost_per_token_priority: 7.0e-07
+    output_cost_per_token: 1.6e-06
+    output_cost_per_token_batches: 8.0e-07
+    output_cost_per_token_priority: 2.8e-06
+    search_context_cost_per_query:
+      search_context_size_high: 0.025
+      search_context_size_low: 0.025
+      search_context_size_medium: 0.025
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-4.1-nano
+  aliases:
+  - gpt-4.1-nano-2025-04-14
+  input_per_million: 0.1
+  output_per_million: 0.4
+  cache_read_per_million: 0.025
+  pricing:
+    cache_read_input_token_cost: 2.5e-08
+    cache_read_input_token_cost_priority: 5.0e-08
+    input_cost_per_token: 1.0e-07
+    input_cost_per_token_batches: 5.0e-08
+    input_cost_per_token_priority: 2.0e-07
+    output_cost_per_token: 4.0e-07
+    output_cost_per_token_batches: 2.0e-07
+    output_cost_per_token_priority: 8.0e-07
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: o3
+  aliases:
+  - o3-2025-04-16
+  input_per_million: 2
+  output_per_million: 8
+  cache_read_per_million: 0.5
+  pricing:
+    cache_read_input_token_cost: 5.0e-07
+    cache_read_input_token_cost_flex: 2.5e-07
+    cache_read_input_token_cost_priority: 8.75e-07
+    input_cost_per_token: 2.0e-06
+    input_cost_per_token_flex: 1.0e-06
+    input_cost_per_token_priority: 3.5e-06
+    output_cost_per_token: 8.0e-06
+    output_cost_per_token_flex: 4.0e-06
+    output_cost_per_token_priority: 1.4e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: o4-mini
+  aliases:
+  - o4-mini-2025-04-16
+  input_per_million: 1.1
+  output_per_million: 4.4
+  cache_read_per_million: 0.275
+  pricing:
+    cache_read_input_token_cost: 2.75e-07
+    cache_read_input_token_cost_flex: 1.375e-07
+    cache_read_input_token_cost_priority: 5.0e-07
+    input_cost_per_token: 1.1e-06
+    input_cost_per_token_flex: 5.5e-07
+    input_cost_per_token_priority: 2.0e-06
+    output_cost_per_token: 4.4e-06
+    output_cost_per_token_flex: 2.2e-06
+    output_cost_per_token_priority: 8.0e-06
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.3-codex
+  input_per_million: 1.75
+  output_per_million: 14
+  cache_read_per_million: 0.175
+  pricing:
+    cache_read_input_token_cost: 1.75e-07
+    cache_read_input_token_cost_priority: 3.5e-07
+    input_cost_per_token: 1.75e-06
+    input_cost_per_token_priority: 3.5e-06
+    output_cost_per_token: 1.4e-05
+    output_cost_per_token_priority: 2.8e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.4
+  aliases:
+  - gpt-5.4-2026-03-05
+  input_per_million: 2.5
+  output_per_million: 15
+  cache_read_per_million: 0.25
+  pricing:
+    cache_read_input_token_cost: 2.5e-07
+    cache_read_input_token_cost_above_272k_tokens: 5.0e-07
+    cache_read_input_token_cost_flex: 1.3e-07
+    cache_read_input_token_cost_priority: 5.0e-07
+    input_cost_per_token: 2.5e-06
+    input_cost_per_token_above_272k_tokens: 5.0e-06
+    input_cost_per_token_batches: 1.25e-06
+    input_cost_per_token_flex: 1.25e-06
+    input_cost_per_token_priority: 5.0e-06
+    output_cost_per_token: 1.5e-05
+    output_cost_per_token_above_272k_tokens: 2.25e-05
+    output_cost_per_token_batches: 7.5e-06
+    output_cost_per_token_flex: 7.5e-06
+    output_cost_per_token_priority: 3.0e-05
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.4-mini
+  aliases:
+  - gpt-5.4-mini-2026-03-17
+  input_per_million: 0.75
+  output_per_million: 4.5
+  cache_read_per_million: 0.075
+  pricing:
+    cache_read_input_token_cost: 7.5e-08
+    cache_read_input_token_cost_flex: 3.75e-08
+    cache_read_input_token_cost_priority: 1.5e-07
+    input_cost_per_token: 7.5e-07
+    input_cost_per_token_batches: 3.75e-07
+    input_cost_per_token_flex: 3.75e-07
+    input_cost_per_token_priority: 1.5e-06
+    output_cost_per_token: 4.5e-06
+    output_cost_per_token_batches: 2.25e-06
+    output_cost_per_token_flex: 2.25e-06
+    output_cost_per_token_priority: 9.0e-06
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.4-nano
+  aliases:
+  - gpt-5.4-nano-2026-03-17
+  input_per_million: 0.2
+  output_per_million: 1.25
+  cache_read_per_million: 0.02
+  pricing:
+    cache_read_input_token_cost: 2.0e-08
+    cache_read_input_token_cost_flex: 1.0e-08
+    input_cost_per_token: 2.0e-07
+    input_cost_per_token_batches: 1.0e-07
+    input_cost_per_token_flex: 1.0e-07
+    output_cost_per_token: 1.25e-06
+    output_cost_per_token_batches: 6.25e-07
+    output_cost_per_token_flex: 6.25e-07
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.4-pro
+  aliases:
+  - gpt-5.4-pro-2026-03-05
+  input_per_million: 30
+  output_per_million: 180
+  cache_read_per_million: 3
+  pricing:
+    cache_read_input_token_cost: 3.0e-06
+    cache_read_input_token_cost_above_272k_tokens: 6.0e-06
+    input_cost_per_token: 3.0e-05
+    input_cost_per_token_above_272k_tokens: 6.0e-05
+    input_cost_per_token_batches: 1.5e-05
+    input_cost_per_token_flex: 1.5e-05
+    output_cost_per_token: 0.00018
+    output_cost_per_token_above_272k_tokens: 0.00027
+    output_cost_per_token_batches: 9.0e-05
+    output_cost_per_token_flex: 9.0e-05
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.5
+  aliases:
+  - gpt-5.5-2026-04-23
+  input_per_million: 5
+  output_per_million: 30
+  cache_read_per_million: 0.5
+  pricing:
+    cache_read_input_token_cost: 5.0e-07
+    cache_read_input_token_cost_above_272k_tokens: 1.0e-06
+    cache_read_input_token_cost_flex: 2.5e-07
+    cache_read_input_token_cost_priority: 1.0e-06
+    input_cost_per_token: 5.0e-06
+    input_cost_per_token_above_272k_tokens: 1.0e-05
+    input_cost_per_token_batches: 2.5e-06
+    input_cost_per_token_flex: 2.5e-06
+    input_cost_per_token_priority: 1.0e-05
+    output_cost_per_token: 3.0e-05
+    output_cost_per_token_above_272k_tokens: 4.5e-05
+    output_cost_per_token_batches: 1.5e-05
+    output_cost_per_token_flex: 1.5e-05
+    output_cost_per_token_priority: 6.0e-05
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.5-pro
+  aliases:
+  - gpt-5.5-pro-2026-04-23
+  input_per_million: 30
+  output_per_million: 180
+  cache_read_per_million: 3
+  pricing:
+    cache_read_input_token_cost: 3.0e-06
+    cache_read_input_token_cost_above_272k_tokens: 6.0e-06
+    input_cost_per_token: 3.0e-05
+    input_cost_per_token_above_272k_tokens: 6.0e-05
+    input_cost_per_token_batches: 1.5e-05
+    input_cost_per_token_flex: 1.5e-05
+    output_cost_per_token: 0.00018
+    output_cost_per_token_above_272k_tokens: 0.00027
+    output_cost_per_token_batches: 9.0e-05
+    output_cost_per_token_flex: 9.0e-05
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.6-sol
+  aliases:
+  - gpt-5.6
+  input_per_million: 4
+  output_per_million: 20
+  cache_read_per_million: 0.4
+  cache_write_per_million: 5
+  pricing:
+    cache_creation_input_token_cost: 5.0e-06
+    cache_creation_input_token_cost_above_272k_tokens: 1.0e-05
+    cache_creation_input_token_cost_above_272k_tokens_flex: 5.0e-06
+    cache_creation_input_token_cost_flex: 2.5e-06
+    cache_creation_input_token_cost_priority: 1.0e-05
+    cache_read_input_token_cost: 4.0e-07
+    cache_read_input_token_cost_above_272k_tokens: 8.0e-07
+    cache_read_input_token_cost_above_272k_tokens_flex: 4.0e-07
+    cache_read_input_token_cost_flex: 2.0e-07
+    cache_read_input_token_cost_priority: 8.0e-07
+    input_cost_per_token: 4.0e-06
+    input_cost_per_token_above_272k_tokens: 8.0e-06
+    input_cost_per_token_above_272k_tokens_flex: 4.0e-06
+    input_cost_per_token_batches: 2.0e-06
+    input_cost_per_token_flex: 2.0e-06
+    input_cost_per_token_priority: 8.0e-06
+    output_cost_per_token: 2.0e-05
+    output_cost_per_token_above_272k_tokens: 3.0e-05
+    output_cost_per_token_above_272k_tokens_flex: 1.5e-05
+    output_cost_per_token_batches: 1.0e-05
+    output_cost_per_token_flex: 1.0e-05
+    output_cost_per_token_priority: 4.0e-05
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.6-terra
+  input_per_million: 2
+  output_per_million: 12
+  cache_read_per_million: 0.2
+  cache_write_per_million: 2.5
+  pricing:
+    cache_creation_input_token_cost: 2.5e-06
+    cache_creation_input_token_cost_above_272k_tokens: 5.0e-06
+    cache_creation_input_token_cost_above_272k_tokens_flex: 2.5e-06
+    cache_creation_input_token_cost_flex: 1.25e-06
+    cache_creation_input_token_cost_priority: 5.0e-06
+    cache_read_input_token_cost: 2.0e-07
+    cache_read_input_token_cost_above_272k_tokens: 4.0e-07
+    cache_read_input_token_cost_above_272k_tokens_flex: 2.0e-07
+    cache_read_input_token_cost_flex: 1.0e-07
+    cache_read_input_token_cost_priority: 4.0e-07
+    input_cost_per_token: 2.0e-06
+    input_cost_per_token_above_272k_tokens: 4.0e-06
+    input_cost_per_token_above_272k_tokens_flex: 2.0e-06
+    input_cost_per_token_batches: 1.0e-06
+    input_cost_per_token_flex: 1.0e-06
+    input_cost_per_token_priority: 4.0e-06
+    output_cost_per_token: 1.2e-05
+    output_cost_per_token_above_272k_tokens: 1.8e-05
+    output_cost_per_token_above_272k_tokens_flex: 9.0e-06
+    output_cost_per_token_batches: 6.0e-06
+    output_cost_per_token_flex: 6.0e-06
+    output_cost_per_token_priority: 2.4e-05
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: openai
+  model: gpt-5.6-luna
+  input_per_million: 0.2
+  output_per_million: 1.2
+  cache_read_per_million: 0.02
+  cache_write_per_million: 0.25
+  pricing:
+    cache_creation_input_token_cost: 2.5e-07
+    cache_creation_input_token_cost_above_272k_tokens: 5.0e-07
+    cache_creation_input_token_cost_above_272k_tokens_flex: 2.5e-07
+    cache_creation_input_token_cost_flex: 1.25e-07
+    cache_creation_input_token_cost_priority: 5.0e-07
+    cache_read_input_token_cost: 2.0e-08
+    cache_read_input_token_cost_above_272k_tokens: 4.0e-08
+    cache_read_input_token_cost_above_272k_tokens_flex: 2.0e-08
+    cache_read_input_token_cost_flex: 1.0e-08
+    cache_read_input_token_cost_priority: 4.0e-08
+    input_cost_per_token: 2.0e-07
+    input_cost_per_token_above_272k_tokens: 4.0e-07
+    input_cost_per_token_above_272k_tokens_flex: 2.0e-07
+    input_cost_per_token_batches: 1.0e-07
+    input_cost_per_token_flex: 1.0e-07
+    input_cost_per_token_priority: 4.0e-07
+    output_cost_per_token: 1.2e-06
+    output_cost_per_token_above_272k_tokens: 1.8e-06
+    output_cost_per_token_above_272k_tokens_flex: 9.0e-07
+    output_cost_per_token_batches: 6.0e-07
+    output_cost_per_token_flex: 6.0e-07
+    output_cost_per_token_priority: 2.4e-06
+    regional_processing_uplift_multiplier_eu: 1.1
+    regional_processing_uplift_multiplier_us: 1.1
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.openai.com/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-haiku-4-5
+  aliases:
+  - claude-haiku-4-5-20251001
+  input_per_million: 1
+  output_per_million: 5
+  cache_read_per_million: 0.1
+  cache_write_per_million: 1.25
+  pricing:
+    cache_creation_input_token_cost: 1.25e-06
+    cache_creation_input_token_cost_above_1hr: 2.0e-06
+    cache_read_input_token_cost: 1.0e-07
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 5.0e-06
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-sonnet-4-5
+  aliases:
+  - claude-sonnet-4-5-20250929
+  input_per_million: 3
+  output_per_million: 15
+  cache_read_per_million: 0.3
+  cache_write_per_million: 3.75
+  pricing:
+    cache_creation_input_token_cost: 3.75e-06
+    cache_creation_input_token_cost_above_1hr: 6.0e-06
+    cache_creation_input_token_cost_above_1hr_above_200k_tokens: 1.2e-05
+    cache_creation_input_token_cost_above_200k_tokens: 7.5e-06
+    cache_read_input_token_cost: 3.0e-07
+    cache_read_input_token_cost_above_200k_tokens: 6.0e-07
+    input_cost_per_token: 3.0e-06
+    input_cost_per_token_above_200k_tokens: 6.0e-06
+    output_cost_per_token: 1.5e-05
+    output_cost_per_token_above_200k_tokens: 2.25e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-sonnet-4-6
+  input_per_million: 3
+  output_per_million: 15
+  cache_read_per_million: 0.3
+  cache_write_per_million: 3.75
+  pricing:
+    cache_creation_input_token_cost: 3.75e-06
+    cache_creation_input_token_cost_above_1hr: 6.0e-06
+    cache_read_input_token_cost: 3.0e-07
+    input_cost_per_token: 3.0e-06
+    output_cost_per_token: 1.5e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-sonnet-5
+  input_per_million: 2
+  output_per_million: 10
+  cache_read_per_million: 0.2
+  cache_write_per_million: 2.5
+  pricing:
+    cache_creation_input_token_cost: 2.5e-06
+    cache_creation_input_token_cost_above_1hr: 4.0e-06
+    cache_read_input_token_cost: 2.0e-07
+    input_cost_per_token: 2.0e-06
+    output_cost_per_token: 1.0e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-opus-4-5
+  aliases:
+  - claude-opus-4-5-20251101
+  input_per_million: 5
+  output_per_million: 25
+  cache_read_per_million: 0.5
+  cache_write_per_million: 6.25
+  pricing:
+    cache_creation_input_token_cost: 6.25e-06
+    cache_creation_input_token_cost_above_1hr: 1.0e-05
+    cache_read_input_token_cost: 5.0e-07
+    input_cost_per_token: 5.0e-06
+    output_cost_per_token: 2.5e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-opus-4-6
+  aliases:
+  - claude-opus-4-6-20260205
+  input_per_million: 5
+  output_per_million: 25
+  cache_read_per_million: 0.5
+  cache_write_per_million: 6.25
+  pricing:
+    cache_creation_input_token_cost: 6.25e-06
+    cache_creation_input_token_cost_above_1hr: 1.0e-05
+    cache_read_input_token_cost: 5.0e-07
+    input_cost_per_token: 5.0e-06
+    output_cost_per_token: 2.5e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: anthropic
+  model: claude-opus-4-7
+  aliases:
+  - claude-opus-4-7-20260416
+  input_per_million: 5
+  output_per_million: 25
+  cache_read_per_million: 0.5
+  cache_write_per_million: 6.25
+  pricing:
+    cache_creation_input_token_cost: 6.25e-06
+    cache_creation_input_token_cost_above_1hr: 1.0e-05
+    cache_read_input_token_cost: 5.0e-07
+    input_cost_per_token: 5.0e-06
+    output_cost_per_token: 2.5e-05
+    search_context_cost_per_query:
+      search_context_size_high: 0.01
+      search_context_size_low: 0.01
+      search_context_size_medium: 0.01
+  source: https://platform.claude.com/docs/en/about-claude/pricing
+  effective_date: '2026-08-26'
+- provider: azure_openai
+  model: gpt-4o-mini
+  aliases:
+  - gpt-4o-mini-2024-07-18
+  input_per_million: 0.15
+  output_per_million: 0.6
+  pricing:
+    input_cost_per_token: 1.5e-07
+    output_cost_per_token: 6.0e-07
+  source: https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/
+  effective_date: '2026-08-26'
+- provider: azure_openai
+  model: gpt-4o
+  aliases:
+  - gpt-4o-2024-11-20
+  input_per_million: 2.5
+  output_per_million: 10
+  cache_read_per_million: 1.25
+  pricing:
+    cache_read_input_token_cost: 1.25e-06
+    input_cost_per_token: 2.5e-06
+    output_cost_per_token: 1.0e-05
+  source: https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/
+  effective_date: '2026-08-26'
+- provider: azure_openai
+  model: gpt-4.1
+  input_per_million: 2
+  output_per_million: 8
+  cache_read_per_million: 0.5
+  pricing:
+    cache_read_input_token_cost: 5.0e-07
+    input_cost_per_token: 2.0e-06
+    input_cost_per_token_batches: 1.0e-06
+    output_cost_per_token: 8.0e-06
+    output_cost_per_token_batches: 4.0e-06
+  source: https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/
+  effective_date: '2026-08-26'
+- provider: azure_openai
+  model: gpt-4.1-mini
+  input_per_million: 0.4
+  output_per_million: 1.6
+  cache_read_per_million: 0.1
+  pricing:
+    cache_read_input_token_cost: 1.0e-07
+    input_cost_per_token: 4.0e-07
+    input_cost_per_token_batches: 2.0e-07
+    output_cost_per_token: 1.6e-06
+    output_cost_per_token_batches: 8.0e-07
+  source: https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/
+  effective_date: '2026-08-26'
+- provider: deepseek
+  model: deepseek-v4-flash
+  aliases:
+  - deepseek-chat
+  - deepseek-reasoner
+  input_per_million: 0.44
+  output_per_million: 1.32
+  cache_read_per_million: 0.014
+  cache_write_per_million: 0
+  pricing:
+    cache_creation_input_token_cost: 0.0
+    cache_read_input_token_cost: 1.4e-08
+    input_cost_per_token: 4.4e-07
+    input_cost_per_token_cache_hit: 1.4e-08
+    output_cost_per_token: 1.32e-06
+  source: https://api-docs.deepseek.com/quick_start/pricing/
+  effective_date: '2026-08-26'
+- provider: deepseek
+  model: deepseek-v4-pro
+  input_per_million: 1.32
+  output_per_million: 3.96
+  cache_read_per_million: 0.044
+  cache_write_per_million: 0
+  pricing:
+    cache_creation_input_token_cost: 0.0
+    cache_read_input_token_cost: 4.4e-08
+    input_cost_per_token: 1.32e-06
+    input_cost_per_token_cache_hit: 4.4e-08
+    output_cost_per_token: 3.96e-06
+  source: https://api-docs.deepseek.com/quick_start/pricing/
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: mistral-small-2603
+  aliases:
+  - mistral-small-latest
+  input_per_million: 0.15
+  output_per_million: 0.6
+  pricing:
+    input_cost_per_token: 1.5e-07
+    output_cost_per_token: 6.0e-07
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: mistral-medium-3-5
+  aliases:
+  - mistral-medium-latest
+  input_per_million: 1.5
+  output_per_million: 7.5
+  pricing:
+    input_cost_per_token: 1.5e-06
+    output_cost_per_token: 7.5e-06
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: mistral-large-3
+  aliases:
+  - mistral-large-latest
+  input_per_million: 0.5
+  output_per_million: 1.5
+  pricing:
+    input_cost_per_token: 5.0e-07
+    output_cost_per_token: 1.5e-06
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: ministral-3-14b-2512
+  aliases:
+  - ministral-14b-latest
+  input_per_million: 0.2
+  output_per_million: 0.2
+  pricing:
+    input_cost_per_token: 2.0e-07
+    output_cost_per_token: 2.0e-07
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: ministral-3-8b-2512
+  aliases:
+  - ministral-8b-latest
+  input_per_million: 0.15
+  output_per_million: 0.15
+  pricing:
+    input_cost_per_token: 1.5e-07
+    output_cost_per_token: 1.5e-07
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: ministral-3-3b-2512
+  aliases:
+  - ministral-3b-latest
+  input_per_million: 0.1
+  output_per_million: 0.1
+  pricing:
+    input_cost_per_token: 1.0e-07
+    output_cost_per_token: 1.0e-07
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: mistral
+  model: codestral-latest
+  input_per_million: 0.3
+  output_per_million: 0.9
+  pricing:
+    input_cost_per_token: 3.0e-07
+    output_cost_per_token: 9.0e-07
+  source: https://docs.mistral.ai/inference/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-2.0-flash-001
+  aliases:
+  - gemini-2.0-flash
+  input_per_million: 0.1
+  output_per_million: 0.4
+  cache_read_per_million: 0.025
+  pricing:
+    cache_read_input_token_cost: 2.5e-08
+    input_cost_per_audio_token: 7.0e-07
+    input_cost_per_token: 1.0e-07
+    output_cost_per_token: 4.0e-07
+    search_context_cost_per_query:
+      search_context_size_low: 0.035
+      search_context_size_medium: 0.035
+      search_context_size_high: 0.035
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-2.5-flash-lite
+  aliases:
+  - gemini-flash-lite-latest
+  input_per_million: 0.1
+  output_per_million: 0.4
+  cache_read_per_million: 0.01
+  pricing:
+    cache_read_input_token_cost: 1.0e-08
+    input_cost_per_audio_token: 3.0e-07
+    input_cost_per_token: 1.0e-07
+    output_cost_per_reasoning_token: 4.0e-07
+    output_cost_per_token: 4.0e-07
+    search_context_cost_per_query:
+      search_context_size_low: 0.035
+      search_context_size_medium: 0.035
+      search_context_size_high: 0.035
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-2.5-flash
+  aliases:
+  - gemini-flash-latest
+  input_per_million: 0.3
+  output_per_million: 2.5
+  cache_read_per_million: 0.03
+  pricing:
+    cache_read_input_token_cost: 3.0e-08
+    input_cost_per_audio_token: 1.0e-06
+    input_cost_per_token: 3.0e-07
+    output_cost_per_reasoning_token: 2.5e-06
+    output_cost_per_token: 2.5e-06
+    search_context_cost_per_query:
+      search_context_size_low: 0.035
+      search_context_size_medium: 0.035
+      search_context_size_high: 0.035
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-2.5-pro
+  aliases:
+  - gemini-pro-latest
+  input_per_million: 1.25
+  output_per_million: 10
+  cache_read_per_million: 0.125
+  pricing:
+    cache_read_input_token_cost: 1.25e-07
+    cache_read_input_token_cost_above_200k_tokens: 2.5e-07
+    input_cost_per_token: 1.25e-06
+    input_cost_per_token_above_200k_tokens: 2.5e-06
+    input_cost_per_token_above_200k_tokens_priority: 2.5e-06
+    input_cost_per_token_priority: 1.25e-06
+    output_cost_per_token: 1.0e-05
+    output_cost_per_token_above_200k_tokens: 1.5e-05
+    output_cost_per_token_above_200k_tokens_priority: 1.5e-05
+    output_cost_per_token_priority: 1.0e-05
+    search_context_cost_per_query:
+      search_context_size_low: 0.035
+      search_context_size_medium: 0.035
+      search_context_size_high: 0.035
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-3.5-flash-lite
+  input_per_million: 0.3
+  output_per_million: 2.5
+  cache_read_per_million: 0.03
+  pricing:
+    cache_read_input_token_cost: 3.0e-08
+    cache_read_input_token_cost_flex: 2.0e-08
+    cache_read_input_token_cost_priority: 5.0e-08
+    input_cost_per_token: 3.0e-07
+    input_cost_per_token_batches: 1.5e-07
+    input_cost_per_token_flex: 1.5e-07
+    input_cost_per_token_priority: 5.4e-07
+    output_cost_per_reasoning_token: 2.5e-06
+    output_cost_per_token: 2.5e-06
+    output_cost_per_token_batches: 1.25e-06
+    output_cost_per_token_flex: 1.25e-06
+    output_cost_per_token_priority: 4.5e-06
+    search_context_cost_per_query:
+      search_context_size_low: 0.014
+      search_context_size_medium: 0.014
+      search_context_size_high: 0.014
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-3.5-flash
+  input_per_million: 1.5
+  output_per_million: 9
+  cache_read_per_million: 0.15
+  pricing:
+    cache_read_input_token_cost: 1.5e-07
+    cache_read_input_token_cost_flex: 8.0e-08
+    cache_read_input_token_cost_priority: 2.7e-07
+    input_cost_per_audio_token: 1.5e-06
+    input_cost_per_audio_token_priority: 2.7e-06
+    input_cost_per_token: 1.5e-06
+    input_cost_per_token_batches: 7.5e-07
+    input_cost_per_token_flex: 7.5e-07
+    input_cost_per_token_priority: 2.7e-06
+    output_cost_per_reasoning_token: 9.0e-06
+    output_cost_per_token: 9.0e-06
+    output_cost_per_token_batches: 4.5e-06
+    output_cost_per_token_flex: 4.5e-06
+    output_cost_per_token_priority: 1.62e-05
+    search_context_cost_per_query:
+      search_context_size_low: 0.014
+      search_context_size_medium: 0.014
+      search_context_size_high: 0.014
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-3.6-flash
+  input_per_million: 0.75
+  output_per_million: 3.75
+  cache_read_per_million: 0.075
+  pricing:
+    cache_read_input_token_cost: 7.5e-08
+    cache_read_input_token_cost_flex: 3.75e-08
+    cache_read_input_token_cost_priority: 1.35e-07
+    input_cost_per_token: 7.5e-07
+    input_cost_per_token_batches: 3.75e-07
+    input_cost_per_token_flex: 3.75e-07
+    input_cost_per_token_priority: 1.35e-06
+    output_cost_per_reasoning_token: 3.75e-06
+    output_cost_per_token: 3.75e-06
+    output_cost_per_token_batches: 1.875e-06
+    output_cost_per_token_flex: 1.875e-06
+    output_cost_per_token_priority: 6.75e-06
+    search_context_cost_per_query:
+      search_context_size_low: 0.014
+      search_context_size_medium: 0.014
+      search_context_size_high: 0.014
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: google
+  model: gemini-3.7-flash
+  input_per_million: 0.75
+  output_per_million: 3.75
+  cache_read_per_million: 0.075
+  pricing:
+    cache_read_input_token_cost: 7.5e-08
+    cache_read_input_token_cost_flex: 3.75e-08
+    cache_read_input_token_cost_priority: 1.35e-07
+    input_cost_per_token: 7.5e-07
+    input_cost_per_token_batches: 3.75e-07
+    input_cost_per_token_flex: 3.75e-07
+    input_cost_per_token_priority: 1.35e-06
+    output_cost_per_reasoning_token: 3.75e-06
+    output_cost_per_token: 3.75e-06
+    output_cost_per_token_batches: 1.875e-06
+    output_cost_per_token_flex: 1.875e-06
+    output_cost_per_token_priority: 6.75e-06
+    search_context_cost_per_query:
+      search_context_size_low: 0.014
+      search_context_size_medium: 0.014
+      search_context_size_high: 0.014
+  source: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  effective_date: '2026-08-26'
+- provider: amazon_bedrock
+  model: amazon.nova-micro-v1:0
+  input_per_million: 0.035
+  output_per_million: 0.14
+  pricing:
+    input_cost_per_token: 3.5e-08
+    output_cost_per_token: 1.4e-07
+  source: https://aws.amazon.com/bedrock/pricing/
+  effective_date: '2026-08-26'
+- provider: amazon_bedrock
+  model: amazon.nova-lite-v1:0
+  input_per_million: 0.06
+  output_per_million: 0.24
+  pricing:
+    input_cost_per_token: 6.0e-08
+    output_cost_per_token: 2.4e-07
+  source: https://aws.amazon.com/bedrock/pricing/
+  effective_date: '2026-08-26'
+- provider: amazon_bedrock
+  model: amazon.nova-pro-v1:0
+  input_per_million: 0.8
+  output_per_million: 3.2
+  pricing:
+    input_cost_per_token: 8.0e-07
+    output_cost_per_token: 3.2e-06
+  source: https://aws.amazon.com/bedrock/pricing/
+  effective_date: '2026-08-26'
+- provider: amazon_bedrock
+  model: cohere.command-r-v1:0
+  input_per_million: 0.5
+  output_per_million: 1.5
+  pricing:
+    input_cost_per_token: 5.0e-07
+    output_cost_per_token: 1.5e-06
+  source: https://aws.amazon.com/bedrock/pricing/
+  effective_date: '2026-08-26'
+- provider: amazon_bedrock
+  model: cohere.command-r-plus-v1:0
+  input_per_million: 3
+  output_per_million: 15
+  pricing:
+    input_cost_per_token: 3.0e-06
+    output_cost_per_token: 1.5e-05
+  source: https://aws.amazon.com/bedrock/pricing/
+  effective_date: '2026-08-26'
+- provider: amazon_bedrock
+  model: mistral.mistral-large-2402-v1:0
+  input_per_million: 8
+  output_per_million: 24
+  pricing:
+    input_cost_per_token: 8.0e-06
+    output_cost_per_token: 2.4e-05
+  source: https://aws.amazon.com/bedrock/pricing/
+  effective_date: '2026-08-26'
+- provider: cohere
+  model: command-a-03-2025
+  input_per_million: 2.5
+  output_per_million: 10
+  pricing:
+    input_cost_per_token: 2.5e-06
+    output_cost_per_token: 1.0e-05
+  source: https://cohere.com/pricing
+  effective_date: '2026-08-26'
+- provider: cohere
+  model: command-r
+  aliases:
+  - command-r-08-2024
+  input_per_million: 0.15
+  output_per_million: 0.6
+  pricing:
+    input_cost_per_token: 1.5e-07
+    output_cost_per_token: 6.0e-07
+  source: https://cohere.com/pricing
+  effective_date: '2026-08-26'
+- provider: cohere
+  model: command-r-plus
+  aliases:
+  - command-r-plus-08-2024
+  input_per_million: 2.5
+  output_per_million: 10
+  pricing:
+    input_cost_per_token: 2.5e-06
+    output_cost_per_token: 1.0e-05
+  source: https://cohere.com/pricing
+  effective_date: '2026-08-26'
+- provider: cohere
+  model: command-r7b-12-2024
+  input_per_million: 0.0375
+  output_per_million: 0.15
+  pricing:
+    input_cost_per_token: 3.75e-08
+    output_cost_per_token: 1.5e-07
+  source: https://cohere.com/pricing
+  effective_date: '2026-08-26'

@@ -139,6 +139,18 @@ export type Overview = {
     time_per_achieved_goal: number | null;
     cost_per_achieved_goal: number | null;
   }>;
+  goal_portfolio: GoalPortfolioItem[];
+  assurance_summary: {
+    reported_runs: number;
+    achieved_runs: number;
+    assured_runs: number;
+    attention_runs: number;
+    not_achieved_runs: number;
+    unassessed_runs: number;
+    assurance_rate: number;
+    attention_rate: number;
+    assessment_coverage: number;
+  };
   paths: Array<{
     path: string;
     steps: string[];
@@ -149,6 +161,38 @@ export type Overview = {
   }>;
   contracts: ContractDefinition[];
 };
+export type GoalEvaluationSummary = {
+  key: string;
+  name: string;
+  description?: string;
+  unit?: string;
+  target?: number | boolean | string;
+  direction?: string;
+  reported_runs: number;
+  passed_runs: number;
+  attention_runs: number;
+  average_score: number | null;
+};
+export type GoalPortfolioItem = {
+  goal_id: string;
+  contract_hash: string | null;
+  contract_hashes: string[];
+  contract_count: number;
+  contract_name?: string;
+  goal_name: string;
+  description?: string;
+  runs: number;
+  achieved_runs: number;
+  assured_runs: number;
+  attention_runs: number;
+  not_achieved_runs: number;
+  unassessed_runs: number;
+  success_rate: number;
+  assurance_rate: number;
+  assessment_coverage: number;
+  top_attention?: GoalEvaluationSummary | null;
+  evaluations: GoalEvaluationSummary[];
+};
 export type ContractDefinition = {
   contract_hash: string;
   contract_name?: string;
@@ -156,12 +200,22 @@ export type ContractDefinition = {
   run_count: number;
   service?: { name?: string; description?: string; runtime?: string };
   contract?: { name?: string; description?: string };
-  result?: { name?: string; description?: string; values?: Record<string, string> };
+  result?: {
+    name?: string;
+    description?: string;
+    values?: Record<
+      string,
+      string | { description?: string; tone?: "success" | "warning" | "failure" | "neutral" }
+    >;
+  };
   decision?: {
     name?: string;
     description?: string;
     outcomes?: Record<string, string>;
-    values?: Record<string, string>;
+    values?: Record<
+      string,
+      string | { description?: string; tone?: "success" | "warning" | "failure" | "neutral" }
+    >;
   };
   product_goal?: { name?: string; description?: string; subject?: string };
   evaluations?: Array<{

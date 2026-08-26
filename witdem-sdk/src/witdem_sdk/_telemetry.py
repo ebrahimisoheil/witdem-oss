@@ -89,14 +89,38 @@ class Operation:
         total_tokens: int | None = None,
         cache_read_tokens: int | None = None,
         cache_creation_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        audio_input_tokens: int | None = None,
+        audio_output_tokens: int | None = None,
+        image_input_tokens: int | None = None,
+        image_output_tokens: int | None = None,
+        video_input_tokens: int | None = None,
+        video_output_tokens: int | None = None,
+        search_queries: int | None = None,
+        meters: Mapping[str, int | float] | None = None,
     ) -> Self:
-        values = {
+        values: dict[str, Any] = {
             "gen_ai.usage.input_tokens": input_tokens,
             "gen_ai.usage.output_tokens": output_tokens,
             "gen_ai.usage.total_tokens": total_tokens,
             "gen_ai.usage.cache_read.input_tokens": cache_read_tokens,
             "gen_ai.usage.cache_creation.input_tokens": cache_creation_tokens,
+            "gen_ai.usage.reasoning.output_tokens": reasoning_tokens,
+            "gen_ai.usage.audio.input_tokens": audio_input_tokens,
+            "gen_ai.usage.audio.output_tokens": audio_output_tokens,
+            "gen_ai.usage.image.input_tokens": image_input_tokens,
+            "gen_ai.usage.image.output_tokens": image_output_tokens,
+            "gen_ai.usage.video.input_tokens": video_input_tokens,
+            "gen_ai.usage.video.output_tokens": video_output_tokens,
+            "gen_ai.usage.search_queries": search_queries,
         }
+        for name, value in (meters or {}).items():
+            normalized = str(name).strip().casefold().replace("-", "_").replace(" ", "_")
+            if not normalized or not all(character.isalnum() or character in "._" for character in normalized):
+                raise ValueError(f"invalid usage meter name: {name!r}")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"usage meter {name!r} must be a non-negative number")
+            values[f"gen_ai.usage.{normalized}"] = value
         _set_attributes(self.span, values)
         return self
 
@@ -402,6 +426,25 @@ class Witdem:
         ):
             allowed = ", ".join(spec.decision.values)
             raise ValueError(f"witdem_sdk: decision {decision!r} is not declared; expected one of: {allowed}")
+        if (
+            expected_decision is not None
+            and spec.decision
+            and spec.decision.values
+            and str(expected_decision) not in spec.decision.values
+        ):
+            allowed = ", ".join(spec.decision.values)
+            raise ValueError(
+                f"witdem_sdk: expected_decision {expected_decision!r} is not declared; "
+                f"expected one of: {allowed}"
+            )
+        undeclared_dimensions = sorted(set(dimensions or {}) - set(spec.dimensions))
+        if undeclared_dimensions:
+            declared = ", ".join(spec.dimensions) or "none"
+            unknown = ", ".join(undeclared_dimensions)
+            raise ValueError(
+                f"witdem_sdk: dimensions not declared in contract {contract_name!r}: {unknown}; "
+                f"declared dimensions: {declared}"
+            )
         if decision_correct is None and expected_decision is not None and decision is not None:
             decision_correct = decision == expected_decision
 
@@ -642,6 +685,23 @@ class Witdem:
             attributes=shared,
             execution_id=execution_id,
         )
+        semantic_outcome = spec.product_goal.semantic_outcome
+        semantic_score = evaluated.attributes.get("semantic_score")
+        if semantic_outcome is not None and isinstance(semantic_score, (int, float)):
+            self.evaluation(
+                semantic_outcome.name,
+                score=float(semantic_score),
+                label=str(evaluated.attributes.get("assurance_status")),
+                attributes={
+                    **shared,
+                    "evaluation_description": semantic_outcome.description,
+                    "unit": "ratio",
+                    "target": semantic_outcome.assurance_threshold,
+                    "direction": "higher_is_better",
+                    "achievement_threshold": semantic_outcome.threshold,
+                },
+                execution_id=execution_id,
+            )
         for evaluation_spec in spec.evaluations:
             self.evaluation(
                 evaluation_spec.name,

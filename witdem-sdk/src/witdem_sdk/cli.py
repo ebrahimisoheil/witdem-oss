@@ -22,6 +22,7 @@ telemetry:
   capture_content: false
 contracts:
   - name: application_run
+    mode: reported
     description: One completed application request.
     result:
       name: Application result

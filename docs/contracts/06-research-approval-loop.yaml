@@ -1,0 +1,44 @@
+version: 1
+service:
+  name: research-pipeline
+  runtime: langgraph
+telemetry:
+  capture_content: false
+contracts:
+  approved_report:
+    mode: expression
+    description: Produce a non-empty report approved within the revision budget.
+    application_outcome:
+      status: $.editorial_decision
+    artifact:
+      name: Research report
+      description: The terminal report produced by the workflow.
+      valid:
+        non_empty: $.report
+    decision:
+      name: Editorial decision
+      expected: approved
+      observed: $.editorial_decision
+      reason: $.editorial_reason
+    product_goal:
+      name: Approved research report
+      description: Deliver a non-empty report approved by the critic within three iterations.
+      achieved:
+        all:
+          - $.witdem.artifact_valid
+          - $.witdem.decision_correct
+          - less_than_or_equal:
+              - $.iteration_count
+              - 3
+      closest_blocker:
+        coalesce:
+          - $.blocker
+          - none
+    metrics:
+      - name: Iterations
+        value: $.iteration_count
+        unit: iterations
+      - name: Sources found
+        value:
+          length: $.sources
+        unit: sources

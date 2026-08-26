@@ -65,6 +65,8 @@ const modelFamily = (name: string) =>
 
 const nav = [
   ["/", "Overview"],
+  ["/system-health", "System health"],
+  ["/goal-performance", "Goal performance"],
   ["/runs", "Runs"],
   ["/compare", "Compare"],
   ["/workflows", "Workflows"],
@@ -348,6 +350,46 @@ export function BreakdownBar({
   );
 }
 
+export function RuntimeDonutChart({
+  data,
+  colors,
+  height = 245,
+}: {
+  data: Record<string, number>;
+  colors: Record<string, string>;
+  height?: number;
+}) {
+  const entries = Object.entries(data).filter(([, value]) => value > 0);
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (!total) return <Empty>No runtime states were reported.</Empty>;
+  return (
+    <ReactEChartsCore
+      echarts={echarts}
+      style={{ height, width: "100%" }}
+      option={{
+        tooltip: { trigger: "item", formatter: "{b}<br/>{c} runs · {d}%" },
+        legend: { type: "scroll", orient: "vertical", right: 8, top: "center", itemWidth: 10, itemHeight: 10 },
+        graphic: [
+          { type: "text", left: "31%", top: "42%", style: { text: formatNumber(total), textAlign: "center", fill: "#292925", fontSize: 24, fontWeight: 700 } },
+          { type: "text", left: "31%", top: "55%", style: { text: "runs", textAlign: "center", fill: "#7a7a74", fontSize: 11 } },
+        ],
+        series: [{
+          type: "pie",
+          radius: ["50%", "72%"],
+          center: ["34%", "50%"],
+          minShowLabelAngle: 5,
+          label: { show: false },
+          data: entries.map(([name, value]) => ({
+            name: name.replaceAll("_", " "),
+            value,
+            itemStyle: { color: colors[name.toLowerCase()] || "#7a8290", borderColor: "#fff", borderWidth: 2 },
+          })),
+        }],
+      }}
+    />
+  );
+}
+
 export function WorkflowBarChart({ items }: { items: Performance[] }) {
   const shown = [...items]
     .sort((a, b) => b.runs - a.runs)
@@ -563,9 +605,13 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
 export function ProviderSpendChart({
   items,
   breakdown = "model",
+  onSelect,
+  height = 320,
 }: {
   items: Performance[];
   breakdown?: "model" | "provider";
+  onSelect?: (item: Performance) => void;
+  height?: number;
 }) {
   const data = items
     .filter((x) => x.measured_cost != null)
@@ -574,7 +620,8 @@ export function ProviderSpendChart({
     <div>
       <ReactEChartsCore
         echarts={echarts}
-        style={{ height: 320, width: "100%" }}
+        onEvents={onSelect ? { click: (point: { data?: { item?: Performance } }) => point.data?.item && onSelect(point.data.item) } : undefined}
+        style={{ height, width: "100%" }}
         option={{
           color: chartColors,
           tooltip: {
@@ -590,8 +637,9 @@ export function ProviderSpendChart({
               avoidLabelOverlap: true,
               minShowLabelAngle: 1,
               data: data.map((x, index) => ({
-                name: x.label,
+                name: breakdown === "provider" ? x.label.replace(/(^|[\s_-])\p{L}/gu, (match) => match.toUpperCase()) : x.label,
                 value: x.measured_cost,
+                item: x,
                 itemStyle: {
                   color:
                     breakdown === "provider"
@@ -808,11 +856,87 @@ export function QualityComparisonChart({ items }: { items: ComparisonInsight[] }
   );
 }
 
-export function LatencyVariabilityChart({ items }: { items: ComparisonInsight[] }) {
+export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void }) {
+  const shown = items.filter((item) => item.goal_rate != null && item.avg_cost_per_run != null);
+  if (!shown.length) return <Empty>No measured goal-and-cost combinations in this view.</Empty>;
+  return (
+    <ReactEChartsCore
+      echarts={echarts}
+      onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined}
+      style={{ height: 360, width: "100%" }}
+      option={{
+        color: chartColors,
+        tooltip: {
+          trigger: "item",
+          formatter: (point: { data: { item: ComparisonInsight } }) => {
+            const item = point.data.item;
+            return `<b>${item.label}</b><br/>Goal achievement: ${percent(item.goal_rate)}<br/>Cost / run: ${money(item.avg_cost_per_run)}<br/>Time / run: ${seconds(item.avg_duration_seconds)}<br/>${formatNumber(item.runs)} runs`;
+          },
+        },
+        legend: { type: "scroll", bottom: 0, left: 72, right: 24, itemWidth: 10, itemHeight: 10, icon: "circle" },
+        grid: { left: 76, right: 34, top: 18, bottom: 78 },
+        xAxis: {
+          type: "value",
+          name: "Measured cost / run",
+          nameLocation: "middle",
+          nameGap: 38,
+          min: 0,
+          axisLabel: { formatter: (value: number) => money(value) },
+          splitLine: { lineStyle: { color: "#ecece7" } },
+        },
+        yAxis: {
+          type: "value",
+          name: "Goal achievement",
+          min: 0,
+          max: 1,
+          axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` },
+          splitLine: { lineStyle: { color: "#ecece7" } },
+        },
+        series: shown.map((item, index) => ({
+          name: item.label,
+          type: "scatter",
+          itemStyle: { color: chartColors[index % chartColors.length], opacity: 0.88 },
+          data: [{
+            value: [item.avg_cost_per_run, item.goal_rate, item.runs],
+            item,
+            symbolSize: Math.max(14, Math.min(40, 10 + Math.sqrt(item.runs) * 5)),
+          }],
+          emphasis: { focus: "series" },
+        })),
+      }}
+    />
+  );
+}
+
+export function GoalRateColumns({ items, onSelect, height = 330 }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void; height?: number }) {
+  const shown = [...items].filter((item) => item.goal_rate != null).sort((a, b) => b.runs - a.runs).slice(0, 8);
+  if (!shown.length) return <Empty>No goal outcomes are attributable in this view.</Empty>;
+  return (
+    <ReactEChartsCore
+      echarts={echarts}
+      onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined}
+      style={{ height, width: "100%" }}
+      option={{
+        color: ["#6d4aff", "#27a46b"],
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (value: number) => percent(value) },
+        legend: { top: 0 },
+        grid: { left: 54, right: 20, top: 42, bottom: 90 },
+        xAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { rotate: 30, interval: 0, width: 100, overflow: "truncate" } },
+        yAxis: { type: "value", min: 0, max: 1, axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` }, splitLine: { lineStyle: { color: "#ecece7" } } },
+        series: [
+          { name: "Goal achievement", type: "bar", barMaxWidth: 24, data: shown.map((item) => ({ value: item.goal_rate, item })), itemStyle: { borderRadius: [5, 5, 0, 0] } },
+          { name: "Decision correctness", type: "bar", barMaxWidth: 24, data: shown.map((item) => ({ value: item.decision_correctness_rate, item })), itemStyle: { borderRadius: [5, 5, 0, 0] } },
+        ],
+      }}
+    />
+  );
+}
+
+export function LatencyVariabilityChart({ items, onSelect, height }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void; height?: number }) {
   const rows = items.filter((item) => item.p50_duration_seconds != null && item.p95_duration_seconds != null).slice(0, 10).reverse();
   if (!rows.length) return <Empty>No duration distribution is available.</Empty>;
   return (
-    <ReactEChartsCore echarts={echarts} style={{ height: Math.max(280, rows.length * 46), width: "100%" }} option={{
+    <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined} style={{ height: height ?? Math.max(280, rows.length * 46), width: "100%" }} option={{
       color: ["#6d4aff", "#d8d2ff"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ dataIndex: number }>) => { const row = rows[points[0]?.dataIndex || 0]; return `<b>${row.label}</b><br/>p50: ${seconds(row.p50_duration_seconds)}<br/>p95: ${seconds(row.p95_duration_seconds)}<br/>Tail spread: ${seconds((row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0))}`; } },
       legend: { top: 0 },
@@ -820,12 +944,12 @@ export function LatencyVariabilityChart({ items }: { items: ComparisonInsight[] 
       xAxis: { type: "value", name: "Seconds", nameLocation: "middle", nameGap: 28, splitLine: { lineStyle: { color: "#ecece7" } } },
       yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 208, overflow: "break", lineHeight: 16 } },
       series: [
-        { name: "p50", type: "bar", stack: "latency", data: rows.map((row) => row.p50_duration_seconds), barMaxWidth: 18, itemStyle: { borderRadius: [4, 0, 0, 4] } },
+        { name: "p50", type: "bar", stack: "latency", data: rows.map((row) => ({ value: row.p50_duration_seconds, item: row })), barMaxWidth: 18, itemStyle: { borderRadius: [4, 0, 0, 4] } },
         {
           name: "p50 → p95",
           type: "bar",
           stack: "latency",
-          data: rows.map((row) => (row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0)),
+          data: rows.map((row) => ({ value: (row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0), item: row })),
           barMaxWidth: 18,
           itemStyle: { borderRadius: [0, 4, 4, 0] },
           label: { show: true, position: "right", formatter: ({ dataIndex }: { dataIndex: number }) => seconds(rows[dataIndex].p95_duration_seconds), color: "#64645f", fontSize: 11 },

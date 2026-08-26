@@ -225,7 +225,7 @@ def main() -> None:
             str(python),
             "langchain-core>=0.3,<2",
             "langgraph>=0.2,<1",
-            "haystack-ai>=2.9,<4",
+            "haystack-ai>=3.0,<4",
             "opentelemetry-haystack>=1,<2",
             "openai-agents>=0.0.10,<1",
             "anthropic>=0.50,<1",

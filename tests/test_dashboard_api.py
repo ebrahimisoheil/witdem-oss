@@ -188,6 +188,8 @@ def test_overview_snapshot_preserves_the_public_payload(tmp_path) -> None:
             "evaluations": baseline_repo.evaluation_summary(filters),
             "goal_misses": baseline_repo.goal_miss_summary(filters),
             "goal_trend": baseline_repo.goal_trend(filters),
+            "goal_portfolio": baseline_repo.goal_assurance(filters)[0],
+            "assurance_summary": baseline_repo.goal_assurance(filters)[1],
             "paths": [],
             "contracts": baseline_repo.contract_definitions(filters),
         }
@@ -196,3 +198,14 @@ def test_overview_snapshot_preserves_the_public_payload(tmp_path) -> None:
     optimized = service.overview(AnalyticsRepository(database), filters)
     assert {key: value for key, value in optimized.items() if key != "metadata"} == baseline
     assert optimized["metadata"] == service.metadata(AnalyticsRepository(database))
+
+
+def test_goal_assurance_respects_declared_evaluation_targets() -> None:
+    assert AnalyticsRepository._evaluation_met_target(
+        {"score": 0.8333},
+        {"target": 1.0, "direction": "higher_is_better"},
+    ) is False
+    assert AnalyticsRepository._evaluation_met_target(
+        {"score": 0.2},
+        {"target": 0.5, "direction": "lower_is_better"},
+    ) is True

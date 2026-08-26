@@ -1094,6 +1094,21 @@ class AnalyticsRepository:
             )
         return sorted(result, key=lambda item: str(item["date"]))
 
+    def _evaluation_facts(self) -> list[dict[str, Any]]:
+        cache_key = ("evaluation_facts",)
+        cached = self._cached(cache_key)
+        if cached is not _CACHE_MISS:
+            return cast(list[dict[str, Any]], cached)
+        if "semantic_facts" not in self._serving_tables:
+            return self._remember(cache_key, [])
+        return self._remember(
+            cache_key,
+            self._query(
+                "SELECT execution_id, name, value, score, label, attributes "
+                "FROM serving.semantic_facts WHERE record_type = 'evaluation'"
+            ),
+        )
+
     def evaluation_summary(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Aggregate reported evaluations without interpreting contract-specific names."""
 
@@ -1101,11 +1116,7 @@ class AnalyticsRepository:
             return []
         allowed = {str(row["execution_id"]) for row in self.execution_rows(filters, limit=None)}
         grouped: dict[str, dict[str, Any]] = {}
-        rows = self._query(
-            "SELECT execution_id, name, value, score, label, attributes "
-            "FROM serving.semantic_facts WHERE record_type = 'evaluation'"
-        )
-        for row in rows:
+        for row in self._evaluation_facts():
             if str(row["execution_id"]) not in allowed:
                 continue
             attributes = _json(row.get("attributes"))
@@ -1142,6 +1153,161 @@ class AnalyticsRepository:
                 }
             )
         return sorted(result, key=lambda item: (-int(item["reported_runs"]), str(item["name"])))
+
+    @staticmethod
+    def _evaluation_met_target(row: dict[str, Any], attributes: dict[str, Any]) -> bool | None:
+        score = row.get("score")
+        target = attributes.get("target")
+        direction = str(attributes.get("direction") or "higher_is_better")
+        if isinstance(score, (int, float)) and isinstance(target, (int, float)):
+            return float(score) <= float(target) if direction == "lower_is_better" else float(score) >= float(target)
+        label = str(row.get("label") or "").strip().casefold()
+        if label in {"valid", "passed", "pass", "yes", "true", "achieved", "correct"}:
+            return True
+        if label in {"invalid", "failed", "fail", "no", "false", "not achieved", "incorrect"}:
+            return False
+        if isinstance(score, (int, float)) and target is None:
+            return float(score) >= 1.0
+        return None
+
+    def goal_assurance(
+        self,
+        filters: FilterState = FilterState(),
+    ) -> tuple[list[dict[str, Any]], dict[str, int | float]]:
+        """Aggregate product goals and the strength of their declared evaluation evidence."""
+
+        rows = self.execution_rows(filters, limit=None)
+        allowed = {str(row["execution_id"]) for row in rows}
+        evaluations_by_execution: dict[str, list[dict[str, Any]]] = {}
+        if "semantic_facts" in self._serving_tables:
+            for fact in self._evaluation_facts():
+                execution_id = str(fact["execution_id"])
+                if execution_id in allowed:
+                    evaluations_by_execution.setdefault(execution_id, []).append(fact)
+
+        definitions = {str(item.get("contract_hash") or ""): item for item in self.contract_definitions(filters)}
+        grouped: dict[str, dict[str, Any]] = {}
+        summary: dict[str, int | float] = {
+            "reported_runs": 0,
+            "achieved_runs": 0,
+            "assured_runs": 0,
+            "attention_runs": 0,
+            "not_achieved_runs": 0,
+            "unassessed_runs": 0,
+        }
+        for row in rows:
+            if row.get("product_goal_reported") is not True:
+                continue
+            contract_hash = str(row.get("contract_hash") or "unversioned")
+            definition = definitions.get(contract_hash, {})
+            goal_definition = definition.get("product_goal") if isinstance(definition.get("product_goal"), dict) else {}
+            goal_name = str(
+                (goal_definition or {}).get("name")
+                or row.get("contract_name")
+                or definition.get("contract_name")
+                or "Business goal"
+            )
+            description = (goal_definition or {}).get("description")
+            goal_key = f"{goal_name.casefold()}::{str(description or '').casefold()}"
+            item = grouped.setdefault(
+                goal_key,
+                {
+                    "goal_id": goal_key,
+                    "contract_hashes": [],
+                    "contract_name": row.get("contract_name") or definition.get("contract_name"),
+                    "goal_name": goal_name,
+                    "description": description,
+                    "runs": 0,
+                    "achieved_runs": 0,
+                    "assured_runs": 0,
+                    "attention_runs": 0,
+                    "not_achieved_runs": 0,
+                    "unassessed_runs": 0,
+                    "evaluations": {},
+                },
+            )
+            if contract_hash not in item["contract_hashes"]:
+                item["contract_hashes"].append(contract_hash)
+            item["runs"] += 1
+            summary["reported_runs"] = int(summary["reported_runs"]) + 1
+            achieved = row.get("product_goal_achieved") is True
+            if not achieved:
+                item["not_achieved_runs"] += 1
+                summary["not_achieved_runs"] = int(summary["not_achieved_runs"]) + 1
+                continue
+            item["achieved_runs"] += 1
+            summary["achieved_runs"] = int(summary["achieved_runs"]) + 1
+            facts = evaluations_by_execution.get(str(row["execution_id"]), [])
+            assessed: list[bool] = []
+            for fact in facts:
+                attributes = _json(fact.get("attributes"))
+                met = self._evaluation_met_target(fact, attributes)
+                if met is None:
+                    continue
+                assessed.append(met)
+                key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
+                evaluation = item["evaluations"].setdefault(
+                    key,
+                    {
+                        "key": key,
+                        "name": str(fact.get("name") or key),
+                        "description": attributes.get("evaluation_description"),
+                        "unit": attributes.get("unit"),
+                        "target": attributes.get("target"),
+                        "direction": attributes.get("direction"),
+                        "reported_runs": 0,
+                        "passed_runs": 0,
+                        "attention_runs": 0,
+                        "score_total": 0.0,
+                        "score_runs": 0,
+                    },
+                )
+                evaluation["reported_runs"] += 1
+                evaluation["passed_runs"] += int(met)
+                evaluation["attention_runs"] += int(not met)
+                if isinstance(fact.get("score"), (int, float)):
+                    evaluation["score_total"] += float(fact["score"])
+                    evaluation["score_runs"] += 1
+            if assessed and not all(assessed):
+                item["attention_runs"] += 1
+                summary["attention_runs"] = int(summary["attention_runs"]) + 1
+            elif assessed:
+                item["assured_runs"] += 1
+                summary["assured_runs"] = int(summary["assured_runs"]) + 1
+            else:
+                item["unassessed_runs"] += 1
+                summary["unassessed_runs"] = int(summary["unassessed_runs"]) + 1
+
+        portfolio: list[dict[str, Any]] = []
+        for item in grouped.values():
+            evaluations = []
+            for evaluation in item.pop("evaluations").values():
+                score_runs = int(evaluation.pop("score_runs"))
+                score_total = float(evaluation.pop("score_total"))
+                evaluations.append(
+                    {**evaluation, "average_score": score_total / score_runs if score_runs else None}
+                )
+            achieved_runs = int(item["achieved_runs"])
+            assessed_runs = int(item["assured_runs"]) + int(item["attention_runs"])
+            attention = sorted(evaluations, key=lambda value: (-int(value["attention_runs"]), str(value["name"])))
+            portfolio.append(
+                {
+                    **item,
+                    "contract_hash": item["contract_hashes"][0] if len(item["contract_hashes"]) == 1 else None,
+                    "contract_count": len(item["contract_hashes"]),
+                    "success_rate": achieved_runs / int(item["runs"]) if item["runs"] else 0.0,
+                    "assurance_rate": int(item["assured_runs"]) / achieved_runs if achieved_runs else 0.0,
+                    "assessment_coverage": assessed_runs / achieved_runs if achieved_runs else 0.0,
+                    "top_attention": attention[0] if attention and attention[0]["attention_runs"] else None,
+                    "evaluations": evaluations,
+                }
+            )
+        achieved_total = int(summary["achieved_runs"])
+        assessed_total = int(summary["assured_runs"]) + int(summary["attention_runs"])
+        summary["assurance_rate"] = int(summary["assured_runs"]) / achieved_total if achieved_total else 0.0
+        summary["attention_rate"] = int(summary["attention_runs"]) / achieved_total if achieved_total else 0.0
+        summary["assessment_coverage"] = assessed_total / achieved_total if achieved_total else 0.0
+        return sorted(portfolio, key=lambda item: (-int(item["runs"]), str(item["goal_name"]))), summary
 
     def get_cost_summary(self, filters: FilterState = FilterState()) -> CostSummary:
         """Return cost and token metrics without exposing SQL or table names."""
@@ -1181,6 +1347,7 @@ class AnalyticsRepository:
                     label = str(outcome)
                     outcome_breakdown[label] = outcome_breakdown.get(label, 0) + 1
 
+            goal_portfolio, assurance_summary = self.goal_assurance(filters)
             return OverviewSnapshot(
                 execution=self.get_execution_summary(filters),
                 goals=self.get_product_goal_summary(filters),
@@ -1196,6 +1363,8 @@ class AnalyticsRepository:
                 evaluations=tuple(self.evaluation_summary(filters)),
                 goal_misses=tuple(self.goal_miss_summary(filters)),
                 goal_trend=tuple(self.goal_trend(filters)),
+                goal_portfolio=tuple(goal_portfolio),
+                assurance_summary=assurance_summary,
                 contracts=tuple(self.contract_definitions(filters)),
                 metadata=self.get_metadata_snapshot(),
             )

@@ -192,6 +192,13 @@ def display_operation(operation: Operation, semantic_stage: str | None = None) -
         if provider or model:
             return " / ".join(item for item in (_humanize(provider, ""), _humanize(model, "")) if item) or "Model call"
         return "Model call"
+    if operation.kind == "agent_step":
+        action = _value(operation, "witdem.agent.step.name") or operation.name
+        label = _humanize(action, "Agent step")
+        index = _value(operation, "haystack.agent.step")
+        if isinstance(index, (int, float)) and not isinstance(index, bool):
+            return f"Step {int(index) + 1} · {label}"
+        return label
     if operation.kind in {"workflow", "pipeline", "agent"}:
         workflow_name = _value(operation, "workflow.name", "workflow_name", "agent.name", "gen_ai.agent.name")
         operation_name = _meaningful(operation.name)

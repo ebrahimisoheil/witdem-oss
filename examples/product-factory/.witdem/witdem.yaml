@@ -7,21 +7,34 @@ telemetry:
   capture_content: false
 contracts:
   - name: company_qualification
+    mode: reported
     description: Research one company and decide whether it qualifies, should be rejected, or needs escalation.
     result:
       name: Qualification outcome
       description: The evidence-backed result returned by the qualification workflow.
       values:
-        accepted: The company qualifies.
-        rejected: The company does not qualify.
-        escalated: The evidence is too close or ambiguous for an automatic decision.
+        accepted:
+          description: The company qualifies.
+          tone: success
+        rejected:
+          description: The company does not qualify.
+          tone: failure
+        escalated:
+          description: The evidence is too close or ambiguous for an automatic decision.
+          tone: warning
     decision:
       name: Company qualification
       description: The final deterministic qualification decision.
       values:
-        accepted: The company qualifies.
-        rejected: The company does not qualify.
-        escalated: The evidence is too close or ambiguous for an automatic decision.
+        accepted:
+          description: The company qualifies.
+          tone: success
+        rejected:
+          description: The company does not qualify.
+          tone: failure
+        escalated:
+          description: The evidence is too close or ambiguous for an automatic decision.
+          tone: warning
     product_goal:
       name: Correct company qualification
       description: Reach the expected, evidence-supported qualification outcome through the required workflow path.

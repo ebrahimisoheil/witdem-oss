@@ -4,7 +4,6 @@ import {
   Controls,
   Handle,
   MarkerType,
-  NodeToolbar,
   Position,
   ReactFlow,
   type Edge,
@@ -18,6 +17,13 @@ import { formatNumber, money, seconds } from "./api";
 
 type Tone = "violet" | "blue" | "green" | "amber" | "red" | "slate";
 type Metric = { label: string; value: string };
+type InspectorItem = {
+  title: string;
+  status: string;
+  tone: Tone;
+  description?: string;
+  facts: Metric[];
+};
 type AgentNodeData = Record<string, unknown> & {
   lane: "runtime" | "business";
   graphRole: "spine" | "branch" | "parallel";
@@ -28,6 +34,9 @@ type AgentNodeData = Record<string, unknown> & {
   tone: Tone;
   metrics: Metric[];
   details: Metric[];
+  description?: string;
+  inspectorItems?: InspectorItem[];
+  rawAttributes?: Record<string, unknown>;
 };
 type AgentNode = Node<AgentNodeData, "agentNode">;
 
@@ -74,14 +83,24 @@ const human = (value: unknown, fallback = "Not reported") => {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 
+const displayValue = (value: unknown) => {
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (typeof value === "number") return formatNumber(value);
+  if (typeof value === "string") return value;
+  if (value == null) return "Not reported";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
 function AgentCard({ data, selected }: NodeProps<AgentNode>) {
-  const [hovered, setHovered] = useState(false);
   const colors = toneClasses[data.tone];
   return (
     <div
-      className={`witdem-agent-card relative h-24 w-[184px] overflow-visible rounded-xl border ${colors.shell} ${selected ? "ring-2 ring-violet-400 ring-offset-2" : ""}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className={`witdem-agent-card relative h-24 w-[184px] cursor-pointer overflow-visible rounded-xl border transition duration-150 hover:-translate-y-0.5 hover:shadow-lg ${colors.shell} ${selected ? "ring-2 ring-violet-400 ring-offset-2" : ""}`}
+      title={`Inspect ${data.title}`}
     >
       <Handle type="target" position={Position.Left} className="!size-2 !border-2 !border-white !bg-slate-400" />
       <div className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${colors.accent}`} />
@@ -119,25 +138,6 @@ function AgentCard({ data, selected }: NodeProps<AgentNode>) {
         ) : null}
       </div>
       <Handle type="source" position={Position.Right} className="!size-2 !border-2 !border-white !bg-slate-400" />
-      <NodeToolbar
-        isVisible={hovered}
-        position={data.lane === "runtime" ? Position.Bottom : Position.Top}
-        offset={12}
-        className="witdem-node-toolbar !z-[1001]"
-      >
-        <div className="w-72 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-2xl">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{data.eyebrow}</div>
-          <div className="mt-1 text-sm font-semibold text-slate-900">{data.title}</div>
-          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
-            {data.details.map((item) => (
-              <div key={`${item.label}-${item.value}`} className="min-w-0">
-                <div className="text-[10px] text-slate-400">{item.label}</div>
-                <div className="break-words text-xs font-medium text-slate-700">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </NodeToolbar>
     </div>
   );
 }
@@ -154,10 +154,26 @@ const runtimeTone = (node: Record<string, unknown>, isRoot: boolean): Tone => {
   return "slate";
 };
 
-const businessTone = (record: Record<string, unknown>): Tone => {
+const evaluationMissed = (record: Record<string, unknown>) => {
+  if (record.kind !== "evaluation") return false;
+  const attributes = (record.attributes || {}) as Record<string, unknown>;
+  const target = attributes.target;
+  const score = record.score ?? attributes.score ?? record.value;
+  if (typeof target === "boolean") return Boolean(score) !== target;
+  if (typeof target === "number" && typeof score === "number") {
+    const direction = String(attributes.direction || "higher_is_better");
+    return direction === "lower_is_better" ? score > target : score < target;
+  }
+  return ["invalid", "failed", "error"].includes(String(record.status || "").toLowerCase());
+};
+
+export const businessTone = (record: Record<string, unknown>): Tone => {
   const attributes = (record.attributes || {}) as Record<string, unknown>;
   const value = String(record.status ?? record.value ?? "").toLowerCase();
   if (record.name === "product_goal") return value === "achieved" ? "green" : "red";
+  if (record.kind === "evaluation_summary") return Number(attributes.failed_count || 0) > 0 ? "red" : "green";
+  if (record.kind === "metric_summary") return "slate";
+  if (record.kind === "evaluation") return evaluationMissed(record) ? "red" : "green";
   if (attributes.decision_correct === false || ["invalid", "failed", "error"].includes(value)) return "red";
   if (["escalated", "warning", "partial"].includes(value)) return "amber";
   if (["rejected", "false"].includes(value)) return "slate";
@@ -172,11 +188,72 @@ const businessTone = (record: Record<string, unknown>): Tone => {
   return "amber";
 };
 
+const recordValue = (record: Record<string, unknown>) => {
+  const attributes = (record.attributes || {}) as Record<string, unknown>;
+  const raw = record.status ?? record.value ?? record.label ?? record.score;
+  const value = typeof raw === "number" ? formatNumber(raw) : human(raw);
+  return attributes.unit ? `${value} ${String(attributes.unit)}` : value;
+};
+
+export const selectBusinessGraphRecords = (records: Array<Record<string, unknown>>) => {
+  const selected = records.filter((record) => {
+    if (record.kind === "decision") return true;
+    return record.kind === "outcome" && (
+      record.name === "application_outcome" || record.name === "product_goal"
+    );
+  });
+  const evaluations = records.filter((record) => record.kind === "evaluation");
+  if (evaluations.length) {
+    const failed = evaluations.filter(evaluationMissed);
+    selected.push({
+      record_id: "contract-checks",
+      kind: "evaluation_summary",
+      name: "Contract checks",
+      value: `${evaluations.length - failed.length}/${evaluations.length}`,
+      attributes: {
+        failed_count: failed.length,
+        summary_subtitle: failed.length
+          ? `${failed.length} ${failed.length === 1 ? "check needs" : "checks need"} attention`
+          : "All declared checks passed",
+        summary_items: evaluations.map((record) => ({
+          label: String(record.name || "Evaluation"),
+          value: evaluationMissed(record) ? "Needs attention" : "Passed",
+        })),
+        summary_records: evaluations,
+      },
+    });
+  }
+  const metrics = records.filter((record) => record.kind === "metric");
+  if (metrics.length) {
+    const headlineNames = new Set(["Agent steps", "Retrieved documents", "Total retrievals"]);
+    const headline = metrics
+      .filter((record) => headlineNames.has(String(record.name)))
+      .map((record) => `${human(record.name)}: ${recordValue(record)}`)
+      .join(" · ");
+    selected.push({
+      record_id: "run-measurements",
+      kind: "metric_summary",
+      name: "Run measurements",
+      value: metrics.length,
+      attributes: {
+        summary_subtitle: headline || `${metrics.length} measurements recorded`,
+        summary_items: metrics.map((record) => ({
+          label: String(record.name || "Metric"),
+          value: recordValue(record),
+        })),
+      },
+    });
+  }
+  return selected;
+};
+
 const semanticRank = (record: Record<string, unknown>) => {
   if (record.kind === "decision") return 10;
+  if (record.kind === "evaluation_summary") return 20;
   if (record.kind === "evaluation" && /valid/i.test(String(record.name || ""))) return 20;
   if (record.name === "application_outcome") return 30;
   if (record.name === "product_goal") return 40;
+  if (record.kind === "metric_summary") return 50;
   if (record.kind === "evaluation") return 50;
   if (record.kind === "metric") return 60;
   return 70;
@@ -189,10 +266,48 @@ const semanticTitle = (record: Record<string, unknown>, definition: Record<strin
     const goal = (definition.product_goal || {}) as Record<string, unknown>;
     return String(goal.name || attributes.product_goal_name || "Product goal");
   }
+  if (record.kind === "evaluation_summary") return "Contract checks";
+  if (record.kind === "metric_summary") return "Run measurements";
   return human(record.name);
 };
 
-const layoutImpactGraph = (
+type TimedGraphOperation = Record<string, unknown> & {
+  id: string;
+  parent_operation_id?: unknown;
+};
+
+const operationTime = (value: unknown) => {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export const sequentialSiblingCallGroups = (
+  calls: TimedGraphOperation[],
+): Array<{ parent: string; calls: TimedGraphOperation[] }> => {
+  const byParent = new Map<string, TimedGraphOperation[]>();
+  for (const call of calls) {
+    const parent = String(call.parent_operation_id || "");
+    if (!parent) continue;
+    byParent.set(parent, [...(byParent.get(parent) || []), call]);
+  }
+  return [...byParent.entries()].flatMap(([parent, siblings]) => {
+    if (siblings.length < 2) return [];
+    const ordered = [...siblings].sort((left, right) =>
+      String(left.start || "").localeCompare(String(right.start || "")),
+    );
+    const sequential = ordered.every((call, index) => {
+      const start = operationTime(call.start);
+      const end = operationTime(call.end ?? call.start);
+      if (start == null || end == null || end < start) return false;
+      if (index === 0) return true;
+      const previousEnd = operationTime(ordered[index - 1].end ?? ordered[index - 1].start);
+      return previousEnd != null && start >= previousEnd;
+    });
+    return sequential ? [{ parent, calls: ordered }] : [];
+  });
+};
+
+export const layoutImpactGraph = (
   runtime: { nodes: AgentNode[]; edges: Edge[] },
   business: { nodes: AgentNode[]; edges: Edge[] },
 ) => {
@@ -271,7 +386,7 @@ const layoutImpactGraph = (
   };
 };
 
-const makeRuntimeGraph = (detail: RunDetail) => {
+export const makeRuntimeGraph = (detail: RunDetail) => {
   const hiddenWrappers = new Set(
     detail.graph.nodes
       .filter(
@@ -313,6 +428,25 @@ const makeRuntimeGraph = (detail: RunDetail) => {
           node.id === root?.id ||
           ["agent_step", "workflow_stage", "model", "tool", "component"].includes(String(node.kind)),
       );
+  const meaningfulIds = new Set(meaningful.map((node) => node.id));
+  const runtimeStages = meaningful.filter(
+    (node) => node.id !== root?.id && !["model", "tool"].includes(String(node.kind)),
+  );
+  const hasStageTopology = runtimeStages.length > 1;
+  const sequentialCallGroups = hasStageTopology
+    ? []
+    : sequentialSiblingCallGroups(
+        calls.map((call) => {
+          const parent = visibleAncestor(String(call.parent_operation_id || ""));
+          return {
+            ...call,
+            parent_operation_id: meaningfulIds.has(parent) ? parent : root.id,
+          };
+        }),
+      );
+  const sequentialCallIds = new Set(
+    sequentialCallGroups.flatMap((group) => group.calls.map((call) => call.id)),
+  );
   const genericStages = meaningful
     .filter((node) => node.id !== root?.id && !["model", "tool"].includes(String(node.kind)))
     .sort((left, right) => String(left.start || "").localeCompare(String(right.start || "")));
@@ -371,7 +505,7 @@ const makeRuntimeGraph = (detail: RunDetail) => {
       data: {
         lane: "runtime",
         graphRole: ["model", "tool"].includes(kind)
-          ? "branch"
+          ? sequentialCallIds.has(node.id) ? "spine" : "branch"
           : parallelStageIds.has(node.id)
             ? "parallel"
             : "spine",
@@ -395,6 +529,18 @@ const makeRuntimeGraph = (detail: RunDetail) => {
           tokens != null ? { label: "Tokens", value: formatNumber(tokens) } : null,
           { label: "Operation ID", value: String(node.id) },
         ].filter(Boolean) as Metric[],
+        description: isRoot
+          ? "The complete observed execution and its final runtime state."
+          : kind === "model"
+            ? "A model call observed during this execution."
+            : kind === "tool"
+              ? "A tool invocation observed during this execution."
+              : "An observed stage in the workflow path.",
+        rawAttributes: Object.fromEntries(
+          Object.entries(node).filter(([key]) => ![
+            "id", "display_name", "name", "kind", "status", "duration_seconds", "known_cost", "total_tokens",
+          ].includes(key)),
+        ),
       },
     };
   });
@@ -456,6 +602,14 @@ const makeRuntimeGraph = (detail: RunDetail) => {
     ),
   ];
   const genericBranches = normalizedEdges.filter((edge) => genericCallIds.has(edge.target));
+  const sequentialCallEdges = sequentialCallGroups.flatMap((group) => [
+    { source: group.parent, target: group.calls[0].id, relation: "next observed" },
+    ...group.calls.slice(1).map((call, index) => ({
+      source: group.calls[index].id,
+      target: call.id,
+      relation: "next observed",
+    })),
+  ]);
   const genericLoops = normalizedEdges.filter((edge) =>
     ["repeat", "retry", "handoff"].includes(String(edge.relation).toLowerCase()),
   );
@@ -467,18 +621,26 @@ const makeRuntimeGraph = (detail: RunDetail) => {
           target: node.id,
           relation: "next observed",
         })),
-        ...calls.map((call) => ({
-          source: (stepForCall(call) || root).id,
-          target: call.id,
-          relation: call.kind === "tool" ? "uses tool" : "calls model",
-        })),
+        ...calls
+          .filter((call) => !sequentialCallIds.has(call.id))
+          .map((call) => ({
+            source: (stepForCall(call) || root).id,
+            target: call.id,
+            relation: call.kind === "tool" ? "uses tool" : "calls model",
+          })),
+        ...sequentialCallEdges,
         ...nestedLoops.map((node) => ({
           source: String(node.parent_operation_id),
           target: String(node.parent_operation_id),
           relation: "loop observed",
         })),
       ]
-    : [...genericSequence, ...genericBranches, ...genericLoops];
+    : [
+        ...genericSequence,
+        ...genericBranches.filter((edge) => !sequentialCallIds.has(edge.target)),
+        ...sequentialCallEdges,
+        ...genericLoops,
+      ];
   const runtimeEdges: Edge[] = structuralEdges.map((edge, index) => ({
     id: `runtime-edge-${index}-${edge.source}-${edge.target}`,
     source: `runtime-${edge.source}`,
@@ -498,18 +660,32 @@ const makeRuntimeGraph = (detail: RunDetail) => {
 const makeBusinessGraph = (detail: RunDetail) => {
   const definitionRecord = detail.semantic_records.find((record) => record.name === "contract.definition");
   const definition = (definitionRecord?.attributes || {}) as Record<string, unknown>;
-  const records = detail.semantic_records
-    .filter(
-      (record) =>
-        ["decision", "evaluation", "metric", "outcome"].includes(String(record.kind)) &&
-        record.name !== "execution.completed",
-    )
+  const records = selectBusinessGraphRecords(detail.semantic_records)
     .sort((left, right) => semanticRank(left) - semanticRank(right));
   const nodes: AgentNode[] = records.map((record, index) => {
     const attributes = (record.attributes || {}) as Record<string, unknown>;
     const rawValue = record.status ?? record.value ?? record.label ?? record.score;
     const value = typeof rawValue === "number" ? formatNumber(rawValue) : human(rawValue);
     const target = typeof attributes.target === "number" ? formatNumber(attributes.target) : null;
+    const summaryItems = Array.isArray(attributes.summary_items)
+      ? attributes.summary_items as Metric[]
+      : [];
+    const summaryRecords = Array.isArray(attributes.summary_records)
+      ? attributes.summary_records as Array<Record<string, unknown>>
+      : [];
+    const description = String(
+      record.name === "product_goal"
+        ? attributes.product_goal_description || ""
+        : record.name === "application_outcome"
+          ? attributes.outcome_description || ""
+          : record.kind === "evaluation_summary" || record.kind === "metric_summary"
+            ? attributes.summary_subtitle || ""
+            : record.kind === "decision"
+              ? attributes.decision_description || ""
+              : record.kind === "evaluation"
+                ? attributes.evaluation_description || ""
+                : attributes.metric_description || "",
+    ) || undefined;
     return {
       id: `business-${String(record.record_id || index)}`,
       type: "agentNode",
@@ -523,19 +699,13 @@ const makeBusinessGraph = (detail: RunDetail) => {
             ? "Product goal"
             : record.name === "application_outcome"
               ? "Application outcome"
+              : record.kind === "evaluation_summary"
+                ? "Evaluations"
+                : record.kind === "metric_summary"
+                  ? "Measurements"
               : human(record.kind),
         title: semanticTitle(record, definition),
-        subtitle: String(
-          record.name === "product_goal"
-            ? attributes.product_goal_description || ""
-            : record.name === "application_outcome"
-              ? attributes.outcome_description || ""
-              : record.kind === "decision"
-                ? attributes.decision_description || ""
-                : record.kind === "evaluation"
-                  ? attributes.evaluation_description || ""
-                  : attributes.metric_description || "",
-        ) || undefined,
+        subtitle: description,
         badge: value,
         tone: businessTone(record),
         metrics: [
@@ -551,8 +721,38 @@ const makeBusinessGraph = (detail: RunDetail) => {
           attributes.observed_status != null ? { label: "Observed", value: human(attributes.observed_status) } : null,
           attributes.decision_correct != null ? { label: "Decision correct", value: human(attributes.decision_correct) } : null,
           attributes.closest_blocker ? { label: "Closest blocker", value: String(attributes.closest_blocker) } : null,
+          ...summaryItems,
           { label: "SDK record", value: String(record.record_id || "Not available") },
         ].filter(Boolean) as Metric[],
+        description,
+        inspectorItems: summaryRecords.map((item) => {
+          const itemAttributes = (item.attributes || {}) as Record<string, unknown>;
+          const observed = item.score ?? itemAttributes.score ?? item.value ?? item.label ?? itemAttributes.label ?? "Not reported";
+          const reserved = new Set([
+            "contract_name", "contract_hash", "contract_description", "result_name", "result_description",
+            "decision_description", "product_goal_name", "product_goal_description", "evaluation_key",
+            "evaluation_description", "unit", "target", "direction", "score", "label",
+          ]);
+          const diagnostics = Object.entries(itemAttributes)
+            .filter(([key, itemValue]) => !reserved.has(key) && itemValue != null && !key.startsWith("witdem."))
+            .map(([key, itemValue]) => ({ label: human(key), value: displayValue(itemValue) }));
+          const missed = evaluationMissed(item);
+          return {
+            title: String(item.name || "Evaluation"),
+            status: missed ? "Needs attention" : "Passed",
+            tone: missed ? "amber" : "green",
+            description: itemAttributes.evaluation_description ? String(itemAttributes.evaluation_description) : undefined,
+            facts: [
+              { label: "Observed", value: displayValue(observed) },
+              { label: "Target", value: itemAttributes.target == null ? "Not declared" : displayValue(itemAttributes.target) },
+              { label: "Direction", value: itemAttributes.direction == null ? "Not declared" : human(itemAttributes.direction) },
+              ...diagnostics,
+            ],
+          };
+        }),
+        rawAttributes: Object.fromEntries(
+          Object.entries(attributes).filter(([key]) => !["summary_items", "summary_records"].includes(key)),
+        ),
       },
     };
   });
@@ -569,6 +769,7 @@ const makeBusinessGraph = (detail: RunDetail) => {
 
 export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
   const [expanded, setExpanded] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<AgentNode | null>(null);
   const [unifiedGraph, setUnifiedGraph] = useState<{ nodes: AgentNode[]; edges: Edge[] }>({ nodes: [], edges: [] });
   const input = useMemo(() => ({ runtime: makeRuntimeGraph(detail), business: makeBusinessGraph(detail) }), [detail]);
 
@@ -577,18 +778,24 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
   }, [input]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded && !selectedNode) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setExpanded(false);
+      if (event.key !== "Escape") return;
+      if (selectedNode) setSelectedNode(null);
+      else setExpanded(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [expanded]);
+  }, [expanded, selectedNode]);
+
+  const inspectNode = (_event: React.MouseEvent, node: Node) => {
+    setSelectedNode(node as AgentNode);
+  };
 
   return (
     <>
@@ -606,7 +813,12 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
           </button>
         </div>
         <div className="h-[600px] overflow-hidden rounded-xl border border-slate-200 bg-[#fbfbf8]">
-          <GraphCanvas graph={unifiedGraph} backgroundId="execution-grid" />
+          <GraphCanvas
+            graph={unifiedGraph}
+            backgroundId="execution-grid"
+            onNodeClick={inspectNode}
+            onPaneClick={() => setSelectedNode(null)}
+          />
         </div>
       </div>
       {expanded
@@ -615,7 +827,15 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
               title={String(detail.summary.display_name || "Execution workflow")}
               graph={unifiedGraph}
               onClose={() => setExpanded(false)}
+              onNodeClick={inspectNode}
+              onPaneClick={() => setSelectedNode(null)}
             />,
+            document.body,
+          )
+        : null}
+      {selectedNode
+        ? createPortal(
+            <NodeInspector node={selectedNode} onClose={() => setSelectedNode(null)} />,
             document.body,
           )
         : null}
@@ -637,10 +857,14 @@ function FullscreenGraph({
   title,
   graph,
   onClose,
+  onNodeClick,
+  onPaneClick,
 }: {
   title: string;
   graph: { nodes: AgentNode[]; edges: Edge[] };
   onClose: () => void;
+  onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onPaneClick: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-[9999] bg-slate-950/35 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`${title} workflow`}>
@@ -676,6 +900,8 @@ function FullscreenGraph({
               minZoom={0.18}
               maxZoom={2}
               proOptions={{ hideAttribution: true }}
+              onNodeClick={onNodeClick}
+              onPaneClick={onPaneClick}
             >
               <Background id="fullscreen-grid" variant={BackgroundVariant.Dots} gap={22} size={1} color="#d9dce2" />
               <Controls showInteractive={false} position="bottom-right" />
@@ -692,9 +918,13 @@ function FullscreenGraph({
 function GraphCanvas({
   graph,
   backgroundId,
+  onNodeClick,
+  onPaneClick,
 }: {
   graph: { nodes: AgentNode[]; edges: Edge[] };
   backgroundId: string;
+  onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onPaneClick: () => void;
 }) {
   return (
     <section className="h-full min-h-0 overflow-hidden bg-[#fbfbf8]">
@@ -712,6 +942,8 @@ function GraphCanvas({
             minZoom={0.18}
             maxZoom={1.8}
             proOptions={{ hideAttribution: true }}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
           >
             <Background id={backgroundId} variant={BackgroundVariant.Dots} gap={20} size={1} color="#d9dce2" />
             <Controls showInteractive={false} position="bottom-right" />
@@ -721,5 +953,113 @@ function GraphCanvas({
         <div className="grid h-full place-items-center text-sm text-slate-500">Laying out this lane…</div>
       )}
     </section>
+  );
+}
+
+const inspectorAttributeEntries = (data: AgentNodeData) => {
+  const existingLabels = new Set(data.details.map((item) => item.label.toLowerCase()));
+  const ignored = new Set([
+    "parent_operation_id", "start", "end", "summary_subtitle", "product_goal_description",
+    "outcome_description", "decision_description", "evaluation_description", "metric_description",
+  ]);
+  return Object.entries(data.rawAttributes || {})
+    .filter(([key, value]) => value != null && value !== "" && !ignored.has(key) && !key.startsWith("witdem."))
+    .map(([key, value]) => ({ label: human(key), value: displayValue(value) }))
+    .filter((item) => !existingLabels.has(item.label.toLowerCase()))
+    .slice(0, 12);
+};
+
+function InspectorFacts({ facts }: { facts: Metric[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {facts.map((fact, index) => (
+        <div key={`${fact.label}-${index}`} className="min-w-0 rounded-xl bg-slate-50 p-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{fact.label}</div>
+          <div className="mt-1 break-words text-sm font-medium leading-5 text-slate-800">{fact.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NodeInspector({ node, onClose }: { node: AgentNode; onClose: () => void }) {
+  const { data } = node;
+  const colors = toneClasses[data.tone];
+  const attributes = inspectorAttributeEntries(data);
+  return (
+    <div className="fixed inset-0 z-[10020] bg-slate-950/20" onMouseDown={onClose}>
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${data.title} details`}
+        className="absolute inset-y-0 right-0 flex w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-[-20px_0_60px_rgba(15,23,42,0.18)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="border-b border-slate-200 px-5 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${colors.accent}`} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{data.eyebrow}</span>
+              </div>
+              <h2 className="mt-2 break-words text-xl font-semibold leading-7 text-slate-950">{data.title}</h2>
+              {data.badge ? (
+                <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${colors.badge}`}>
+                  {data.badge}
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              aria-label="Close node details"
+              onClick={onClose}
+              className="grid size-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-xl text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            >
+              ×
+            </button>
+          </div>
+          {data.description ? <p className="mt-3 text-sm leading-6 text-slate-600">{data.description}</p> : null}
+        </header>
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
+          {data.details.length ? (
+            <section>
+              <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">What happened</h3>
+              <InspectorFacts facts={data.details} />
+            </section>
+          ) : null}
+          {data.inspectorItems?.length ? (
+            <section>
+              <div className="mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Declared checks</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">The evidence used to determine confidence in this result.</p>
+              </div>
+              <div className="space-y-3">
+                {data.inspectorItems.map((item, index) => {
+                  const itemColors = toneClasses[item.tone];
+                  return (
+                    <article key={`${item.title}-${index}`} className={`rounded-xl border p-4 ${itemColors.shell}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="text-sm font-semibold leading-5 text-slate-900">{item.title}</h4>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${itemColors.badge}`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      {item.description ? <p className="mt-2 text-xs leading-5 text-slate-600">{item.description}</p> : null}
+                      <div className="mt-3"><InspectorFacts facts={item.facts} /></div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+          {attributes.length ? (
+            <section>
+              <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Additional context</h3>
+              <InspectorFacts facts={attributes} />
+            </section>
+          ) : null}
+        </div>
+      </aside>
+    </div>
   );
 }

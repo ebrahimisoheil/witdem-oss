@@ -55,6 +55,13 @@ class _FakeWitdem:
         self.operations.append(operation)
         yield operation
 
+    @contextmanager
+    def operation(self, *args: Any, attributes: Mapping[str, Any], **kwargs: Any) -> Iterator[_FakeOperation]:
+        operation = _FakeOperation()
+        operation.observed.update(attributes)
+        self.operations.append(operation)
+        yield operation
+
     def report(self, **values: Any) -> None:
         self.reports.append(values)
 
@@ -183,15 +190,195 @@ def test_langchain_and_haystack_proxies_preserve_native_invocation(
     assert isinstance(config["callbacks"][0], langchain.WitdemCallbackHandler)
 
     lifecycle: list[str] = []
-    handle = SimpleNamespace(disable=lambda: lifecycle.append("disable"))
+    handle = SimpleNamespace(disable=lambda: lifecycle.append("disable"), usage_observations=0)
     monkeypatch.setattr(
         haystack,
         "enable_haystack",
-        lambda witdem, capture_content=False: lifecycle.append("enable") or handle,
+        lambda witdem, capture_content=False, pipeline=None: lifecycle.append("enable") or handle,
     )
     pipeline = haystack.instrument(SimpleNamespace(run=lambda value: {"answer": value}), service_name="service")
     assert pipeline.run("done") == {"answer": "done"}
     assert lifecycle == ["enable", "disable"]
+
+
+def test_haystack_exposes_final_message_text_to_yaml_contracts(
+    client: _FakeWitdem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from witdem_sdk.integrations import haystack
+
+    class Message:
+        text = "grounded answer"
+
+        def to_dict(self) -> dict[str, Any]:
+            return {"content": [{"reasoning": "hidden"}, {"text": self.text}]}
+
+    client.project_config = SimpleNamespace(
+        default_contract="answer",
+        contracts={"answer": object()},
+    )
+    monkeypatch.setattr(
+        haystack,
+        "enable_haystack",
+        lambda witdem, capture_content=False, pipeline=None: SimpleNamespace(
+            disable=lambda: None, usage_observations=0
+        ),
+    )
+    native_result = {"last_message": Message(), "token_usage": {"total_tokens": 7}}
+    observed = haystack.instrument(SimpleNamespace(run=lambda: native_result), service_name="service")
+
+    assert observed.run() is native_result
+    reported, contract = client.completed[0]
+    assert contract == "answer"
+    assert reported["last_message"]["text"] == "grounded answer"
+    assert reported["last_message"]["content"][0] == {"reasoning": "hidden"}
+    assert reported["token_usage"] == {"total_tokens": 7}
+
+
+def test_haystack_records_agent_usage_and_generator_identity(
+    client: _FakeWitdem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from witdem_sdk.integrations import haystack
+
+    class OpenAIResponsesChatGenerator:
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "type": "haystack.components.generators.chat.openai_responses.OpenAIResponsesChatGenerator",
+                "init_parameters": {"model": "gpt-5.4"},
+            }
+
+    pipeline = SimpleNamespace(
+        chat_generator=OpenAIResponsesChatGenerator(),
+        run=lambda: {"token_usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}},
+    )
+    monkeypatch.setattr(
+        haystack,
+        "enable_haystack",
+        lambda witdem, capture_content=False, pipeline=None: SimpleNamespace(
+            disable=lambda: None, usage_observations=0
+        ),
+    )
+
+    haystack.instrument(pipeline, service_name="service").run()
+
+    assert client.operations[0].observed == {
+        "witdem.haystack.usage_summary": True,
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "gpt-5.4",
+        "gen_ai.usage.input_tokens": 100,
+        "gen_ai.usage.output_tokens": 20,
+        "gen_ai.usage.total_tokens": 120,
+        "pf.provider_provenance": "observed_invocation_configuration",
+        "pf.model_provenance": "observed_invocation_configuration",
+        "pf.usage_provenance": "observed_provider_response",
+    }
+
+
+def test_haystack_observes_each_native_llm_response_without_capturing_content() -> None:
+    from witdem_sdk.integrations import haystack
+
+    class Span:
+        def __init__(self) -> None:
+            self.attributes: dict[str, Any] = {}
+            self.content: list[tuple[str, Any]] = []
+
+        def set_tag(self, key: str, value: Any) -> None:
+            self.attributes[key] = value
+
+        def set_tags(self, values: Mapping[str, Any]) -> None:
+            self.attributes.update(values)
+
+        def set_content_tag(self, key: str, value: Any) -> None:
+            self.content.append((key, value))
+
+        def raw_span(self) -> Span:
+            return self
+
+        def get_correlation_data_for_logs(self) -> dict[str, Any]:
+            return {}
+
+    class Tracer:
+        def __init__(self) -> None:
+            self.span = Span()
+
+        @contextmanager
+        def trace(self, *args: Any, **kwargs: Any) -> Iterator[Span]:
+            yield self.span
+
+        def current_span(self) -> None:
+            return None
+
+    base = Tracer()
+    tracer = haystack._ObservedTracer(
+        base,
+        by_component={},
+        identities=(("openai", "gpt-5.4"),),
+    )
+    response = {
+        "replies": [
+            SimpleNamespace(
+                meta={
+                    "model": "gpt-5.4-2026-03-05",
+                    "usage": {"input_tokens": 30, "output_tokens": 5, "total_tokens": 35},
+                }
+            )
+        ]
+    }
+
+    with tracer.trace("haystack.agent.step.llm") as span:
+        span.set_content_tag("haystack.agent.step.llm.output", response)
+
+    assert tracer.usage_observations == 1
+    assert base.span.attributes["gen_ai.provider.name"] == "openai"
+    assert base.span.attributes["gen_ai.response.model"] == "gpt-5.4-2026-03-05"
+    assert base.span.attributes["gen_ai.usage.total_tokens"] == 35
+
+
+def test_haystack_version_gate_has_an_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from witdem_sdk.integrations import haystack
+
+    monkeypatch.setattr(haystack, "package_version", lambda package: "2.31.0")
+    with pytest.raises(RuntimeError, match=r"requires haystack-ai>=3\.0,<4; found 2\.31\.0"):
+        haystack._require_supported_haystack()
+    with pytest.raises(RuntimeError, match=r"requires haystack-ai>=3\.0,<4; found 2\.31\.0"):
+        haystack.instrument(SimpleNamespace(run=lambda: None))
+
+    monkeypatch.setattr(haystack, "package_version", lambda package: "3.0.0")
+    haystack._require_supported_haystack()
+
+
+def test_haystack_async_generator_preserves_native_stream_and_reports_final_result(
+    client: _FakeWitdem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from witdem_sdk.integrations import haystack
+
+    client.project_config = SimpleNamespace(default_contract="answer", contracts={"answer": object()})
+    lifecycle: list[str] = []
+    monkeypatch.setattr(
+        haystack,
+        "enable_haystack",
+        lambda witdem, capture_content=False, pipeline=None: SimpleNamespace(
+            disable=lambda: lifecycle.append("disable"), usage_observations=1
+        ),
+    )
+
+    class Pipeline:
+        async def run_async_generator(self) -> AsyncIterator[dict[str, Any]]:
+            yield {"retriever": {"documents": ["evidence"]}}
+            yield {"answer": {"text": "done"}}
+
+    async def collect() -> list[dict[str, Any]]:
+        observed = haystack.instrument(Pipeline(), service_name="service")
+        return [item async for item in observed.run_async_generator()]
+
+    outputs = asyncio.run(collect())
+
+    assert outputs[-1] == {"answer": {"text": "done"}}
+    assert client.completed == [(outputs[-1], "answer")]
+    assert lifecycle == ["disable"]
 
 
 def test_claude_agent_instrument_observes_an_async_stream(client: _FakeWitdem) -> None:

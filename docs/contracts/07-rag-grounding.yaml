@@ -1,0 +1,55 @@
+version: 1
+service:
+  name: grounded-rag
+  runtime: haystack
+telemetry:
+  capture_content: false
+contracts:
+  grounded_answer:
+    mode: expression
+    description: Return an answer supported by retrieved evidence.
+    application_outcome:
+      status:
+        choose:
+          when: $.grounded
+          then: answered
+          else: insufficient_evidence
+    artifact:
+      name: Grounded answer
+      valid:
+        non_empty: $.answer
+    decision:
+      name: Grounding decision
+      expected: true
+      observed: $.grounded
+    product_goal:
+      name: Successful grounded answer
+      description: Return a non-empty answer supported by retrieved evidence.
+      achieved:
+        all:
+          - $.witdem.artifact_valid
+          - $.witdem.decision_correct
+      evidence_sufficient: $.grounded
+      closest_blocker:
+        choose:
+          when: $.grounded
+          then: none
+          else: retrieved evidence did not support the answer
+    evaluations:
+      - name: Groundedness
+        description: Share of answer claims supported by retrieved evidence.
+        score: $.groundedness_score
+        target: 0.85
+        direction: higher_is_better
+        unit: ratio
+      - name: Reference coverage
+        description: Share of required reference facts covered.
+        score: $.reference_coverage
+        target: 0.8
+        direction: higher_is_better
+        unit: ratio
+    metrics:
+      - name: Retrieved documents
+        value:
+          length: $.documents
+        unit: documents

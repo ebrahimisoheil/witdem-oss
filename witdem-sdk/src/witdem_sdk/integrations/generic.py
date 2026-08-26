@@ -28,9 +28,20 @@ def _record_result(operation: Any, result: Any, observer: ResultObserver | None)
             "total_tokens",
             "cache_read_tokens",
             "cache_creation_tokens",
+            "reasoning_tokens",
+            "audio_input_tokens",
+            "audio_output_tokens",
+            "image_input_tokens",
+            "image_output_tokens",
+            "video_input_tokens",
+            "video_output_tokens",
+            "search_queries",
         )
         if values.get(name) is not None
     }
+    meters = values.get("meters")
+    if isinstance(meters, Mapping):
+        usage["meters"] = dict(meters)
     if usage:
         operation.usage(**usage)
     cost = values.get("cost_usd")
@@ -55,6 +66,15 @@ def _default_observation(result: Any) -> Mapping[str, Any]:
         "total_tokens": value("total_tokens"),
         "cache_read_tokens": value("cache_read_tokens"),
         "cache_creation_tokens": value("cache_creation_tokens"),
+        "reasoning_tokens": value("reasoning_tokens", "output_reasoning_tokens"),
+        "audio_input_tokens": value("audio_input_tokens", "input_audio_tokens"),
+        "audio_output_tokens": value("audio_output_tokens", "output_audio_tokens"),
+        "image_input_tokens": value("image_input_tokens", "input_image_tokens"),
+        "image_output_tokens": value("image_output_tokens", "output_image_tokens"),
+        "video_input_tokens": value("video_input_tokens", "input_video_tokens"),
+        "video_output_tokens": value("video_output_tokens", "output_video_tokens"),
+        "search_queries": value("search_queries", "web_search_queries", "grounding_queries"),
+        "meters": value("meters", "usage_meters"),
         "cost_usd": value("cost_usd"),
         "cost_source": value("cost_source") or "provider_reported",
     }
