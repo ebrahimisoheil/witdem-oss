@@ -207,6 +207,8 @@ def test_haystack_exposes_final_message_text_to_yaml_contracts(
 ) -> None:
     from witdem_sdk.integrations import haystack
 
+    monkeypatch.setattr(haystack, "_require_supported_haystack", lambda: None)
+
     class Message:
         text = "grounded answer"
 
@@ -240,6 +242,8 @@ def test_haystack_records_agent_usage_and_generator_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from witdem_sdk.integrations import haystack
+
+    monkeypatch.setattr(haystack, "_require_supported_haystack", lambda: None)
 
     class OpenAIResponsesChatGenerator:
         def to_dict(self) -> dict[str, Any]:
@@ -354,6 +358,8 @@ def test_haystack_async_generator_preserves_native_stream_and_reports_final_resu
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from witdem_sdk.integrations import haystack
+
+    monkeypatch.setattr(haystack, "_require_supported_haystack", lambda: None)
 
     client.project_config = SimpleNamespace(default_contract="answer", contracts={"answer": object()})
     lifecycle: list[str] = []

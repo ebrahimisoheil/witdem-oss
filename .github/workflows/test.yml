@@ -40,6 +40,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --all-groups --all-extras
+      - name: Install analytics package used by internal experiment tests
+        run: uv pip install --python .venv/bin/python -e ../..
       - run: uv run pytest -q
       - run: uv run ruff check src tests
       - run: uv run mypy src

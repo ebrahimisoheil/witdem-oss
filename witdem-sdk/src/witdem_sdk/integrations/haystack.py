@@ -444,7 +444,7 @@ def enable_haystack(
     tracer = _ObservedTracer(base_tracer, by_component=by_component, identities=identities)
     # The wrapper implements Haystack's tracer protocol by delegation, but
     # Haystack types this hook as its concrete Tracer class.
-    enable_tracing(tracer)  # type: ignore[arg-type]
+    enable_tracing(tracer)  # type: ignore[arg-type,unused-ignore]
     handle = _HaystackHandle(lambda: getattr(base_tracer, "disable", lambda: None)(), key, tracer)
     _HANDLES[key] = handle
     return handle

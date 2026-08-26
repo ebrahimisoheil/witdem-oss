@@ -307,7 +307,7 @@ def install_litellm() -> _Registration:
         except ImportError as exc:
             raise ImportError("LiteLLM instrumentation requires 'witdem-sdk[litellm]'") from exc
 
-        class RegisteredCallback(WitdemLiteLLMCallback, CustomLogger):
+        class RegisteredCallback(WitdemLiteLLMCallback, CustomLogger):  # type: ignore[misc,unused-ignore]
             def __init__(self) -> None:
                 CustomLogger.__init__(self, turn_off_message_logging=True)
                 WitdemLiteLLMCallback.__init__(self)
