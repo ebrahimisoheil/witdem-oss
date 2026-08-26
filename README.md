@@ -35,6 +35,16 @@ python -m pip install -e "/path/to/Witdem-Analytics/witdem-sdk[haystack]"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
+From the application project, create the YAML contract and then edit it to
+describe that application's result:
+
+```bash
+witdem init --runtime haystack
+```
+
+This creates `.witdem/witdem.yaml`. It does not inspect or rewrite application
+code, and it will not replace an existing contract unless `--force` is used.
+
 Wrap the pipeline once. Its existing `run`, `run_async`, and `run_async_generator` calls stay unchanged:
 
 ```python

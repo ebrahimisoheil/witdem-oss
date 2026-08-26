@@ -61,7 +61,18 @@ For a receiver protected by a bearer key, also set `WITDEM_API_KEY`. Do not comm
 
 ## 4. Add the business contract
 
-Create `.witdem/witdem.yaml` in the application repository:
+Initialize `.witdem/witdem.yaml` from the application repository:
+
+```bash
+witdem init --runtime haystack
+```
+
+Replace `haystack` with the application's runtime. The command only creates a
+valid YAML starting point; it does not detect frameworks or modify application
+code. It refuses to overwrite an existing contract unless `--force` is passed.
+
+Edit the generated contract to describe what a useful application result
+means. For example:
 
 ```yaml
 version: 1
