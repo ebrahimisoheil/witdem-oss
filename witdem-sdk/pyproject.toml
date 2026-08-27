@@ -1,13 +1,13 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "witdem-sdk"
-version = "0.2.0"
+version = "0.3.0"
 description = "Public client SDK for emitting Witdem business-semantic records correlated to the caller's active OpenTelemetry execution."
 readme = { text = "Witdem SDK provides optional application semantics and framework integrations for Witdem Analytics.", content-type = "text/markdown" }
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -26,7 +26,6 @@ dependencies = [
 ]
 
 [project.scripts]
-witdem = "witdem_sdk.cli:main"
 witdem-sdk = "witdem_sdk.cli:main"
 
 [project.optional-dependencies]
@@ -68,6 +67,9 @@ packages = ["src/witdem_sdk"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/witdem_sdk", "tests", "pyproject.toml"]
+
+[tool.uv]
+required-version = "==0.9.10"
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"

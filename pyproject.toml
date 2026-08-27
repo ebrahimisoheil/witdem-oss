@@ -1,13 +1,13 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "witdem-analytics"
-version = "0.2.0"
+version = "0.3.0"
 description = "Runtime analytics for agent applications using OpenTelemetry, with optional business semantics through the Witdem SDK."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -40,11 +40,15 @@ dev = [
   "numpy>=2,<2.3",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
+  "tomli>=2.2,<3; python_version < '3.11'",
   "types-PyYAML>=6.0,<7",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/witdem"]
+
+[tool.uv]
+required-version = "==0.9.10"
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"

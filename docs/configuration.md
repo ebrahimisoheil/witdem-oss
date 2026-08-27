@@ -11,8 +11,8 @@ An LLM request that completed is not automatically a qualified lead, an approved
 The SDK searches the current directory and its parents for `.witdem/witdem.yaml`. Set `WITDEM_CONFIG=/absolute/path/to/witdem.yaml` or pass `config_path=` when discovery is not appropriate.
 
 ```bash
-witdem validate
-witdem validate --config path/to/witdem.yaml
+witdem-sdk validate
+witdem-sdk validate --config path/to/witdem.yaml
 ```
 
 The file is strict: unknown fields and invalid types fail validation rather than being ignored.

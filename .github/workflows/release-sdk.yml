@@ -1,13 +1,19 @@
 name: Release witdem-sdk
 
 on:
-  workflow_dispatch:
   push:
     tags: ["sdk-v*"]
 
 permissions:
   contents: read
   id-token: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.9.10"
+  PIP_VERSION: "26.2.1"
+  BUILD_VERSION: "1.5.0"
+  TWINE_VERSION: "7.0.0"
 
 jobs:
   publish:
@@ -18,24 +24,34 @@ jobs:
         working-directory: witdem-sdk
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: python -m pip install build twine
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Verify release identity
+        working-directory: .
+        run: python scripts/release/verify.py --component sdk --tag "$GITHUB_REF_NAME" --require-clean
+      - name: Refuse an existing PyPI version
+        working-directory: .
+        run: |
+          version=$(python -c 'import json; print(json.load(open("release.json"))["sdk_version"])')
+          python scripts/release/check_pypi.py witdem-sdk "$version"
+      - run: uv sync --all-groups --all-extras --locked
+      - run: uv run pytest -q
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
+      - run: python -m pip install "pip==${PIP_VERSION}" "build==${BUILD_VERSION}" "twine==${TWINE_VERSION}"
       - run: python -m build
       - run: python -m twine check dist/*
-      - name: Smoke-test built wheel
+      - name: Smoke-test built wheel and CLI ownership
         run: |
           python -m venv /tmp/witdem-sdk-wheel
           /tmp/witdem-sdk-wheel/bin/pip install dist/*.whl
-          /tmp/witdem-sdk-wheel/bin/python - <<'PY'
-          import json
-          from pathlib import Path
-          import witdem_sdk
-          metadata = json.loads(Path('../compatibility.json').read_text())
-          assert witdem_sdk.__version__
-          assert witdem_sdk.SEMANTIC_RECORD_PROTOCOL_VERSION == metadata['semantic_record_protocol']
-          PY
+          test -x /tmp/witdem-sdk-wheel/bin/witdem-sdk
+          test ! -e /tmp/witdem-sdk-wheel/bin/witdem
+          /tmp/witdem-sdk-wheel/bin/witdem-sdk --help
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: witdem-sdk/dist

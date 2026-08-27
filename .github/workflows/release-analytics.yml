@@ -1,26 +1,93 @@
-name: Release witdem-analytics
+name: Release Witdem platform
 
 on:
-  workflow_dispatch:
   push:
     tags: ["analytics-v*"]
 
 permissions:
   contents: read
   id-token: write
+  packages: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22.16.0"
+  NPM_VERSION: "11.4.1"
+  UV_VERSION: "0.9.10"
+  PIP_VERSION: "26.2.1"
+  BUILD_VERSION: "1.5.0"
+  TWINE_VERSION: "7.0.0"
 
 jobs:
-  publish:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: release
+        run: |
+          python scripts/release/verify.py --component platform --tag "$GITHUB_REF_NAME" --require-clean
+          version=$(python -c 'import json; print(json.load(open("release.json"))["platform_version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: python scripts/release/check_pypi.py witdem-analytics "${{ steps.release.outputs.version }}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global "npm@${NPM_VERSION}"
+      - name: Refuse an existing npm version
+        run: |
+          if npm view "witdem@${{ steps.release.outputs.version }}" version >/dev/null 2>&1; then
+            echo "Refusing version reuse: witdem@${{ steps.release.outputs.version }} already exists." >&2
+            exit 1
+          fi
+      - name: Refuse an existing container tag
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ steps.release.outputs.version }}
+        run: |
+          if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "Refusing version reuse: $IMAGE already exists." >&2
+            exit 1
+          fi
+
+  publish-python:
+    needs: preflight
     runs-on: ubuntu-latest
     environment: pypi
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: python -m pip install build twine
-      - run: python -m pip install -e . pytest
-      - run: python -m pytest -q tests/test_protocol_compatibility.py
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm install --global "npm@${NPM_VERSION}"
+      - run: npm ci --ignore-scripts
+        working-directory: web
+      - run: npm test
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - name: Verify committed dashboard artifacts
+        run: git diff --exit-code -- src/witdem/dashboard/static
+      - run: uv sync --all-groups --locked
+      - run: uv run pytest -q
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
+      - name: Verify production constraints
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-hashes --no-header --no-annotate --output-file /tmp/production.txt
+          diff -u constraints/production.txt /tmp/production.txt
+      - run: python -m pip install "pip==${PIP_VERSION}" "build==${BUILD_VERSION}" "twine==${TWINE_VERSION}"
       - run: python -m build
       - run: python -m twine check dist/*
       - name: Smoke-test built wheel
@@ -30,3 +97,60 @@ jobs:
           /tmp/witdem-wheel/bin/witdem version
           /tmp/witdem-wheel/bin/witdem doctor --port 14318 --dashboard-port 18501
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-container-and-npm:
+    needs: [preflight, publish-python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.witdem
+          platforms: linux/amd64,linux/arm64
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ github.sha }}
+      - name: Compose smoke test published image
+        env:
+          WITDEM_ANALYTICS_IMAGE: ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}
+        run: |
+          docker compose pull witdem elt-worker dashboard
+          docker compose up -d --no-build
+          for attempt in $(seq 1 30); do
+            curl -fsS http://localhost:4318/readiness && curl -fsS http://localhost:8501/health && exit 0
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global "npm@${NPM_VERSION}"
+      - name: Test npm launcher
+        working-directory: npm
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npm test
+          npm pack --dry-run
+      - name: Confirm the matching public image is pullable
+        run: |
+          docker logout ghcr.io
+          docker manifest inspect ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }} >/dev/null
+      - name: Publish npm launcher
+        working-directory: npm
+        run: npm publish --access public

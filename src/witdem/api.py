@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response
 
+from witdem import __version__
 from witdem.analytics.repository import AnalyticsRepository
 from witdem.config import db_path
 from witdem.ingest import corpus, live_db, raw_store
@@ -21,7 +22,7 @@ from witdem.ingest.sdk_ingest import router as sdk_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Witdem AI", version="0.2.0")
+app = FastAPI(title="Witdem AI", version=__version__)
 
 app.include_router(otlp_router)
 app.include_router(sdk_router)

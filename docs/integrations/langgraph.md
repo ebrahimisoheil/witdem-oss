@@ -8,10 +8,10 @@ LangGraph defines the application's possible graph. Witdem analyzes what actuall
 
 - Python 3.10 or newer
 - `langgraph>=0.2,<2`
-- `witdem-sdk[langgraph]` 0.2.x
+- `witdem-sdk[langgraph]` 0.3.x
 
 ```bash
-python -m pip install "witdem-sdk[langgraph]==0.2.0"
+python -m pip install "witdem-sdk[langgraph]==0.3.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 

@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      python-runtime:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: "/witdem-sdk"
+    schedule:
+      interval: weekly
+    groups:
+      sdk-python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+    groups:
+      dashboard:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/npm"
+    schedule:
+      interval: weekly
+    groups:
+      launcher:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

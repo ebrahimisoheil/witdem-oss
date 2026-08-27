@@ -24,6 +24,7 @@ from typing import Any, Literal
 from filelock import FileLock
 
 from witdem.config import storage_root
+from witdem.protocol import CORPUS_SCHEMA_VERSION
 
 Signal = Literal["otel_traces", "sdk_records"]
 BatchStatus = Literal["accepted", "transforming", "ready", "failed", "superseded"]
@@ -59,7 +60,7 @@ class CorpusCommit:
     sha256: str
     raw_sha256: str | None
     metadata: dict[str, Any]
-    schema_version: str = "1.0"
+    schema_version: str = CORPUS_SCHEMA_VERSION
 
 
 def corpus_root() -> Path:

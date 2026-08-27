@@ -7,7 +7,7 @@ The integration uses the OpenAI Agents SDK's supported trace-processor registrat
 ## Installation
 
 ```bash
-python -m pip install "witdem-sdk[openai]==0.2.0"
+python -m pip install "witdem-sdk[openai]==0.3.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 export OPENAI_API_KEY=...
 ```

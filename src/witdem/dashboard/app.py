@@ -14,6 +14,7 @@ from filelock import Timeout as FileLockTimeout
 from witdem.analytics.repository.state import FilterState
 from witdem.config import db_path
 from witdem.dashboard import service
+from witdem.protocol import DASHBOARD_API_VERSION
 
 
 def _filter_state(
@@ -49,7 +50,7 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
     assets = Path(static_dir) if static_dir else Path(__file__).with_name("static")
     app = FastAPI(
         title="Witdem Dashboard API",
-        version="1.0.0",
+        version=DASHBOARD_API_VERSION,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
     )

@@ -31,6 +31,7 @@ contract this package implements.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from witdem_sdk._contract import ContractResult, WitdemProjectConfig, load_project_config
@@ -60,7 +61,10 @@ __all__ = [
     "load_project_config",
 ]
 
-__version__ = "0.2.0"
+try:
+    __version__ = version("witdem-sdk")
+except PackageNotFoundError:  # pragma: no cover - only an unpackaged source tree
+    __version__ = "0+unknown"
 
 
 def _emit(

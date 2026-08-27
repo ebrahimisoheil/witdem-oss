@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.3.0
+
+- Hardened package and container reproducibility with locked runtime constraints and pinned build tools.
+- Made platform and SDK release identities tag-verified and immutable across PyPI, npm, and GHCR.
+- Added cross-version SDK/server compatibility tests and dependency security automation.
+- Assigned the shared `witdem` command exclusively to `witdem-analytics`; SDK-only commands use `witdem-sdk`.
+
 ## 0.2.0
 
 - Added the raw-first immutable corpus and Duckle raw-to-serving worker.

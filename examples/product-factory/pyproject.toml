@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -31,6 +31,9 @@ all = [
   "openai-agents>=0.0.10,<1",
   "anthropic>=0.50,<1",
 ]
+
+[tool.uv]
+required-version = "==0.9.10"
 
 [tool.uv.sources]
 witdem-sdk = { path = "../../witdem-sdk", editable = true }

@@ -1234,7 +1234,7 @@ wheels = [
 
 [[package]]
 name = "witdem-analytics"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "../../../" }
 dependencies = [
     { name = "duckdb" },
@@ -1280,7 +1280,7 @@ dev = [
 
 [[package]]
 name = "witdem-sdk"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "../../../witdem-sdk" }
 dependencies = [
     { name = "httpx" },
@@ -1303,8 +1303,14 @@ requires-dist = [
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3,<2" },
     { name = "langgraph", marker = "extra == 'all'", specifier = ">=0.2,<2" },
     { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=0.2,<2" },
+    { name = "litellm", marker = "extra == 'all'", specifier = ">=1.86,<2" },
+    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.86,<2" },
+    { name = "openai", marker = "extra == 'all'", specifier = ">=1.68,<4" },
+    { name = "openai", marker = "extra == 'openrouter'", specifier = ">=1.68,<4" },
     { name = "openai-agents", marker = "extra == 'all'", specifier = ">=0.0.10,<1" },
     { name = "openai-agents", marker = "extra == 'openai'", specifier = ">=0.0.10,<1" },
+    { name = "openinference-instrumentation-smolagents", marker = "extra == 'all'", specifier = ">=0.1.20,<1" },
+    { name = "openinference-instrumentation-smolagents", marker = "extra == 'smolagents'", specifier = ">=0.1.20,<1" },
     { name = "opentelemetry-api", specifier = ">=1.27,<2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27,<2" },
     { name = "opentelemetry-haystack", marker = "extra == 'all'", specifier = ">=1,<2" },
@@ -1312,9 +1318,11 @@ requires-dist = [
     { name = "opentelemetry-sdk", specifier = ">=1.27,<2" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "smolagents", marker = "extra == 'all'", specifier = ">=1.18,<2" },
+    { name = "smolagents", marker = "extra == 'smolagents'", specifier = ">=1.18,<2" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
 ]
-provides-extras = ["anthropic", "openai", "langchain", "langgraph", "haystack", "all"]
+provides-extras = ["anthropic", "openai", "langchain", "langgraph", "haystack", "litellm", "openrouter", "smolagents", "all"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -12,13 +12,13 @@ This guide takes one application execution from code to the local Witdem dashboa
 ## 1. Start Witdem
 
 ```bash
-npx -y witdem@0.2.0 up
+npx -y witdem@0.3.0 up
 ```
 
 Verify both public services:
 
 ```bash
-npx -y witdem@0.2.0 status
+npx -y witdem@0.3.0 status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
@@ -46,7 +46,7 @@ npx](npm-launcher.md) for lifecycle and port options.
 Install the SDK with the framework extra selected above:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.2.0"
+python -m pip install "witdem-sdk[haystack]==0.3.0"
 ```
 
 Replace `haystack` with the extra in the table. The provider-specific packages remain dependencies of your application.
@@ -64,7 +64,7 @@ For a receiver protected by a bearer key, also set `WITDEM_API_KEY`. Do not comm
 Initialize `.witdem/witdem.yaml` from the application repository:
 
 ```bash
-witdem init --runtime haystack
+witdem-sdk init --runtime haystack
 ```
 
 Replace `haystack` with the application's runtime. The command only creates a
@@ -102,7 +102,7 @@ The paths refer to the JSON-shaped value returned by your application.
 file from the application directory:
 
 ```bash
-witdem validate
+witdem-sdk validate
 ```
 
 Follow the [Witdem YAML contract tutorial](contract-tutorial.md) to model hard
