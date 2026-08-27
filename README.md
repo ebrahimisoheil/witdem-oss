@@ -1,12 +1,21 @@
 <div align="center">
 
+<img src="docs/assets/witdem-banner.png" alt="Witdem AI — Understand how your AI system actually behaves" width="100%">
+
 # Witdem
 
 **Analytics for AI agents and multi-step AI applications.**
 
 Tracing tells you what executed. Witdem connects those executions to application outcomes: which paths ran, what they cost, where they failed, and whether they achieved the product goal you defined.
 
-[Get started](docs/getting-started.md) · [YAML contracts](docs/contract-tutorial.md) · [Haystack](docs/integrations/haystack.md) · [Frameworks](#integration-status) · [Providers](docs/providers.md) · [Troubleshooting](docs/troubleshooting.md)
+[![Tests](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml/badge.svg)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
+[![SDK on PyPI](https://img.shields.io/pypi/v/witdem-sdk?label=witdem-sdk)](https://pypi.org/project/witdem-sdk/)
+[![Analytics on PyPI](https://img.shields.io/pypi/v/witdem-analytics?label=witdem-analytics)](https://pypi.org/project/witdem-analytics/)
+[![npm](https://img.shields.io/npm/v/witdem?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
+[![Python](https://img.shields.io/pypi/pyversions/witdem-sdk)](https://pypi.org/project/witdem-sdk/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+[Get started](docs/getting-started.md) · [YAML contracts](docs/contract-tutorial.md) · [Frameworks](#integration-status) · [Providers](docs/providers.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 </div>
 
@@ -192,6 +201,19 @@ uv run witdem dev --open
 - [Examples](docs/examples.md)
 - [Operations](docs/operations.md)
 - [Development and contributing](docs/development.md)
+
+## Community
+
+Witdem is built in the open. Bug reports, integration examples, documentation
+improvements, and focused code contributions are welcome.
+
+- Read [Contributing](CONTRIBUTING.md) before opening a pull request.
+- Participate under the [Code of Conduct](CODE_OF_CONDUCT.md).
+- Report vulnerabilities privately according to the [Security policy](SECURITY.md).
+
+## License
+
+Witdem is licensed under the [Apache License 2.0](LICENSE).
 
 ## Built with
 
