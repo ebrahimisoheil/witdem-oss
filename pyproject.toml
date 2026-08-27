@@ -40,6 +40,7 @@ dev = [
   "numpy>=2,<2.3",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
+  "tomli>=2.2,<3; python_version < '3.11'",
   "types-PyYAML>=6.0,<7",
 ]
 

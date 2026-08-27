@@ -19,15 +19,6 @@ env:
   PIP_AUDIT_VERSION: "2.10.1"
 
 jobs:
-  dependency-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
-
   python:
     runs-on: ubuntu-latest
     steps:

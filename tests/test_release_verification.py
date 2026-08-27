@@ -36,3 +36,19 @@ def test_existing_version_tag_cannot_point_to_another_commit(monkeypatch) -> Non
 def test_tag_suffix_must_match_manifest() -> None:
     errors = MODULE.validate("platform", "analytics-v9.9.9", require_clean=False)
     assert any("release tag" in error for error in errors)
+
+
+def test_pull_request_merge_ref_is_not_treated_as_a_release_tag(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_REF_TYPE", "branch")
+    monkeypatch.setenv("GITHUB_REF_NAME", "1/merge")
+
+    assert MODULE.validate("platform", None, require_clean=False) == []
+
+
+def test_tag_ref_suffix_must_match_manifest(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
+    monkeypatch.setenv("GITHUB_REF_NAME", "analytics-v9.9.9")
+
+    errors = MODULE.validate("platform", None, require_clean=False)
+    assert any("release tag" in error for error in errors)

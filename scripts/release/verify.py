@@ -12,7 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 CI job
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -160,11 +163,11 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         errors.append(f"docker-compose.yml does not default to {image_reference}")
 
     expected_tag = f"analytics-v{platform_version}" if component == "platform" else f"sdk-v{sdk_version}"
-    observed_tag = tag or os.getenv("GITHUB_REF_NAME")
+    observed_tag = tag
+    if not observed_tag and os.getenv("GITHUB_REF_TYPE") == "tag":
+        observed_tag = os.getenv("GITHUB_REF_NAME")
     if observed_tag:
         _expect("release tag", observed_tag, expected_tag, errors)
-    elif os.getenv("CI"):
-        errors.append(f"release tag is required in CI; expected {expected_tag}")
 
     existing_tag_commit = _git("rev-parse", f"refs/tags/{expected_tag}^{{commit}}", check=False)
     head_commit = _git("rev-parse", "HEAD")
