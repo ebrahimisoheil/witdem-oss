@@ -12,7 +12,7 @@ Tracing tells you what executed. Witdem connects those executions to application
 [![SDK on PyPI](https://img.shields.io/pypi/v/witdem-sdk?label=witdem-sdk)](https://pypi.org/project/witdem-sdk/)
 [![Analytics on PyPI](https://img.shields.io/pypi/v/witdem-analytics?label=witdem-analytics)](https://pypi.org/project/witdem-analytics/)
 [![npm](https://img.shields.io/npm/v/witdem?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
-[![Python](https://img.shields.io/pypi/pyversions/witdem-sdk)](https://pypi.org/project/witdem-sdk/)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 [Get started](docs/getting-started.md) · [YAML contracts](docs/contract-tutorial.md) · [Frameworks](#integration-status) · [Providers](docs/providers.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
