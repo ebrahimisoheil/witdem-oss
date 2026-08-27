@@ -29,7 +29,7 @@ dependencies = [
 witdem-sdk = "witdem_sdk.cli:main"
 
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.50,<1"]
+anthropic = ["anthropic>=0.50,<2"]
 openai = ["openai-agents>=0.0.10,<1"]
 langchain = ["langchain-core>=0.3,<2"]
 langgraph = ["langgraph>=0.2,<2"]
@@ -41,7 +41,7 @@ smolagents = [
   "openinference-instrumentation-smolagents>=0.1.20,<1",
 ]
 all = [
-  "anthropic>=0.50,<1",
+  "anthropic>=0.50,<2",
   "openai-agents>=0.0.10,<1",
   "langchain-core>=0.3,<2",
   "langgraph>=0.2,<2",
@@ -55,10 +55,10 @@ all = [
 
 [dependency-groups]
 dev = [
-  "pytest>=8.3,<9",
-  "pytest-cov>=6,<7",
+  "pytest>=8.3,<10",
+  "pytest-cov>=6,<8",
   "ruff>=0.9,<1",
-  "mypy>=1.15,<2",
+  "mypy>=1.15,<3",
   "types-PyYAML>=6.0,<7",
 ]
 
