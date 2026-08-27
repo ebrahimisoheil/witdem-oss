@@ -25,11 +25,11 @@ From one-line setup and two-line instrumentation to a measured run, its
 execution graph, business outcome, cost, and contract evidence.
 
 <p align="center">
-  <a href="docs/assets/witdem-demo.mp4?raw=1">
+  <a href="https://cdn.jsdelivr.net/gh/ebrahimisoheil/witdem-oss@37e335d/docs/assets/witdem-demo.mp4">
     <img src="docs/assets/witdem-demo-poster.jpg" alt="Watch the Witdem installation and analysis walkthrough" width="100%">
   </a>
   <br>
-  <a href="docs/assets/witdem-demo.mp4?raw=1"><strong>▶ Watch the 1:48 installation-to-analysis walkthrough</strong></a>
+  <a href="https://cdn.jsdelivr.net/gh/ebrahimisoheil/witdem-oss@37e335d/docs/assets/witdem-demo.mp4"><strong>▶ Watch the 1:48 installation-to-analysis walkthrough</strong></a>
 </p>
 
 ## First run
