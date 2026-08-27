@@ -9,10 +9,10 @@ Python server or installing Witdem into the application.
 Install Docker Desktop or Docker Engine with the Compose plugin, then run:
 
 ```bash
-npx -y witdem@0.2.0 up
+npx -y witdem@0.3.0 up
 ```
 
-The command resolves the matching `0.2.0` container, starts the receiver, ELT
+The command resolves the matching `0.3.0` container, starts the receiver, ELT
 worker, and dashboard, waits for both public endpoints, and opens the
 dashboard. It does not use `postinstall`, start a host daemon, or edit the
 current project.
@@ -26,16 +26,16 @@ current project.
 
 ```bash
 # Health and container state
-npx -y witdem@0.2.0 status
+npx -y witdem@0.3.0 status
 
 # Follow service output
-npx -y witdem@0.2.0 logs
+npx -y witdem@0.3.0 logs
 
 # Run in the foreground during development
-npx -y witdem@0.2.0 dev
+npx -y witdem@0.3.0 dev
 
 # Stop all services
-npx -y witdem@0.2.0 down
+npx -y witdem@0.3.0 down
 ```
 
 `down` preserves executions in the named `witdem-data` Docker volume. The
@@ -44,7 +44,7 @@ launcher intentionally has no data-deletion command.
 ## Ports and authentication
 
 ```bash
-npx -y witdem@0.2.0 up \
+npx -y witdem@0.3.0 up \
   --dashboard-port 18501 \
   --receiver-port 14318 \
   --no-open
@@ -68,6 +68,6 @@ npx -y ./npm up --image witdem-analytics:dev
 Docker reuses the exact local tag when it exists and pulls it when it is
 missing.
 
-Run `npx -y witdem@0.2.0 doctor` to check Node, Docker, Docker Compose, and the
+Run `npx -y witdem@0.3.0 doctor` to check Node, Docker, Docker Compose, and the
 Docker daemon. If startup fails, the launcher prints container state and recent
 logs before exiting.

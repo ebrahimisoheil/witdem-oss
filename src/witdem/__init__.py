@@ -1,3 +1,8 @@
 """Witdem runtime analytics product package."""
 
-__version__ = "0.2.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("witdem-analytics")
+except PackageNotFoundError:  # pragma: no cover - only an unpackaged source tree
+    __version__ = "0+unknown"

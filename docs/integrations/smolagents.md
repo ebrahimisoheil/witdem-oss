@@ -5,7 +5,7 @@
 ## Install
 
 ```bash
-python -m pip install "witdem-sdk[smolagents]==0.2.0"
+python -m pip install "witdem-sdk[smolagents]==0.3.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 

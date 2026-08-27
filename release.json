@@ -1,0 +1,7 @@
+{
+  "platform_version": "0.3.0",
+  "sdk_version": "0.3.0",
+  "semantic_record_protocol": "1.0",
+  "dashboard_api_version": "1.0.0",
+  "corpus_schema_version": "1.0"
+}

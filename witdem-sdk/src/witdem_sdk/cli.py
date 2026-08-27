@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] not in {"init", "validate", "run"}:
         return _delegate_to_analytics(arguments)
-    parser = argparse.ArgumentParser(prog="witdem")
+    parser = argparse.ArgumentParser(prog="witdem-sdk")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="create a declarative Witdem application contract")
     init.add_argument("--service-name", help="defaults to the project directory name")
@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_project_config(required=True)
     assert config is not None
     if not args.command_args:
-        raise SystemExit("witdem run requires a command")
+        raise SystemExit("witdem-sdk run requires a command")
     return subprocess.call(args.command_args)
 
 

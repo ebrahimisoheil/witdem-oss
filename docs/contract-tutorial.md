@@ -95,7 +95,7 @@ contracts:
 Validate it from the application directory:
 
 ```bash
-witdem validate
+witdem-sdk validate
 ```
 
 This contract produces three meaningful states:
@@ -377,8 +377,8 @@ Each file is a complete configuration and is compiled by the test suite.
 ## Validate before running
 
 ```bash
-witdem validate
-witdem validate --config path/to/witdem.yaml
+witdem-sdk validate
+witdem-sdk validate --config path/to/witdem.yaml
 ```
 
 Errors identify the contract and field:
@@ -402,4 +402,4 @@ Validation confirms the grammar and internal consistency. It cannot prove that a
 - Hard requirements contain only rules that cannot be traded off.
 - Semantic achievement and assurance thresholds express two different confidence bars.
 - Chat contracts prefer `$.witdem.result` over framework-specific answer paths.
-- `witdem validate` passes before deployment.
+- `witdem-sdk validate` passes before deployment.

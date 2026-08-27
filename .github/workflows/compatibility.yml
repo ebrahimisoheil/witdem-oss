@@ -1,0 +1,36 @@
+name: Cross-version compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-server:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pair:
+          - name: current-server_released-sdk
+            analytics: "."
+            sdk: "witdem-sdk==0.2.0"
+          - name: released-server_current-sdk
+            analytics: "witdem-analytics==0.2.0"
+            sdk: "./witdem-sdk"
+          - name: current-server_current-sdk
+            analytics: "."
+            sdk: "./witdem-sdk"
+    name: ${{ matrix.pair.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pip==26.2.1
+      - run: python -m pip install "${{ matrix.pair.analytics }}" "${{ matrix.pair.sdk }}"
+      - run: python scripts/compatibility/smoke.py

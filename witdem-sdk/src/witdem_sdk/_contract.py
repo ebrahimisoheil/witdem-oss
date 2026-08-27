@@ -804,7 +804,7 @@ def load_project_config(path: str | Path | None = None, *, required: bool = Fals
     resolved = Path(path).expanduser().resolve() if path is not None else discover_config()
     if resolved is None:
         if required:
-            raise WitdemSDKError("no .witdem/witdem.yaml found; run 'witdem init'")
+            raise WitdemSDKError("no .witdem/witdem.yaml found; run 'witdem-sdk init'")
         return None
     try:
         raw = yaml.safe_load(resolved.read_text(encoding="utf-8"))

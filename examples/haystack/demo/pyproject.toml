@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -45,6 +45,9 @@ enriched = ["witdem-sdk"]
 # witdem.analytics.identity / adapters / ingest to run the
 # cross-package canonical-graph equivalence proof in
 # one process, using this venv's already-installed real agent_demo + witdem_sdk.
+[tool.uv]
+required-version = "==0.9.10"
+
 [tool.uv.sources]
 witdem-sdk = { path = "../../../witdem-sdk", editable = true }
 witdem-analytics = { path = "../../..", editable = true }

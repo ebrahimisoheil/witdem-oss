@@ -25,6 +25,14 @@ def test_oldest_supported_sdk_v1_fixture_is_accepted_by_current_server(monkeypat
 
 
 def test_published_compatibility_metadata_matches_server_protocol() -> None:
-    metadata = json.loads((Path(__file__).parents[1] / "compatibility.json").read_text(encoding="utf-8"))
+    root = Path(__file__).parents[1]
+    metadata = json.loads((root / "compatibility.json").read_text(encoding="utf-8"))
+    release = json.loads((root / "release.json").read_text(encoding="utf-8"))
     assert metadata["semantic_record_protocol"] == SEMANTIC_RECORD_PROTOCOL_VERSION
-    assert metadata["python"] == ">=3.10"
+    assert metadata["semantic_record_protocol"] == release["semantic_record_protocol"]
+    assert metadata["python"] == ">=3.10,<3.14"
+    assert metadata["tested_pairs"]
+    assert all(
+        pair["semantic_record_protocol"] == SEMANTIC_RECORD_PROTOCOL_VERSION
+        for pair in metadata["tested_pairs"]
+    )

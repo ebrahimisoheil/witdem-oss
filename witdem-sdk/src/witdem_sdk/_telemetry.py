@@ -402,7 +402,7 @@ class Witdem:
 
         config = self.project_config
         if config is None:
-            raise ValueError("witdem_sdk: no project contract loaded; run 'witdem init' or pass config_path")
+            raise ValueError("witdem_sdk: no project contract loaded; run 'witdem-sdk init' or pass config_path")
         contract_name = contract or config.default_contract
         if not contract_name:
             raise ValueError("witdem_sdk: specify contract= or set default_contract in .witdem/witdem.yaml")
@@ -619,7 +619,7 @@ class Witdem:
 
         config = self.project_config
         if config is None:
-            raise ValueError("witdem_sdk: no project contract loaded; run 'witdem init' or pass config_path")
+            raise ValueError("witdem_sdk: no project contract loaded; run 'witdem-sdk init' or pass config_path")
         contract_name = contract or config.default_contract
         if not contract_name:
             raise ValueError("witdem_sdk: specify contract= or set default_contract in .witdem/witdem.yaml")

@@ -20,8 +20,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
+          version: "0.9.10"
           python-version: "3.12"
-      - run: uv sync --all-groups
+      - run: uv sync --all-groups --locked
       - run: uv run python -m witdem.pricing.update
       - run: uv run pytest -q tests/test_pricing_catalog.py tests/test_pricing_update.py
       - name: Open or update the review pull request

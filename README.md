@@ -37,7 +37,7 @@ execution graph, business outcome, cost, and contract evidence.
 Start the local receiver, ELT worker, and dashboard:
 
 ```bash
-npx -y witdem@0.2.0 up
+npx -y witdem@0.3.0 up
 ```
 
 That pulls the version-matched container, starts all three services, waits for
@@ -45,15 +45,15 @@ them to become healthy, and opens `http://localhost:8501`. Docker with Compose
 is the only prerequisite. Data persists across `down` and package upgrades.
 
 ```bash
-npx -y witdem@0.2.0 status
-npx -y witdem@0.2.0 logs
-npx -y witdem@0.2.0 down
+npx -y witdem@0.3.0 status
+npx -y witdem@0.3.0 logs
+npx -y witdem@0.3.0 down
 ```
 
 Add the SDK to an existing Haystack 3 project:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.2.0"
+python -m pip install "witdem-sdk[haystack]==0.3.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
@@ -61,7 +61,7 @@ From the application project, create the YAML contract and then edit it to
 describe that application's result:
 
 ```bash
-witdem init --runtime haystack
+witdem-sdk init --runtime haystack
 ```
 
 This creates `.witdem/witdem.yaml`. It does not inspect or rewrite application
@@ -178,7 +178,7 @@ Witdem. It never runs an npm `postinstall` script.
 | ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
-npx -y witdem@0.2.0 status
+npx -y witdem@0.3.0 status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```

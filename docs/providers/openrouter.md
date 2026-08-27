@@ -5,7 +5,7 @@
 ## Direct OpenRouter client
 
 ```bash
-python -m pip install "witdem-sdk[openrouter]==0.2.0"
+python -m pip install "witdem-sdk[openrouter]==0.3.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 export OPENROUTER_API_KEY=...
 ```

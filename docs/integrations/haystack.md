@@ -9,7 +9,7 @@ Witdem uses Haystack's native OpenTelemetry tracer to observe the components tha
 - Python 3.10 or newer
 - `haystack-ai>=3.0,<4`
 - `opentelemetry-haystack>=1,<2`
-- `witdem-sdk[haystack]` 0.2.x
+- `witdem-sdk[haystack]` 0.3.x
 - A running Witdem receiver at `WITDEM_ENDPOINT`
 - Provider credentials only when the chosen Haystack components require them
 
@@ -20,14 +20,14 @@ Instrumenting Haystack 2 raises an explicit compatibility error. The exact range
 Until the SDK is published, install it from the Witdem checkout:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.2.0"
+python -m pip install "witdem-sdk[haystack]==0.3.0"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
 After package publication, the equivalent command will be:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]>=0.2,<0.3"
+python -m pip install "witdem-sdk[haystack]>=0.3,<0.4"
 ```
 
 ## Minimal pipeline

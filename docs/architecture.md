@@ -40,5 +40,6 @@ The active dashboard is FastAPI plus React. The retired Streamlit implementation
 | Analytics | SDK | Semantic protocol | Python |
 | --- | --- | --- | --- |
 | `0.2.x` | `>=0.2,<0.3` | `1.0` | `>=3.10` |
+| `0.3.x` | `>=0.2,<0.4` | `1.0` | `>=3.10,<3.14` |
 
 Compatibility aliases for old environment variables and raw-data migration remain deliberately isolated in configuration and ELT code. They protect existing installations and are not alternate product architectures.

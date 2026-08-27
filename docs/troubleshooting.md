@@ -70,14 +70,14 @@ Azure deployment names, Bedrock models, Vertex models, and Ollama models are not
 Run from the application directory:
 
 ```bash
-witdem validate
+witdem-sdk validate
 ```
 
 The SDK searches the current directory and parents for `.witdem/witdem.yaml`. For workers launched elsewhere:
 
 ```bash
 export WITDEM_CONFIG=/absolute/path/to/.witdem/witdem.yaml
-witdem validate --config "$WITDEM_CONFIG"
+witdem-sdk validate --config "$WITDEM_CONFIG"
 ```
 
 If a path such as `$.answer` is wrong, validation still succeeds because the returned value is only available at runtime. Inspect the actual JSON-shaped result and correct the path.
@@ -114,7 +114,7 @@ Use a clean virtual environment and install one framework extra. In particular, 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install "witdem-sdk[haystack]==0.2.0"
+python -m pip install "witdem-sdk[haystack]==0.3.0"
 python -m pip check
 ```
 

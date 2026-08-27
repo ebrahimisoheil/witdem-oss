@@ -1,5 +1,7 @@
-"""Public compatibility constants for Witdem's semantic-record protocol."""
+"""Public compatibility constants for Witdem's persisted and HTTP contracts."""
 
 SEMANTIC_RECORD_PROTOCOL_VERSION = "1.0"
+DASHBOARD_API_VERSION = "1.0.0"
+CORPUS_SCHEMA_VERSION = "1.0"
 
-__all__ = ["SEMANTIC_RECORD_PROTOCOL_VERSION"]
+__all__ = ["CORPUS_SCHEMA_VERSION", "DASHBOARD_API_VERSION", "SEMANTIC_RECORD_PROTOCOL_VERSION"]
