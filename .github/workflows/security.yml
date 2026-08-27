@@ -47,6 +47,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
       - run: npm install --global "npm@${NPM_VERSION}"
       - run: npm audit --package-lock-only --audit-level=high
