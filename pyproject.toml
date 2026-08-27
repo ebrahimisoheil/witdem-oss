@@ -36,9 +36,9 @@ witdem = "witdem.cli:main"
 
 [dependency-groups]
 dev = [
-  "mypy>=1.15,<2",
+  "mypy>=1.15,<3",
   "numpy>=2,<2.3",
-  "pytest>=8.3,<9",
+  "pytest>=8.3,<10",
   "ruff>=0.9,<1",
   "tomli>=2.2,<3; python_version < '3.11'",
   "types-PyYAML>=6.0,<7",
