@@ -94,7 +94,7 @@ export function OverviewPage() {
     <>
       <PageHeader
         eyebrow="Command center"
-        title="What is working—and what needs attention?"
+        title="What is working and what needs attention?"
         description="Business outcomes and operational health in one view. Drill into any goal, model, or provider with the same filters preserved."
       />
       <SharedFilterBar
