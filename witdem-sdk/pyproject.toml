@@ -30,7 +30,9 @@ witdem-sdk = "witdem_sdk.cli:main"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.50,<1"]
-openai = ["openai-agents>=0.0.10,<1"]
+# openai-agents 0.21+ requires openai 3.x, while the supported LiteLLM
+# integration still requires openai <3. Keep the combined `all` extra solvable.
+openai = ["openai-agents>=0.0.10,<0.21"]
 langchain = ["langchain-core>=0.3,<2"]
 langgraph = ["langgraph>=0.2,<2"]
 haystack = ["haystack-ai>=3.0,<4", "opentelemetry-haystack>=1,<2"]
@@ -42,7 +44,7 @@ smolagents = [
 ]
 all = [
   "anthropic>=0.50,<1",
-  "openai-agents>=0.0.10,<1",
+  "openai-agents>=0.0.10,<0.21",
   "langchain-core>=0.3,<2",
   "langgraph>=0.2,<2",
   "haystack-ai>=3.0,<4",
