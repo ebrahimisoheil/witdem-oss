@@ -26,7 +26,7 @@ type InspectorItem = {
 };
 type AgentNodeData = Record<string, unknown> & {
   lane: "runtime" | "business";
-  graphRole: "spine" | "branch" | "parallel";
+  graphRole: "spine" | "branch" | "parallel" | "retry" | "group";
   eyebrow: string;
   title: string;
   subtitle?: string;
@@ -37,11 +37,16 @@ type AgentNodeData = Record<string, unknown> & {
   description?: string;
   inspectorItems?: InspectorItem[];
   rawAttributes?: Record<string, unknown>;
+  expandGroupId?: string;
+  memberNodeIds?: string[];
+  memberTitles?: string[];
 };
 type AgentNode = Node<AgentNodeData, "agentNode">;
 
 const NODE_WIDTH = 184;
 const NODE_HEIGHT = 96;
+const LONG_SPINE_THRESHOLD = 8;
+const TARGET_GROUP_SIZE = 4;
 
 const toneClasses: Record<Tone, { shell: string; accent: string; badge: string }> = {
   violet: {
@@ -134,6 +139,11 @@ function AgentCard({ data, selected }: NodeProps<AgentNode>) {
                 {metric.value}{metric.label === "Tokens" ? " tok" : ""}
               </span>
             ))}
+          </div>
+        ) : null}
+        {data.expandGroupId ? (
+          <div className="mt-1 border-t border-violet-200/70 pt-1 text-[9px] font-semibold text-violet-700">
+            Select to reveal steps ↓
           </div>
         ) : null}
       </div>
@@ -307,31 +317,137 @@ export const sequentialSiblingCallGroups = (
   });
 };
 
+const orderedRuntimeSpine = (runtime: { nodes: AgentNode[]; edges: Edge[] }) => {
+  const candidates = runtime.nodes.filter((node) => ["spine", "group"].includes(node.data.graphRole));
+  const ids = new Set(candidates.map((node) => node.id));
+  const next = new Map<string, string>();
+  const targets = new Set<string>();
+  for (const edge of runtime.edges) {
+    if (edge.source !== edge.target && ids.has(edge.source) && ids.has(edge.target)) {
+      next.set(edge.source, edge.target);
+      targets.add(edge.target);
+    }
+  }
+  const root = candidates.find((node) => !targets.has(node.id)) || candidates[0];
+  const ordered: AgentNode[] = [];
+  const visited = new Set<string>();
+  let current: AgentNode | undefined = root;
+  while (current && !visited.has(current.id)) {
+    ordered.push(current);
+    visited.add(current.id);
+    const nextId = next.get(current.id);
+    current = candidates.find((node) => node.id === nextId);
+  }
+  ordered.push(...candidates.filter((node) => !visited.has(node.id)));
+  return ordered;
+};
+
+const groupTone = (members: AgentNode[]): Tone => {
+  const priority: Tone[] = ["red", "amber", "green", "blue", "violet", "slate"];
+  return priority.find((tone) => members.some((node) => node.data.tone === tone)) || "slate";
+};
+
+export const compactRuntimeGraph = (
+  runtime: { nodes: AgentNode[]; edges: Edge[] },
+  expandedGroupIds: ReadonlySet<string> = new Set(),
+) => {
+  const spine = orderedRuntimeSpine(runtime);
+  if (spine.length <= LONG_SPINE_THRESHOLD) return runtime;
+
+  const root = spine[0];
+  const candidates = spine.slice(1);
+  const groupCount = Math.ceil(candidates.length / TARGET_GROUP_SIZE);
+  const minimumSize = Math.floor(candidates.length / groupCount);
+  const largerGroups = candidates.length % groupCount;
+  const groups: AgentNode[][] = [];
+  let offset = 0;
+  for (let index = 0; index < groupCount; index += 1) {
+    const size = minimumSize + (index < largerGroups ? 1 : 0);
+    groups.push(candidates.slice(offset, offset + size));
+    offset += size;
+  }
+
+  const collapsedMemberIds = new Set<string>();
+  const displaySpine: AgentNode[] = [root];
+  groups.forEach((members, groupIndex) => {
+    const first = members[0];
+    const last = members[members.length - 1];
+    const groupId = `runtime-phase-${first.id}-${last.id}`;
+    if (expandedGroupIds.has(groupId)) {
+      displaySpine.push(...members);
+      return;
+    }
+    members.forEach((member) => collapsedMemberIds.add(member.id));
+    const start = groups.slice(0, groupIndex).reduce((count, group) => count + group.length, 0) + 1;
+    const end = start + members.length - 1;
+    displaySpine.push({
+      id: groupId,
+      type: "agentNode",
+      position: { x: 0, y: 0 },
+      style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+      data: {
+        lane: "runtime",
+        graphRole: "group",
+        eyebrow: "Workflow phase",
+        title: `Steps ${start}–${end}`,
+        subtitle: `${members[0].data.title} → ${members[members.length - 1].data.title}`,
+        badge: `${members.length} steps`,
+        tone: groupTone(members),
+        metrics: [],
+        details: [
+          { label: "Contained steps", value: formatNumber(members.length) },
+          { label: "First step", value: members[0].data.title },
+          { label: "Last step", value: members[members.length - 1].data.title },
+        ],
+        description: "A compact section of the observed execution path. Select it to reveal every recorded step.",
+        expandGroupId: groupId,
+        memberNodeIds: members.map((member) => member.id),
+        memberTitles: members.map((member) => member.data.title),
+      },
+    });
+  });
+
+  const spineIds = new Set(spine.map((node) => node.id));
+  const incoming = new Map<string, string[]>();
+  for (const edge of runtime.edges) {
+    incoming.set(edge.target, [...(incoming.get(edge.target) || []), edge.source]);
+  }
+  const hiddenIds = new Set(collapsedMemberIds);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of runtime.nodes) {
+      if (spineIds.has(node.id) || hiddenIds.has(node.id)) continue;
+      const parents = incoming.get(node.id) || [];
+      if (parents.some((parent) => hiddenIds.has(parent))) {
+        hiddenIds.add(node.id);
+        changed = true;
+      }
+    }
+  }
+
+  const visibleBranches = runtime.nodes.filter((node) => !spineIds.has(node.id) && !hiddenIds.has(node.id));
+  const visibleIds = new Set([...displaySpine, ...visibleBranches].map((node) => node.id));
+  const spineEdges: Edge[] = displaySpine.slice(1).map((node, index) => ({
+    id: `runtime-compact-edge-${index}-${displaySpine[index].id}-${node.id}`,
+    source: displaySpine[index].id,
+    target: node.id,
+    type: "smoothstep",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8", width: 16, height: 16 },
+    style: { stroke: "#94a3b8", strokeWidth: 1.5 },
+  }));
+  const branchEdges = runtime.edges.filter((edge) =>
+    visibleIds.has(edge.source) && visibleIds.has(edge.target) && !(spineIds.has(edge.source) && spineIds.has(edge.target)),
+  );
+  return { nodes: [...displaySpine, ...visibleBranches], edges: [...spineEdges, ...branchEdges] };
+};
+
 export const layoutImpactGraph = (
   runtime: { nodes: AgentNode[]; edges: Edge[] },
   business: { nodes: AgentNode[]; edges: Edge[] },
 ) => {
-  const runtimeSpineCandidates = runtime.nodes.filter((node) => node.data.graphRole === "spine");
-  const spineIds = new Set(runtimeSpineCandidates.map((node) => node.id));
-  const spineNext = new Map<string, string>();
-  const spineTargets = new Set<string>();
-  for (const edge of runtime.edges) {
-    if (edge.source !== edge.target && spineIds.has(edge.source) && spineIds.has(edge.target)) {
-      spineNext.set(edge.source, edge.target);
-      spineTargets.add(edge.target);
-    }
-  }
-  const spineRoot = runtimeSpineCandidates.find((node) => !spineTargets.has(node.id)) || runtimeSpineCandidates[0];
-  const runtimeSpine: AgentNode[] = [];
-  const visited = new Set<string>();
-  let current: AgentNode | undefined = spineRoot;
-  while (current && !visited.has(current.id)) {
-    runtimeSpine.push(current);
-    visited.add(current.id);
-    const nextId = spineNext.get(current.id);
-    current = runtimeSpineCandidates.find((node) => node.id === nextId);
-  }
-  runtimeSpine.push(...runtimeSpineCandidates.filter((node) => !visited.has(node.id)));
+  const runtimeSpine = orderedRuntimeSpine(runtime);
+  const spineIds = new Set(runtimeSpine.map((node) => node.id));
   const branches = runtime.nodes.filter((node) => !spineIds.has(node.id));
   const spine = runtimeSpine;
   const incoming = new Map<string, string>();
@@ -339,11 +455,14 @@ export const layoutImpactGraph = (
     if (edge.source !== edge.target) incoming.set(edge.target, edge.source);
   }
   const branchesByParent = new Map<string, AgentNode[]>();
+  const retriesByParent = new Map<string, AgentNode[]>();
   for (const branch of branches) {
     const parent = incoming.get(branch.id) || runtimeSpine[0]?.id || "";
-    branchesByParent.set(parent, [...(branchesByParent.get(parent) || []), branch]);
+    const collection = branch.data.graphRole === "retry" ? retriesByParent : branchesByParent;
+    collection.set(parent, [...(collection.get(parent) || []), branch]);
   }
   const deepestBranch = Math.max(0, ...[...branchesByParent.values()].map((items) => items.length));
+  const deepestRetry = Math.max(0, ...[...retriesByParent.values()].map((items) => items.length));
   const spineY = 40 + deepestBranch * (NODE_HEIGHT + 26);
   const horizontalGap = 76;
   const positions = new Map<string, { x: number; y: number }>();
@@ -354,16 +473,26 @@ export const layoutImpactGraph = (
   business.nodes.forEach((node, index) => {
     positions.set(node.id, {
       x: 24 + (businessStartIndex + index) * (NODE_WIDTH + horizontalGap),
-      y: spineY + NODE_HEIGHT + 96,
+      y: spineY + NODE_HEIGHT + 96 + deepestRetry * (NODE_HEIGHT + 26),
     });
   });
+  for (const [parent, nodes] of retriesByParent) {
+    const parentPosition = positions.get(parent) || { x: 24, y: spineY };
+    nodes.forEach((node, index) => {
+      positions.set(node.id, {
+        x: parentPosition.x,
+        y: spineY + (index + 1) * (NODE_HEIGHT + 26),
+      });
+    });
+  }
   for (const [parent, nodes] of branchesByParent) {
     const parentPosition = positions.get(parent) || { x: 24, y: spineY };
+    const parentIsRetry = runtime.nodes.find((node) => node.id === parent)?.data.graphRole === "retry";
     nodes.forEach((node, index) => {
       const parallel = node.data.graphRole === "parallel";
       positions.set(node.id, {
-        x: parallel ? parentPosition.x + NODE_WIDTH + horizontalGap : parentPosition.x,
-        y: spineY - (index + 1) * (NODE_HEIGHT + 26),
+        x: parallel || parentIsRetry ? parentPosition.x + NODE_WIDTH + horizontalGap : parentPosition.x,
+        y: parentIsRetry ? parentPosition.y + index * (NODE_HEIGHT + 26) : parentPosition.y - (index + 1) * (NODE_HEIGHT + 26),
       });
     });
   }
@@ -418,6 +547,7 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
       .map((node) => node.id),
   );
   const visibleGraphSteps = graphSteps.filter((node) => !nestedStepIds.has(node.id));
+  const retrySteps = graphSteps.filter((node) => nestedStepIds.has(node.id));
   const modelCalls = candidates.filter((node) => node.kind === "model");
   const toolCalls = candidates.filter((node) => node.kind === "tool");
   const calls = [...modelCalls, ...toolCalls];
@@ -428,7 +558,8 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
           node.id === root?.id ||
           ["agent_step", "workflow_stage", "model", "tool", "component"].includes(String(node.kind)),
       );
-  const meaningfulIds = new Set(meaningful.map((node) => node.id));
+  const runtimeOperations = [...meaningful, ...retrySteps];
+  const meaningfulIds = new Set(runtimeOperations.map((node) => node.id));
   const runtimeStages = meaningful.filter(
     (node) => node.id !== root?.id && !["model", "tool"].includes(String(node.kind)),
   );
@@ -447,9 +578,26 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
   const sequentialCallIds = new Set(
     sequentialCallGroups.flatMap((group) => group.calls.map((call) => call.id)),
   );
-  const genericStages = meaningful
+  const allGenericStages = meaningful
     .filter((node) => node.id !== root?.id && !["model", "tool"].includes(String(node.kind)))
     .sort((left, right) => String(left.start || "").localeCompare(String(right.start || "")));
+  const repeatedStageInfo = new Map<string, { owner: string; attempt: number }>();
+  const firstStageBySignature = new Map<string, { id: string; count: number }>();
+  for (const stage of allGenericStages) {
+    const signature = [
+      visibleAncestor(String(stage.parent_operation_id || root.id)),
+      String(stage.kind || "component").toLowerCase(),
+      String(stage.display_name || stage.name || "workflow step").trim().toLowerCase(),
+    ].join("|");
+    const first = firstStageBySignature.get(signature);
+    if (first) {
+      first.count += 1;
+      repeatedStageInfo.set(stage.id, { owner: first.id, attempt: first.count });
+    } else {
+      firstStageBySignature.set(signature, { id: stage.id, count: 1 });
+    }
+  }
+  const genericStages = allGenericStages.filter((stage) => !repeatedStageInfo.has(stage.id));
   const genericLayers: Array<Array<Record<string, unknown> & { id: string }>> = [];
   for (const stage of genericStages) {
     const start = Date.parse(String(stage.start || ""));
@@ -461,8 +609,10 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
     else genericLayers.push([stage]);
   }
   const parallelStageIds = new Set(genericLayers.flatMap((layer) => layer.slice(1).map((node) => node.id)));
-  const runtimeNodes: AgentNode[] = meaningful.map((node) => {
+  const runtimeNodes: AgentNode[] = runtimeOperations.map((node) => {
     const isRoot = node.id === root?.id;
+    const repeatedStage = repeatedStageInfo.get(node.id);
+    const isRetry = nestedStepIds.has(node.id) || Boolean(repeatedStage);
     const displayNode = node;
     const rawTitle = isRoot && detail.summary.display_name
       ? String(detail.summary.display_name)
@@ -481,7 +631,9 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
         : rawTitle;
     const rawStatus = isRoot ? detail.summary.runtime_outcome || detail.summary.status : node.status;
     const normalizedStatus = String(rawStatus || "").toLowerCase();
-    const badge = skipped
+    const badge = isRetry
+      ? repeatedStage ? `Attempt ${repeatedStage.attempt}` : human(node.status || "Attempt")
+      : skipped
       ? "Skipped"
       : isRoot && normalizedStatus && normalizedStatus !== "unset"
         ? human(rawStatus)
@@ -504,12 +656,14 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
       style: { width: NODE_WIDTH, height: NODE_HEIGHT },
       data: {
         lane: "runtime",
-        graphRole: ["model", "tool"].includes(kind)
+        graphRole: isRetry
+          ? "retry"
+          : ["model", "tool"].includes(kind)
           ? sequentialCallIds.has(node.id) ? "spine" : "branch"
           : parallelStageIds.has(node.id)
             ? "parallel"
             : "spine",
-        eyebrow,
+        eyebrow: isRetry ? "Retry / loop attempt" : eyebrow,
         title,
         subtitle: undefined,
         badge,
@@ -529,7 +683,9 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
           tokens != null ? { label: "Tokens", value: formatNumber(tokens) } : null,
           { label: "Operation ID", value: String(node.id) },
         ].filter(Boolean) as Metric[],
-        description: isRoot
+        description: isRetry
+          ? "A recorded retry or loop iteration owned by the workflow step above it."
+          : isRoot
           ? "The complete observed execution and its final runtime state."
           : kind === "model"
             ? "A model call observed during this execution."
@@ -544,8 +700,8 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
       },
     };
   });
-  const nodeIds = new Set(meaningful.map((node) => node.id));
-  const nestedLoops = graphSteps.filter((node) => nestedStepIds.has(node.id));
+  const nodeIds = new Set(runtimeOperations.map((node) => node.id));
+  const nestedLoops = retrySteps;
   const normalizedEdges = detail.graph.edges
     .map((edge) => ({
       source: visibleAncestor(edge.source),
@@ -613,6 +769,11 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
   const genericLoops = normalizedEdges.filter((edge) =>
     ["repeat", "retry", "handoff"].includes(String(edge.relation).toLowerCase()),
   );
+  const repeatedStageEdges = [...repeatedStageInfo.entries()].map(([target, repeated]) => ({
+    source: repeated.owner,
+    target,
+    relation: "retry attempt",
+  }));
   const structuralEdges = visibleGraphSteps.length
     ? [
         ...(orderedSteps.length ? [{ source: root.id, target: orderedSteps[0].id, relation: "starts" }] : []),
@@ -631,8 +792,8 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
         ...sequentialCallEdges,
         ...nestedLoops.map((node) => ({
           source: String(node.parent_operation_id),
-          target: String(node.parent_operation_id),
-          relation: "loop observed",
+          target: node.id,
+          relation: "retry attempt",
         })),
       ]
     : [
@@ -640,16 +801,17 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
         ...genericBranches.filter((edge) => !sequentialCallIds.has(edge.target)),
         ...sequentialCallEdges,
         ...genericLoops,
+        ...repeatedStageEdges,
       ];
   const runtimeEdges: Edge[] = structuralEdges.map((edge, index) => ({
     id: `runtime-edge-${index}-${edge.source}-${edge.target}`,
     source: `runtime-${edge.source}`,
     target: `runtime-${edge.target}`,
     type: "smoothstep",
-    label: ["repeat", "retry", "handoff", "loop observed"].includes(String(edge.relation).toLowerCase())
+    label: ["repeat", "retry", "handoff", "loop observed", "retry attempt"].includes(String(edge.relation).toLowerCase())
       ? human(edge.relation)
       : undefined,
-    animated: ["repeat", "retry", "handoff"].includes(String(edge.relation).toLowerCase()),
+    animated: ["repeat", "retry", "handoff", "retry attempt"].includes(String(edge.relation).toLowerCase()),
     markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8", width: 16, height: 16 },
     style: { stroke: "#94a3b8", strokeWidth: 1.5 },
     labelStyle: { fill: "#64748b", fontSize: 10, fontWeight: 600 },
@@ -770,8 +932,22 @@ const makeBusinessGraph = (detail: RunDetail) => {
 export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedNode, setSelectedNode] = useState<AgentNode | null>(null);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(() => new Set());
   const [unifiedGraph, setUnifiedGraph] = useState<{ nodes: AgentNode[]; edges: Edge[] }>({ nodes: [], edges: [] });
-  const input = useMemo(() => ({ runtime: makeRuntimeGraph(detail), business: makeBusinessGraph(detail) }), [detail]);
+  const source = useMemo(() => ({ runtime: makeRuntimeGraph(detail), business: makeBusinessGraph(detail) }), [detail]);
+  const availableGroups = useMemo(
+    () => compactRuntimeGraph(source.runtime).nodes.filter((node) => Boolean(node.data.expandGroupId)),
+    [source.runtime],
+  );
+  const input = useMemo(
+    () => ({ runtime: compactRuntimeGraph(source.runtime, expandedGroupIds), business: source.business }),
+    [source, expandedGroupIds],
+  );
+
+  useEffect(() => {
+    setExpandedGroupIds(new Set());
+    setSelectedNode(null);
+  }, [detail.summary.execution_id]);
 
   useEffect(() => {
     setUnifiedGraph(layoutImpactGraph(input.runtime, input.business));
@@ -794,8 +970,25 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
   }, [expanded, selectedNode]);
 
   const inspectNode = (_event: React.MouseEvent, node: Node) => {
-    setSelectedNode(node as AgentNode);
+    const agentNode = node as AgentNode;
+    if (agentNode.data.expandGroupId) {
+      setExpandedGroupIds((current) => new Set(current).add(String(agentNode.data.expandGroupId)));
+      setSelectedNode(null);
+      return;
+    }
+    setSelectedNode(agentNode);
   };
+
+  const collapseGroup = (groupId: string) => {
+    setExpandedGroupIds((current) => {
+      const next = new Set(current);
+      next.delete(groupId);
+      return next;
+    });
+    setSelectedNode(null);
+  };
+
+  const expandedGroups = availableGroups.filter((node) => expandedGroupIds.has(String(node.data.expandGroupId)));
 
   return (
     <>
@@ -812,6 +1005,9 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
             Full screen
           </button>
         </div>
+        {expandedGroups.length ? (
+          <ExpandedPhaseControls groups={expandedGroups} onCollapse={collapseGroup} />
+        ) : null}
         <div className="h-[600px] overflow-hidden rounded-xl border border-slate-200 bg-[#fbfbf8]">
           <GraphCanvas
             graph={unifiedGraph}
@@ -826,7 +1022,9 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
             <FullscreenGraph
               title={String(detail.summary.display_name || "Execution workflow")}
               graph={unifiedGraph}
+              expandedGroups={expandedGroups}
               onClose={() => setExpanded(false)}
+              onCollapseGroup={collapseGroup}
               onNodeClick={inspectNode}
               onPaneClick={() => setSelectedNode(null)}
             />,
@@ -843,6 +1041,30 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
   );
 }
 
+function ExpandedPhaseControls({
+  groups,
+  onCollapse,
+}: {
+  groups: AgentNode[];
+  onCollapse: (groupId: string) => void;
+}) {
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2 px-2 text-[11px]">
+      <span className="font-semibold text-slate-500">Expanded:</span>
+      {groups.map((group) => (
+        <button
+          key={group.id}
+          type="button"
+          onClick={() => onCollapse(String(group.data.expandGroupId))}
+          className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 font-semibold text-violet-700 hover:bg-violet-100"
+        >
+          {group.data.title} · collapse ↑
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function GraphLegend() {
   return (
     <div className="flex flex-wrap gap-2 text-[11px] font-semibold">
@@ -856,13 +1078,17 @@ function GraphLegend() {
 function FullscreenGraph({
   title,
   graph,
+  expandedGroups,
   onClose,
+  onCollapseGroup,
   onNodeClick,
   onPaneClick,
 }: {
   title: string;
   graph: { nodes: AgentNode[]; edges: Edge[] };
+  expandedGroups: AgentNode[];
   onClose: () => void;
+  onCollapseGroup: (groupId: string) => void;
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
   onPaneClick: () => void;
 }) {
@@ -886,6 +1112,11 @@ function FullscreenGraph({
             </button>
           </div>
         </header>
+        {expandedGroups.length ? (
+          <div className="shrink-0 border-b border-slate-200 bg-white px-3 pt-2">
+            <ExpandedPhaseControls groups={expandedGroups} onCollapse={onCollapseGroup} />
+          </div>
+        ) : null}
         <div className="relative z-0 min-h-0 flex-1 overflow-hidden bg-[#fbfbf8]">
           {graph.nodes.length ? (
             <ReactFlow
