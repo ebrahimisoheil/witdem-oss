@@ -1,46 +1,101 @@
 version: 2
+
+# Routine version updates are deliberately quiet: one grouped minor/patch PR
+# per package surface each month. Major upgrades stay explicit engineering work.
+# Dependabot security updates are not restricted by these version-update rules.
 updates:
-  - package-ecosystem: pip
+  - package-ecosystem: uv
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
     groups:
       python-runtime:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: pip
+  - package-ecosystem: uv
     directory: "/witdem-sdk"
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
     groups:
       sdk-python:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/web"
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
     groups:
       dashboard:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/npm"
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
     groups:
       launcher:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
+    groups:
+      container-images:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
     groups:
       actions:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
