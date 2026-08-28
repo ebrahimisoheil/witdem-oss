@@ -46,7 +46,7 @@ enriched = ["witdem-sdk"]
 # cross-package canonical-graph equivalence proof in
 # one process, using this venv's already-installed real agent_demo + witdem_sdk.
 [tool.uv]
-required-version = "==0.9.10"
+required-version = "==0.12.5"
 
 [tool.uv.sources]
 witdem-sdk = { path = "../../../witdem-sdk", editable = true }

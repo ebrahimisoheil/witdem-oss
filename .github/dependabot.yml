@@ -6,6 +6,10 @@ version: 2
 updates:
   - package-ecosystem: uv
     directory: "/"
+    # constraints/production.txt is generated from uv.lock during releases.
+    # Updating it independently can create an impossible dependency set.
+    exclude-paths:
+      - "constraints/production.txt"
     schedule:
       interval: monthly
       time: "06:00"
@@ -83,6 +87,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Production currently targets Python 3.12; CI validates through 3.13.
+      # Treat newer runtime lines as an explicit platform migration.
+      - dependency-name: "python"
+        versions: [">=3.13"]
 
   - package-ecosystem: github-actions
     directory: "/"

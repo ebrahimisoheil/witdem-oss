@@ -10,7 +10,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  UV_VERSION: "0.9.10"
+  UV_VERSION: "0.12.5"
   PIP_VERSION: "26.2.1"
   BUILD_VERSION: "1.5.0"
   TWINE_VERSION: "7.0.0"

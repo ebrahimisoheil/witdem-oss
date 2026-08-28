@@ -153,7 +153,7 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         _expect(
             f"{relative} uv version",
             project_config.get("tool", {}).get("uv", {}).get("required-version"),
-            "==0.9.10",
+            "==0.12.5",
             errors,
         )
 
