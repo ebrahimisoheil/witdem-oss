@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   businessTone,
+  compactRuntimeGraph,
   layoutImpactGraph,
   makeRuntimeGraph,
   selectBusinessGraphRecords,
@@ -169,5 +170,119 @@ describe("runtime sibling layout", () => {
       ["runtime-step-1", "runtime-tool-1"],
       ["runtime-step-2", "runtime-model-2"],
     ]);
+  });
+
+  it("compresses a long execution spine into expandable neutral phases", () => {
+    const nodes = Array.from({ length: 10 }, (_, index) => ({
+      id: `runtime-step-${index}`,
+      type: "agentNode",
+      position: { x: 0, y: 0 },
+      data: {
+        lane: "runtime",
+        graphRole: "spine",
+        eyebrow: index === 0 ? "Execution" : "Component",
+        title: index === 0 ? "Contract review" : `Observed step ${index}`,
+        tone: "slate",
+        metrics: [],
+        details: [],
+      },
+    }));
+    const edges = nodes.slice(1).map((node, index) => ({
+      id: `edge-${index}`,
+      source: nodes[index].id,
+      target: node.id,
+    }));
+
+    const compact = compactRuntimeGraph({ nodes, edges } as never);
+    const groups = compact.nodes.filter((node) => node.data.graphRole === "group");
+
+    expect(compact.nodes.map((node) => node.data.title)).toEqual([
+      "Contract review",
+      "Steps 1–3",
+      "Steps 4–6",
+      "Steps 7–9",
+    ]);
+    expect(groups.every((node) => node.data.expandGroupId)).toBe(true);
+
+    const firstGroupId = String(groups[0].data.expandGroupId);
+    const expanded = compactRuntimeGraph({ nodes, edges } as never, new Set([firstGroupId]));
+    expect(expanded.nodes.map((node) => node.data.title)).toEqual([
+      "Contract review",
+      "Observed step 1",
+      "Observed step 2",
+      "Observed step 3",
+      "Steps 4–6",
+      "Steps 7–9",
+    ]);
+  });
+
+  it("keeps recorded nested iterations as clickable retry nodes below their owner", () => {
+    const detail = {
+      summary: {
+        display_name: "Research workflow",
+        runtime_outcome: "completed",
+        status: "completed",
+      },
+      semantic_records: [],
+      graph: {
+        nodes: [
+          { id: "execution", kind: "workflow", start: "2026-08-26T08:00:00Z", end: "2026-08-26T08:00:05Z" },
+          { id: "research", kind: "graph_node", display_name: "Research", parent_operation_id: "execution", start: "2026-08-26T08:00:00.1Z", end: "2026-08-26T08:00:05Z" },
+          { id: "research-attempt-2", kind: "graph_node", display_name: "Research attempt 2", status: "completed", parent_operation_id: "research", start: "2026-08-26T08:00:02Z", end: "2026-08-26T08:00:04Z" },
+        ],
+        edges: [
+          { source: "execution", target: "research", relation: "starts" },
+          { source: "research", target: "research-attempt-2", relation: "repeat" },
+        ],
+      },
+    } as unknown as RunDetail;
+
+    const runtime = makeRuntimeGraph(detail);
+    const retry = runtime.nodes.find((node) => node.id === "runtime-research-attempt-2");
+    const laidOut = layoutImpactGraph(runtime, { nodes: [], edges: [] });
+    const owner = laidOut.nodes.find((node) => node.id === "runtime-research");
+    const attempt = laidOut.nodes.find((node) => node.id === "runtime-research-attempt-2");
+
+    expect(retry?.data.graphRole).toBe("retry");
+    expect(runtime.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "runtime-research", target: "runtime-research-attempt-2", label: "Retry attempt" }),
+    ]));
+    expect(attempt?.position.x).toBe(owner?.position.x);
+    expect(Number(attempt?.position.y)).toBeGreaterThan(Number(owner?.position.y));
+  });
+
+  it("recognizes repeated component instances from a generic pipeline as vertical attempts", () => {
+    const detail = {
+      summary: { display_name: "Contract review", runtime_outcome: "completed", status: "completed" },
+      semantic_records: [],
+      graph: {
+        nodes: [
+          { id: "execution", kind: "operation", display_name: "Contract review", start: "2026-08-27T15:00:00Z", end: "2026-08-27T15:00:10Z" },
+          { id: "extract-1", kind: "component", display_name: "Clause extractor", parent_operation_id: "pipeline", start: "2026-08-27T15:00:01Z", end: "2026-08-27T15:00:03Z" },
+          { id: "model-1", kind: "model", model: "deepseek-v4-flash", parent_operation_id: "extract-1", start: "2026-08-27T15:00:01.1Z", end: "2026-08-27T15:00:02.9Z" },
+          { id: "extract-2", kind: "component", display_name: "Clause extractor", parent_operation_id: "pipeline", start: "2026-08-27T15:00:04Z", end: "2026-08-27T15:00:06Z" },
+          { id: "model-2", kind: "model", model: "deepseek-v4-flash", parent_operation_id: "extract-2", start: "2026-08-27T15:00:04.1Z", end: "2026-08-27T15:00:05.9Z" },
+        ],
+        edges: [
+          { source: "execution", target: "extract-1", relation: "next" },
+          { source: "extract-1", target: "model-1", relation: "calls model" },
+          { source: "extract-1", target: "extract-2", relation: "retry" },
+          { source: "extract-2", target: "model-2", relation: "calls model" },
+        ],
+      },
+    } as unknown as RunDetail;
+
+    const runtime = makeRuntimeGraph(detail);
+    const laidOut = layoutImpactGraph(runtime, { nodes: [], edges: [] });
+    const owner = laidOut.nodes.find((node) => node.id === "runtime-extract-1");
+    const attempt = laidOut.nodes.find((node) => node.id === "runtime-extract-2");
+    const attemptModel = laidOut.nodes.find((node) => node.id === "runtime-model-2");
+
+    expect(attempt?.data.graphRole).toBe("retry");
+    expect(attempt?.data.badge).toBe("Attempt 2");
+    expect(attempt?.position.x).toBe(owner?.position.x);
+    expect(Number(attempt?.position.y)).toBeGreaterThan(Number(owner?.position.y));
+    expect(Number(attemptModel?.position.x)).toBeGreaterThan(Number(attempt?.position.x));
+    expect(attemptModel?.position.y).toBe(attempt?.position.y);
   });
 });
