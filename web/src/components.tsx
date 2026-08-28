@@ -14,6 +14,7 @@ import ReactEChartsCore from "echarts-for-react/lib/core";
 import { lazy, Suspense, useState } from "react";
 import type { ComparisonInsight, Overview, Performance, RunDetail, WorkflowStage } from "./api";
 import { formatNumber, money, percent, seconds } from "./api";
+import witdemMark from "./assets/witdem-mark-purple.png";
 
 const AdvancedWorkflowGraph = lazy(() =>
   import("./advanced-workflow-graph").then((module) => ({
@@ -78,9 +79,12 @@ export function Shell() {
     <div className="min-h-screen bg-[#f8f8f5] text-[#242424]">
       <aside className="fixed inset-y-0 left-0 z-20 w-56 border-r border-[#e7e7e1] bg-white px-4 py-5">
         <Link to="/" className="mb-8 flex items-center gap-3 px-2">
-          <span className="grid size-8 place-items-center rounded-xl bg-[#7047eb] text-sm font-black text-white">
-            W
-          </span>
+          <img
+            src={witdemMark}
+            alt=""
+            aria-hidden="true"
+            className="h-7 w-11 shrink-0 object-contain"
+          />
           <span className="font-semibold">Witdem AI</span>
         </Link>
         <nav className="space-y-1">
