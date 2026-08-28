@@ -50,6 +50,44 @@ npx -y witdem@0.3.0 logs
 npx -y witdem@0.3.0 down
 ```
 
+### Upgrade an existing installation
+
+Witdem releases the npm launcher, container, analytics package, and SDK with
+the same version. To upgrade an existing local backend, run the launcher at
+the new version. For example, to move from `0.3.0` to `0.3.1`:
+
+```bash
+npx -y witdem@0.3.1 up
+```
+
+The launcher selects the matching container image and recreates the services.
+Collected executions remain in the named `witdem-data` Docker volume, and
+supported additive database changes are applied when the services start.
+
+Upgrade the SDK separately in each instrumented application, preserving the
+integration extra that application uses:
+
+```bash
+python -m pip install --upgrade "witdem-sdk[haystack]==0.3.1"
+```
+
+For a uv-managed application, update its project requirement and lockfile:
+
+```bash
+uv add "witdem-sdk[haystack]==0.3.1"
+```
+
+Upgrade the backend first, then roll out the matching SDK version to
+applications gradually. Verify the result with:
+
+```bash
+npx -y witdem@0.3.1 status
+witdem-sdk validate
+```
+
+Explicit version pins are intentional: existing installations do not move to
+a new release until their operator selects it.
+
 Add the SDK to an existing Haystack 3 project:
 
 ```bash
