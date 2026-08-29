@@ -8,6 +8,7 @@ optional inputs and are never needed to build the physical graph.
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
@@ -435,6 +436,120 @@ def _merge_haystack_usage_summary(rows: list[Mapping[str, Any]]) -> list[Mapping
     return physical
 
 
+def _string_values(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            decoded = None
+        if isinstance(decoded, Sequence) and not isinstance(decoded, (str, bytes, bytearray)):
+            return tuple(str(item) for item in decoded if isinstance(item, str) and item)
+        return (value,)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return tuple(str(item) for item in value if isinstance(item, str) and item)
+    return ()
+
+
+def _topology_edges(value: Any) -> tuple[dict[str, Any], ...]:
+    edges: list[dict[str, Any]] = []
+    for encoded in _string_values(value):
+        try:
+            edge = json.loads(encoded)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(edge, Mapping):
+            continue
+        required = ("source_component", "source_socket", "target_component", "target_socket")
+        if all(isinstance(edge.get(key), str) and edge.get(key) for key in required):
+            edges.append(dict(edge))
+    return tuple(edges)
+
+
+def _operation_time(operation: Operation, *, end: bool = False) -> datetime:
+    value = operation.ended_at if end else operation.started_at
+    return value or operation.started_at or operation.ended_at or datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _append_explicit_haystack_links(
+    links: list[Link],
+    operations: Sequence[Operation],
+    execution_id: str,
+) -> bool:
+    """Resolve emitted Haystack sockets to concrete operation instances.
+
+    Static incident edges are attached to every component span by the SDK.
+    Runtime input/output socket-name lists identify the active subset without
+    exposing any values. For repeated components, the nearest preceding source
+    instance owns the activation; existing repeat links still express the
+    vertical retry relationship.
+    """
+
+    by_component: dict[str, list[Operation]] = defaultdict(list)
+    for operation in operations:
+        component_id = operation.attributes.get("witdem.haystack.component.id")
+        if isinstance(component_id, str) and component_id:
+            by_component[component_id].append(operation)
+    if not by_component:
+        return False
+    for instances in by_component.values():
+        instances.sort(key=_operation_time)
+
+    added = False
+    existing = {(link.source_id, link.target_id, link.relation) for link in links}
+    for target in operations:
+        target_component = target.attributes.get("witdem.haystack.component.id")
+        active_inputs = set(_string_values(target.attributes.get("witdem.haystack.runtime.input_sockets")))
+        incoming = _topology_edges(target.attributes.get("witdem.haystack.topology.incoming"))
+        if not isinstance(target_component, str) or not active_inputs or not incoming:
+            continue
+        for edge in incoming:
+            if edge["target_component"] != target_component or edge["target_socket"] not in active_inputs:
+                continue
+            candidates = []
+            for source in by_component.get(str(edge["source_component"]), []):
+                if source.operation_id == target.operation_id:
+                    continue
+                emitted = set(
+                    _string_values(source.attributes.get("witdem.haystack.runtime.emitted_sockets"))
+                )
+                if edge["source_socket"] not in emitted:
+                    continue
+                if _operation_time(source, end=True) <= _operation_time(target):
+                    candidates.append(source)
+            if not candidates:
+                continue
+            source = max(candidates, key=lambda operation: _operation_time(operation, end=True))
+            retry = bool(edge.get("retry")) or (
+                bool(edge.get("cycle"))
+                and str(edge.get("source_component")) == str(edge.get("target_component"))
+            )
+            relation = "workflow_retry" if retry else "workflow"
+            key = (source.operation_id, target.operation_id, relation)
+            if key in existing:
+                continue
+            links.append(
+                Link(
+                    execution_id=execution_id,
+                    source_id=source.operation_id,
+                    target_id=target.operation_id,
+                    relation=relation,
+                    attributes={
+                        "framework": "haystack",
+                        "explicit": True,
+                        "source_component": edge["source_component"],
+                        "source_socket": edge["source_socket"],
+                        "target_component": edge["target_component"],
+                        "target_socket": edge["target_socket"],
+                        "cycle": bool(edge.get("cycle")),
+                        "retry": bool(edge.get("retry")),
+                    },
+                )
+            )
+            existing.add(key)
+            added = True
+    return added
+
+
 def normalize_haystack_spans(
     spans: Sequence[Mapping[str, Any]],
     *,
@@ -609,6 +724,7 @@ def normalize_haystack_spans(
                     relation="parent",
                 )
             )
+    _append_explicit_haystack_links(links, operations, inferred_execution_id)
     _append_repeat_links(links, operations, inferred_execution_id)
     starts = [operation.started_at for operation in operations if operation.started_at]
     ends = [operation.ended_at for operation in operations if operation.ended_at]

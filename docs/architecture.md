@@ -24,6 +24,25 @@ OTLP or SDK request
 
 The corpus is authoritative. Canonical and serving projections are rebuildable. Ingestion acknowledges only after the original payload and decoded records are durable. Runtime/provider-specific data is normalized at adapter boundaries; provider-specific tables are not exposed to analytics consumers.
 
+## Execution graph semantics
+
+Canonical `Link` records distinguish span containment from workflow flow. A
+framework integration may emit explicit active relationships such as Haystack
+component/socket edges. Normalization resolves those relationships to concrete
+operation instances and writes `workflow` or `workflow_retry` links with source
+and destination socket metadata.
+
+The replay API is the single topology source for both expanded and compact
+dashboard views. The frontend lays explicit workflow links out as a DAG:
+horizontal rank is workflow progression, fan-out targets occupy separate
+lanes, fan-in targets converge at a shared rank, and retry instances remain
+vertical beneath their owner. Compact phases contract only linear stretches;
+they do not replace or reinterpret branch edges.
+
+When explicit framework relationships are absent, retained historical runs use
+the existing parentage and chronological fallback. Timestamp overlap can help
+order that fallback, but it never overrides an explicit edge.
+
 ## Boundaries
 
 - `src/witdem/ingest`: wire endpoints, correlation, durable corpus, and database publication.

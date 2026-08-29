@@ -124,7 +124,11 @@ uv sync
 uv run python sdk_enriched.py
 ```
 
-The dashboard uses observed parentage and timestamps to render the real fan-out/fan-in. It does not infer parallelism from the static pipeline definition.
+The integration combines Haystack's declared component/socket graph with the
+socket names actually activated during a run. The dashboard therefore renders
+active fan-out and fan-in from explicit framework relationships. Static routes
+that did not emit and components that did not execute are omitted. Historical
+runs without this metadata retain the earlier parentage/timing fallback.
 
 ## What Witdem captures
 
@@ -134,6 +138,9 @@ Verified behavior includes:
 - agents, tools, retrievers, generators, nested pipelines, branches, and loops when Haystack emits them;
 - synchronous, asynchronous, and async-generator lifecycles;
 - overlapping sibling execution;
+- stable component identifiers and types;
+- source/output and destination/input socket relationships for executed paths;
+- router outputs that emitted, joiner inputs that activated, and retry/feedback edges;
 - errors and component timings;
 - provider, model, and usage observed from generator response metadata;
 - multiple configured providers without assigning one run-wide provider to every call;
@@ -147,6 +154,7 @@ Provider response metadata is attached to the same native Haystack span. When Ha
 - A custom component that neither creates a native model span nor exposes recognizable generator response metadata may appear only as a component. Add standard GenAI attributes or a native `witdem.model(...)` operation around that call.
 - An abandoned `run_async_generator` has no authoritative final result, so runtime spans close but the business contract is not evaluated.
 - Content capture remains disabled by default; pipeline inputs and outputs are not retained merely because tracing is enabled.
+- Topology capture stores component/socket names only. It never stores socket values, prompts, documents, model responses, contract content, credentials, or API keys when `capture_content=False`.
 - Cost still requires provider-reported money or a recognized provider/model plus token usage.
 
 See [Troubleshooting: Haystack component not captured](../troubleshooting.md#haystack-component-or-model-not-captured).

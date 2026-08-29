@@ -285,4 +285,111 @@ describe("runtime sibling layout", () => {
     expect(Number(attemptModel?.position.x)).toBeGreaterThan(Number(attempt?.position.x));
     expect(attemptModel?.position.y).toBe(attempt?.position.y);
   });
+
+  it("uses explicit Haystack fan-out and convergence in expanded and compact views", () => {
+    const workflow = (source: string, target: string, relation = "workflow") => ({
+      source,
+      target,
+      relation,
+      attributes: { framework: "haystack", explicit: true },
+    });
+    const detail = {
+      summary: { display_name: "Contract review", runtime_outcome: "completed", status: "completed" },
+      semantic_records: [],
+      graph: {
+        nodes: [
+          { id: "execution", kind: "workflow", start: "2026-08-29T08:10:40Z", end: "2026-08-29T08:11:10Z" },
+          ...["load", "classify", "extract", "normalize", "route"].map((id, index) => ({
+            id,
+            kind: "component",
+            display_name: id,
+            parent_operation_id: "execution",
+            start: `2026-08-29T08:10:4${index}Z`,
+            end: `2026-08-29T08:10:4${index}.5Z`,
+          })),
+          { id: "dispatcher", kind: "component", display_name: "Domain review dispatcher", parent_operation_id: "execution", start: "2026-08-29T08:10:42Z", end: "2026-08-29T08:10:42.5Z" },
+          { id: "legal", kind: "component", display_name: "Legal domain review", parent_operation_id: "execution", start: "2026-08-29T08:10:42.555Z", end: "2026-08-29T08:10:46.740Z" },
+          { id: "finance", kind: "component", display_name: "Finance domain review", parent_operation_id: "execution", start: "2026-08-29T08:10:42.554Z", end: "2026-08-29T08:10:44.801Z" },
+          { id: "legal-model", kind: "model", model: "gpt-5.4", parent_operation_id: "legal", start: "2026-08-29T08:10:42.6Z", end: "2026-08-29T08:10:46.7Z" },
+          { id: "finance-model", kind: "model", model: "gpt-5.4", parent_operation_id: "finance", start: "2026-08-29T08:10:42.6Z", end: "2026-08-29T08:10:44.7Z" },
+          { id: "joiner", kind: "component", display_name: "Domain review joiner", parent_operation_id: "execution", start: "2026-08-29T08:10:46.741Z", end: "2026-08-29T08:10:46.747Z" },
+          { id: "aggregator", kind: "component", display_name: "Domain review aggregator", parent_operation_id: "execution", start: "2026-08-29T08:10:46.8Z", end: "2026-08-29T08:10:47Z" },
+          { id: "fallback-1", kind: "component", display_name: "Fallback generator", parent_operation_id: "execution", start: "2026-08-29T08:10:47Z", end: "2026-08-29T08:10:48Z" },
+          { id: "fallback-1-model", kind: "model", model: "gpt-5.4", parent_operation_id: "fallback-1", start: "2026-08-29T08:10:47.1Z", end: "2026-08-29T08:10:47.9Z" },
+          { id: "fallback-2", kind: "component", display_name: "Fallback generator", parent_operation_id: "execution", start: "2026-08-29T08:10:48Z", end: "2026-08-29T08:10:49Z" },
+          { id: "fallback-2-model", kind: "model", model: "gpt-5.4", parent_operation_id: "fallback-2", start: "2026-08-29T08:10:48.1Z", end: "2026-08-29T08:10:48.9Z" },
+        ],
+        edges: [
+          workflow("load", "classify"),
+          workflow("classify", "extract"),
+          workflow("extract", "normalize"),
+          workflow("normalize", "route"),
+          workflow("route", "dispatcher"),
+          workflow("dispatcher", "legal"),
+          workflow("dispatcher", "finance"),
+          workflow("legal", "joiner"),
+          workflow("finance", "joiner"),
+          workflow("joiner", "aggregator"),
+          workflow("aggregator", "fallback-1"),
+          workflow("fallback-1", "fallback-2", "workflow_retry"),
+          { source: "legal", target: "legal-model", relation: "parent" },
+          { source: "finance", target: "finance-model", relation: "parent" },
+          { source: "fallback-1", target: "fallback-1-model", relation: "parent" },
+          { source: "fallback-2", target: "fallback-2-model", relation: "parent" },
+        ],
+      },
+    } as unknown as RunDetail;
+
+    const runtime = makeRuntimeGraph(detail);
+    const edgePairs = runtime.edges.map((edge) => [edge.source, edge.target]);
+    expect(edgePairs).toEqual(expect.arrayContaining([
+      ["runtime-dispatcher", "runtime-legal"],
+      ["runtime-dispatcher", "runtime-finance"],
+      ["runtime-legal", "runtime-joiner"],
+      ["runtime-finance", "runtime-joiner"],
+      ["runtime-joiner", "runtime-aggregator"],
+    ]));
+    expect(edgePairs).not.toContainEqual(["runtime-legal", "runtime-finance"]);
+
+    const expandedLayout = layoutImpactGraph(runtime, { nodes: [], edges: [] });
+    const position = (id: string) => expandedLayout.nodes.find((node) => node.id === id)?.position;
+    expect(position("runtime-legal")?.x).toBe(position("runtime-finance")?.x);
+    expect(position("runtime-legal")?.y).not.toBe(position("runtime-finance")?.y);
+    expect(Number(position("runtime-joiner")?.x)).toBeGreaterThan(Number(position("runtime-legal")?.x));
+    expect(position("runtime-legal-model")?.x).toBe(position("runtime-legal")?.x);
+    expect(position("runtime-finance-model")?.x).toBe(position("runtime-finance")?.x);
+    expect(position("runtime-fallback-2")?.x).toBe(position("runtime-fallback-1")?.x);
+    expect(Number(position("runtime-fallback-2")?.y)).toBeGreaterThan(Number(position("runtime-fallback-1")?.y));
+    const expectNoOverlaps = (nodes: typeof expandedLayout.nodes) => {
+      for (const [index, node] of nodes.entries()) {
+        for (const other of nodes.slice(index + 1)) {
+        const separated =
+          node.position.x + 184 + 16 <= other.position.x ||
+          other.position.x + 184 + 16 <= node.position.x ||
+          node.position.y + 96 + 16 <= other.position.y ||
+          other.position.y + 96 + 16 <= node.position.y;
+        expect(separated, `${node.id} overlaps ${other.id}`).toBe(true);
+        }
+      }
+    };
+    expectNoOverlaps(expandedLayout.nodes);
+
+    const compact = compactRuntimeGraph(runtime);
+    const group = compact.nodes.find((node) => node.data.expandGroupId);
+    expect(group).toBeDefined();
+    expect(compact.edges.map((edge) => [edge.source, edge.target])).toEqual(expect.arrayContaining([
+      ["runtime-dispatcher", "runtime-legal"],
+      ["runtime-dispatcher", "runtime-finance"],
+      ["runtime-legal", "runtime-joiner"],
+      ["runtime-finance", "runtime-joiner"],
+    ]));
+    expectNoOverlaps(layoutImpactGraph(compact, { nodes: [], edges: [] }).nodes);
+    const revealed = compactRuntimeGraph(runtime, new Set([String(group?.data.expandGroupId)]));
+    expect(revealed.nodes.find((node) => node.id === "runtime-classify")).toBeDefined();
+    expect(revealed.edges.map((edge) => [edge.source, edge.target])).toContainEqual([
+      "runtime-classify",
+      "runtime-extract",
+    ]);
+    expectNoOverlaps(layoutImpactGraph(revealed, { nodes: [], edges: [] }).nodes);
+  });
 });
