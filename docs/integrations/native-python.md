@@ -7,7 +7,7 @@ Use the native SDK when the application already has meaningful step boundaries o
 ## Installation
 
 ```bash
-python -m pip install "witdem-sdk==0.3.0"
+python -m pip install "witdem-sdk"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 

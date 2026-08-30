@@ -2257,6 +2257,66 @@ class AnalyticsRepository:
         )
         return rows[0] if rows else None
 
+    def workflow_projection(self, execution_id: str) -> dict[str, Any] | None:
+        if "workflow_execution_projections" not in self._tables:
+            return None
+        rows = self._query(
+            "SELECT projection FROM workflow_execution_projections WHERE execution_id = ? LIMIT 1",
+            [execution_id],
+        )
+        if not rows:
+            return None
+        value = rows[0].get("projection")
+        if isinstance(value, Mapping):
+            return dict(value)
+        try:
+            parsed = json.loads(str(value))
+        except (TypeError, ValueError):
+            return None
+        return dict(parsed) if isinstance(parsed, Mapping) else None
+
+    def workflow_projection_rows(
+        self,
+        workflow_id: str,
+        *,
+        limit: int | None = 100,
+    ) -> list[dict[str, Any]]:
+        if "workflow_execution_projections" not in self._tables:
+            return []
+        limit_clause = "" if limit is None else " LIMIT ?"
+        params: list[Any] = [workflow_id]
+        if limit is not None:
+            params.append(limit)
+        rows = self._query(
+            "SELECT execution_id, template_hash, projector_version, projection, projected_at "
+            "FROM workflow_execution_projections WHERE workflow_id = ? ORDER BY projected_at DESC"
+            + limit_clause,
+            params,
+        )
+        for row in rows:
+            value = row.get("projection")
+            try:
+                row["projection"] = value if isinstance(value, Mapping) else json.loads(str(value))
+            except (TypeError, ValueError):
+                row["projection"] = None
+        return rows
+
+    def workflow_projection_catalog(self) -> list[dict[str, Any]]:
+        if "workflow_execution_projections" not in self._tables:
+            return []
+        rows = self._query(
+            "SELECT workflow_id, COUNT(*) AS execution_count, "
+            "arg_max(projection, projected_at) AS latest_projection "
+            "FROM workflow_execution_projections GROUP BY workflow_id"
+        )
+        for row in rows:
+            value = row.get("latest_projection")
+            try:
+                row["latest_projection"] = value if isinstance(value, Mapping) else json.loads(str(value))
+            except (TypeError, ValueError):
+                row["latest_projection"] = None
+        return rows
+
     def execution_outcomes(self, execution_id: str) -> dict[str, Any]:
         """Return explicit runtime/application outcomes for one replay."""
 

@@ -98,6 +98,36 @@ ignore_observed:
 
 The full Haystack and LangGraph examples are in `examples/workflow-replay/`.
 
+## Compilation and rebuilds
+
+YAML is the only authored workflow source. Witdem automatically compiles a
+configured definition when its manifest is missing, corrupt, or stale:
+
+```bash
+witdem workflow compile
+witdem workflow compile --check
+witdem workflow compile --force
+```
+
+Manifests live at
+`${WITDEM_DATA_DIR}/compiled/workflows/<workflow-id>/<template-hash>.json`.
+They contain normalized nodes, transitions, outcomes, match indexes,
+dependency order, and stable logic/goal geometry. The browser only fits that
+geometry to the viewport. Validity is keyed by YAML content hash plus compiler
+version. `--check` never writes and exits nonzero for invalid, missing, or
+stale output.
+
+Execution projections are materialized during ELT. Historical executions keep
+the template hash observed when they ran, even after YAML changes. Rebuild
+serving data and projections from the immutable corpus after an upgrade with:
+
+```bash
+witdem workflow rebuild
+```
+
+Compiled manifests and projections are disposable derivatives; do not edit or
+back them up as authoritative workflow definitions.
+
 ## Matching and ingestion
 
 When exactly one workflow is registered, the SDK uses it automatically; otherwise pass `workflow="workflow-id"` to `Witdem.execution`. The SDK writes the workflow id and template hash onto execution spans and sends a `workflow.definition` semantic record whose `definition` is a nested object. The immutable SDK/OTel corpus remains the source of truth.
@@ -121,7 +151,12 @@ Workflow-first routes are:
 - `/workflows/{workflow_id}`
 - `/workflows/{workflow_id}/executions/{execution_id}`
 
-The workflow page shows the complete declared DAG in one vertical canvas. Stage labels remain visible beside their steps; no stage drill-down is required to discover the rest of the workflow. Step cards carry their business role and description plus runtime state, time, attempts, provider/model, tokens, and measured cost. Completed cards are visually neutral. Failed cards are red, recovered cards amber, running cards blue, and inactive branches gray. Clickability is a separate purple `Inspect evidence →` affordance. Detailed raw observations live in the step evidence drawer.
+The workflow page shows the complete declared DAG horizontally and fits the
+first view to the available page. Logic and goal flow use a toggle; evidence
+inspection opens vertically. Step cards carry their business role and
+description plus runtime state, time, attempts, provider/model, tokens, and
+measured cost. Failures use failure color, recovery uses attention color, and
+clickability remains a separate visible affordance.
 
 `/api/v1/runs/{execution_id}` remains compatible and returns `canonical_url`. The legacy UI route redirects associated runs to the workflow execution route. Unmatched historical runs retain the legacy replay instead of breaking.
 

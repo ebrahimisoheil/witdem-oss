@@ -20,7 +20,7 @@ Instrumenting Haystack 2 raises an explicit compatibility error. The exact range
 Until the SDK is published, install it from the Witdem checkout:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.3.0"
+python -m pip install "witdem-sdk[haystack]"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 

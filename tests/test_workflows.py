@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 
 from witdem.analytics.core import Execution, Operation
 from witdem.dashboard.app import create_dashboard_app
+from witdem.dashboard.service import materialize_workflow_projections
 from witdem.ingest import live_db
 from witdem.workflows import (
     WorkflowDefinition,
+    compile_registry,
     definition_from_record,
     load_registry,
     project_execution,
@@ -65,6 +67,36 @@ def _definition() -> WorkflowDefinition:
             "outcomes": [{"id": "answered", "name": "Answered", "from": ["respond", "fallback"]}],
         }
     )
+
+
+def test_compile_registry_writes_hashed_manifest_and_check_is_read_only(tmp_path: Path) -> None:
+    workflow_dir = tmp_path / "workflows"
+    workflow_dir.mkdir()
+    config = tmp_path / "witdem.yml"
+    definition = _definition()
+    config.write_text(
+        "version: 1\nworkflows:\n  - id: answer-flow\n    definition: workflows/answer.yml\n",
+        encoding="utf-8",
+    )
+    (workflow_dir / "answer.yml").write_text(
+        yaml.safe_dump(definition.model_dump(mode="json", by_alias=True), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    checked = compile_registry(config, check=True, root=tmp_path / "data")
+    assert checked["status"] == "stale"
+    assert not Path(checked["workflows"][0]["path"]).exists()
+
+    compiled = compile_registry(config, root=tmp_path / "data")
+    manifest_path = Path(compiled["workflows"][0]["path"])
+    assert manifest_path.name == f"{definition.template_hash}.json"
+    assert manifest_path.is_file()
+    assert compile_registry(config, check=True, root=tmp_path / "data")["status"] == "ok"
+
+    manifest_path.write_text("{broken", encoding="utf-8")
+    assert compile_registry(config, check=True, root=tmp_path / "data")["status"] == "stale"
+    assert compile_registry(config, root=tmp_path / "data")["status"] == "ok"
+    assert compile_registry(config, check=True, root=tmp_path / "data")["status"] == "ok"
 
 
 def test_project_execution_keeps_template_stable_and_embeds_model_calls() -> None:
@@ -297,6 +329,8 @@ def test_historical_and_new_executions_share_one_persisted_template(
             operations,
             [],
         )
+
+    materialize_workflow_projections(database, ["historical-run", "new-run"])
 
     client = TestClient(create_dashboard_app(database, static_dir=tmp_path / "missing"))
     catalog = client.get("/api/v1/workflow-definitions").json()

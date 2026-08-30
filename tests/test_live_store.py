@@ -25,6 +25,8 @@ def test_initialize_analytics_store_creates_empty_canonical_tables(tmp_path: Pat
         "outcomes",
         "workflow_templates",
         "execution_workflows",
+        "workflow_execution_projections",
+        "workflow_execution_nodes",
     }
     assert counts == {table: 0 for table in tables}
 

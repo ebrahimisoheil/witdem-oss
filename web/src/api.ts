@@ -234,6 +234,14 @@ export type Meta = {
   mode: string;
   contracts: ContractDefinition[];
   filters: Record<string, string[]>;
+  versions?: Record<string, string>;
+  update?: {
+    status: string;
+    latest?: Record<string, string>;
+    compatibility?: { compatible: boolean; protocol: string; platform: string };
+    guidance?: Record<string, string>;
+    release_notes_url?: string;
+  };
 };
 export type DashboardFilters = {
   workflow?: string;

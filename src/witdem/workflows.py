@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from hashlib import sha256
@@ -16,6 +17,12 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from witdem.config import storage_root
+
+WORKFLOW_MANIFEST_SCHEMA_VERSION = 1
+WORKFLOW_COMPILER_VERSION = "1"
+WORKFLOW_PROJECTOR_VERSION = "1"
 
 
 class WorkflowMatch(BaseModel):
@@ -263,6 +270,161 @@ def load_registry(path: str | Path | None = None) -> WorkflowRegistry:
     return WorkflowRegistry(definitions)
 
 
+def _dependency_order(definition: WorkflowDefinition) -> list[str]:
+    dependencies = {node.id: {item.node for item in node.depends_on} for node in definition.nodes}
+    order: list[str] = []
+    while len(order) < len(dependencies):
+        ready = sorted(
+            node_id
+            for node_id, required in dependencies.items()
+            if node_id not in order and required <= set(order)
+        )
+        if not ready:  # validation normally prevents this; keep the compiler defensive.
+            raise ValueError(f"workflow {definition.id!r} has no valid dependency order")
+        order.extend(ready)
+    return order
+
+
+def _normalized_layout(definition: WorkflowDefinition) -> dict[str, dict[str, float]]:
+    """Return stable viewport-independent coordinates for browser fitting."""
+
+    order = _dependency_order(definition)
+    level: dict[str, int] = {}
+    for node_id in order:
+        node = next(item for item in definition.nodes if item.id == node_id)
+        level[node_id] = 0 if not node.depends_on else 1 + max(level[item.node] for item in node.depends_on)
+    columns: dict[int, list[str]] = defaultdict(list)
+    for node_id in order:
+        columns[level[node_id]].append(node_id)
+    width = max(columns, default=0) or 1
+    result: dict[str, dict[str, float]] = {}
+    for column, node_ids in columns.items():
+        denominator = max(1, len(node_ids) - 1)
+        for index, node_id in enumerate(node_ids):
+            result[node_id] = {
+                "x": column / width,
+                "y": 0.5 if len(node_ids) == 1 else index / denominator,
+            }
+    return result
+
+
+def compiled_manifest(definition: WorkflowDefinition) -> dict[str, Any]:
+    api = definition.api_dict()
+    return {
+        "schema_version": WORKFLOW_MANIFEST_SCHEMA_VERSION,
+        "compiler_version": WORKFLOW_COMPILER_VERSION,
+        "workflow_id": definition.id,
+        "template_hash": definition.template_hash,
+        "definition": api,
+        "match_index": {
+            "workflow": definition.match.model_dump(mode="json"),
+            "nodes": {node.id: node.match.model_dump(mode="json") for node in definition.nodes},
+        },
+        "dependency_order": _dependency_order(definition),
+        "layouts": {
+            "logic": _normalized_layout(definition),
+            "goal": {
+                stage.id: {"x": index / max(1, len(definition.stages) - 1), "y": 0.5}
+                for index, stage in enumerate(definition.stages)
+            },
+        },
+    }
+
+
+def workflow_manifest_path(definition: WorkflowDefinition, root: Path | None = None) -> Path:
+    base = root or storage_root()
+    return base / "compiled" / "workflows" / definition.id / f"{definition.template_hash}.json"
+
+
+def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            json.dump(dict(value), handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def compile_definition(
+    definition: WorkflowDefinition,
+    *,
+    force: bool = False,
+    root: Path | None = None,
+) -> dict[str, Any]:
+    target = workflow_manifest_path(definition, root)
+    expected = compiled_manifest(definition)
+    current: Any = None
+    if target.is_file():
+        try:
+            current = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            current = None
+    valid = current == expected
+    if force or not valid:
+        _atomic_json(target, expected)
+    return {
+        "workflow_id": definition.id,
+        "template_hash": definition.template_hash,
+        "path": str(target),
+        "status": "current" if valid and not force else "compiled",
+    }
+
+
+def compile_registry(
+    path: str | Path | None = None,
+    *,
+    check: bool = False,
+    force: bool = False,
+    root: Path | None = None,
+) -> dict[str, Any]:
+    """Compile configured YAML workflows into disposable hashed manifests."""
+
+    registry = load_registry(path)
+    results: list[dict[str, Any]] = []
+    stale = False
+    for definition in registry.definitions.values():
+        target = workflow_manifest_path(definition, root)
+        expected = compiled_manifest(definition)
+        current: Any = None
+        if target.is_file():
+            try:
+                current = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                current = None
+        valid = current == expected
+        if not valid:
+            stale = True
+            if not check:
+                result = compile_definition(definition, root=root)
+            else:
+                result = {
+                    "workflow_id": definition.id,
+                    "template_hash": definition.template_hash,
+                    "path": str(target),
+                    "status": "stale",
+                }
+        elif force and not check:
+            result = compile_definition(definition, force=True, root=root)
+        else:
+            result = {
+                "workflow_id": definition.id,
+                "template_hash": definition.template_hash,
+                "path": str(target),
+                "status": "current" if valid else "stale",
+            }
+        results.append(result)
+    return {
+        "status": "stale" if check and stale else "ok",
+        "compiler_version": WORKFLOW_COMPILER_VERSION,
+        "workflows": results,
+    }
+
+
 def definition_from_record(records: Sequence[Mapping[str, Any]]) -> WorkflowDefinition | None:
     for record in reversed(records):
         if record.get("name") != "workflow.definition":
@@ -382,6 +544,7 @@ def project_execution(
         "workflow": {
             **definition.api_dict(),
             "template_hash": definition.template_hash,
+            "layouts": compiled_manifest(definition)["layouts"],
         },
         "execution": dict(execution),
         "stages": stages,

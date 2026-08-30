@@ -34,64 +34,45 @@ execution graph, business outcome, cost, and contract evidence.
 
 ## First run
 
-Start the local receiver, ELT worker, and dashboard:
+Choose one backend launcher. Applications use `witdem-sdk` with either path.
+
+Docker-managed (requires Docker Compose):
 
 ```bash
-npx -y witdem@0.3.0 up
+npx -y witdem@latest up
 ```
 
-That pulls the version-matched container, starts all three services, waits for
-them to become healthy, and opens `http://localhost:8501`. Docker with Compose
-is the only prerequisite. Data persists across `down` and package upgrades.
+Native Python (requires Python and [pipx](https://pipx.pypa.io/)):
 
 ```bash
-npx -y witdem@0.3.0 status
-npx -y witdem@0.3.0 logs
-npx -y witdem@0.3.0 down
+pipx install witdem-analytics
+witdem up
 ```
 
-### Upgrade an existing installation
-
-Witdem releases the npm launcher, container, analytics package, and SDK with
-the same version. To upgrade an existing local backend, run the launcher at
-the new version. For example, to move from `0.3.0` to `0.3.1`:
+Both start the receiver, ELT worker, and dashboard, wait for health, open
+`http://localhost:8501`, and preserve data across `down` and upgrades. Their
+lifecycle vocabulary is the same:
 
 ```bash
-npx -y witdem@0.3.1 up
+npx -y witdem@latest status       # Docker path
+witdem status                     # pipx path
+npx -y witdem@latest logs receiver
+witdem down
 ```
 
-The launcher selects the matching container image and recreates the services.
-Collected executions remain in the named `witdem-data` Docker volume, and
-supported additive database changes are applied when the services start.
-
-Upgrade the SDK separately in each instrumented application, preserving the
-integration extra that application uses:
+Check releases and compatibility without changing packages or data:
 
 ```bash
-python -m pip install --upgrade "witdem-sdk[haystack]==0.3.1"
+npx -y witdem@latest update --check
+witdem update --check
 ```
 
-For a uv-managed application, update its project requirement and lockfile:
-
-```bash
-uv add "witdem-sdk[haystack]==0.3.1"
-```
-
-Upgrade the backend first, then roll out the matching SDK version to
-applications gradually. Verify the result with:
-
-```bash
-npx -y witdem@0.3.1 status
-witdem-sdk validate
-```
-
-Explicit version pins are intentional: existing installations do not move to
-a new release until their operator selects it.
+See the [upgrade guide](docs/upgrade.md) for exact NPX, pipx, and SDK commands.
 
 Add the SDK to an existing Haystack 3 project:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.3.0"
+python -m pip install "witdem-sdk[haystack]"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
@@ -205,9 +186,8 @@ The runnable [Haystack parallel pipeline](examples/haystack/pipeline/README.md) 
 
 ## Self-hosting
 
-The npm launcher is the recommended local backend path. It is deliberately a
-small, dependency-free Docker launcher rather than a second implementation of
-Witdem. It never runs an npm `postinstall` script.
+NPX is the Docker-managed path; pipx is a genuinely native, Node-free and
+Docker-free path. The npm package never runs a `postinstall` script.
 
 | Service | Address | Purpose |
 | --- | --- | --- |
@@ -216,21 +196,14 @@ Witdem. It never runs an npm `postinstall` script.
 | ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
-npx -y witdem@0.3.0 status
+npx -y witdem@latest status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
 
-For source development, clone the repository and run `docker compose up -d`.
-See [Running Witdem with npx](docs/npm-launcher.md) for ports, lifecycle, image
-pinning, and troubleshooting.
-
-The Python-only development path is also available:
-
-```bash
-uv sync
-uv run witdem dev --open
-```
+See [Operations](docs/operations.md) for lifecycle, ports, logs, data,
+backup/recovery, and [Development](docs/development.md) only when contributing
+to Witdem itself.
 
 ## Documentation
 
@@ -251,6 +224,9 @@ uv run witdem dev --open
 - [Troubleshooting](docs/troubleshooting.md)
 - [Examples](docs/examples.md)
 - [Operations](docs/operations.md)
+- [CLI reference](docs/cli-reference.md)
+- [Upgrade and compatibility](docs/upgrade.md)
+- [Performance and lifecycle implementation report](docs/implementation-report.md)
 - [Development and contributing](docs/development.md)
 
 ## Community

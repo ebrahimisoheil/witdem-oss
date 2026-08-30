@@ -32,6 +32,9 @@ def _serve(args: argparse.Namespace) -> None:
     config = ResolvedConfig.from_args(args)
     os.environ.update(config.child_environment())
     live_db.initialize_analytics_store(config.database)
+    from witdem.workflows import compile_registry
+
+    compile_registry(root=config.data_directory)
     import uvicorn
 
     from witdem.api import app
@@ -370,6 +373,120 @@ def _version(args: argparse.Namespace) -> None:
         pass
 
 
+def _native_up(args: argparse.Namespace) -> None:
+    from witdem.lifecycle import native_up
+
+    config = ResolvedConfig.from_args(args)
+    try:
+        result = native_up(config, open_dashboard=bool(args.open))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    _print_result(result, as_json=bool(args.json))
+
+
+def _native_open(args: argparse.Namespace) -> None:
+    config = ResolvedConfig.from_args(args)
+    url = f"http://{config.dashboard_host}:{config.dashboard_port}"
+    if not _url_healthy(f"{url}/health"):
+        raise SystemExit("Witdem dashboard is not healthy; run 'witdem up' first")
+    webbrowser.open(url)
+    print(url)
+
+
+def _native_status(args: argparse.Namespace) -> None:
+    from witdem.lifecycle import native_status
+
+    result = native_status(ResolvedConfig.from_args(args))
+    _print_result(result, as_json=bool(args.json))
+    if not all(item["healthy"] for item in result["services"].values()):
+        raise SystemExit(1)
+
+
+def _native_logs(args: argparse.Namespace) -> None:
+    from witdem.lifecycle import native_logs
+
+    raise SystemExit(
+        native_logs(ResolvedConfig.from_args(args), args.service, follow=bool(args.follow))
+    )
+
+
+def _native_down(args: argparse.Namespace) -> None:
+    from witdem.lifecycle import native_down
+
+    result = native_down(ResolvedConfig.from_args(args))
+    _print_result(result, as_json=bool(args.json))
+
+
+def _workflow_compile(args: argparse.Namespace) -> None:
+    from witdem.workflows import compile_registry
+
+    root = Path(args.data_dir).expanduser() if args.data_dir else data_dir()
+    try:
+        result = compile_registry(args.config, check=bool(args.check), force=bool(args.force), root=root)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"workflow compilation failed: {exc}") from exc
+    print(json.dumps(result, indent=2))
+    if result["status"] != "ok":
+        raise SystemExit(1)
+
+
+def _workflow_rebuild(args: argparse.Namespace) -> None:
+    from witdem.dashboard.service import materialize_workflow_projections
+    from witdem.elt.worker import run_pending
+    from witdem.ingest import corpus
+
+    config = ResolvedConfig.from_args(args)
+    os.environ.update(config.child_environment())
+    live_db.initialize_analytics_store(config.database)
+    with corpus.maintenance_lock(timeout=60.0):
+        transform = run_pending(rebuild=True, maintenance_lock_held=True)
+        projections = materialize_workflow_projections(config.database)
+    print(json.dumps({"status": "ok", "transform": transform, "projections": projections}, indent=2))
+
+
+def _update_check(args: argparse.Namespace) -> None:
+    from witdem.update import check_updates
+
+    if not args.check:
+        raise SystemExit("update is detection-only; use 'witdem update --check'")
+    root = Path(args.data_dir).expanduser() if args.data_dir else data_dir()
+    result = check_updates(root=root, refresh=bool(args.refresh), offline=bool(args.offline))
+    _print_result(result, as_json=bool(args.json))
+
+
+def _print_result(value: dict[str, Any], *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(value, indent=2))
+        return
+    status = value.get("status")
+    if status:
+        print(f"Witdem {status}")
+    if value.get("dashboard"):
+        print(f"Dashboard: {value['dashboard']}")
+    if value.get("receiver"):
+        print(f"Receiver: {value['receiver']}")
+    services = value.get("services")
+    if isinstance(services, dict):
+        for name, service in services.items():
+            state = "healthy" if service.get("healthy") else "stopped"
+            print(f"{name}: {state}")
+    if value.get("data_preserved"):
+        print("Data preserved")
+    latest = value.get("latest")
+    current = value.get("current")
+    if isinstance(latest, dict) and isinstance(current, dict):
+        print(f"Installed: {current.get('platform')} · Latest: {latest.get('platform')}")
+    compatibility = value.get("compatibility")
+    if isinstance(compatibility, dict):
+        print(f"Compatibility: {'compatible' if compatibility.get('compatible') else 'attention required'}")
+    guidance = value.get("guidance")
+    if isinstance(guidance, dict):
+        for launcher, command in guidance.items():
+            print(f"{launcher}: {command}")
+    if value.get("reason"):
+        print(f"Reason: {value['reason']}")
+
+
 def _older_than_days(value: str) -> int:
     match = re.fullmatch(r"([1-9][0-9]*)d?", value.strip().casefold())
     if match is None:
@@ -443,26 +560,58 @@ def _port(value: str) -> int:
     return port
 
 
+def _add_runtime_options(command: argparse.ArgumentParser, *, include_hosts: bool = True) -> None:
+    if include_hosts:
+        command.add_argument("--host", default=None)
+        command.add_argument("--receiver-port", "--port", dest="port", type=_port, default=None)
+        command.add_argument("--dashboard-host", default=None)
+        command.add_argument("--dashboard-port", type=_port, default=None)
+    command.add_argument("--db")
+    command.add_argument("--data-dir")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="witdem", description="Runtime analytics for agent applications")
     commands = parser.add_subparsers(dest="command", required=True)
+    up = commands.add_parser("up", help="start native Witdem services in the background")
+    _add_runtime_options(up)
+    up.add_argument("--log-level", default=None)
+    open_choice = up.add_mutually_exclusive_group()
+    open_choice.add_argument("--open", dest="open", action="store_true")
+    open_choice.add_argument("--no-open", dest="open", action="store_false")
+    up.set_defaults(func=_native_up, open=True)
+    up.add_argument("--json", action="store_true")
+    open_command = commands.add_parser("open", help="open the running dashboard")
+    _add_runtime_options(open_command)
+    open_command.set_defaults(func=_native_open)
+    status = commands.add_parser("status", help="show native service and endpoint health")
+    _add_runtime_options(status)
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(func=_native_status)
+    logs = commands.add_parser("logs", help="show native Witdem service logs")
+    _add_runtime_options(logs)
+    logs.add_argument("service", nargs="?", choices=("receiver", "worker", "dashboard"))
+    logs.add_argument("--follow", action="store_true")
+    logs.set_defaults(func=_native_logs)
+    down = commands.add_parser("down", help="stop validated native Witdem services")
+    _add_runtime_options(down)
+    down.add_argument("--json", action="store_true")
+    down.set_defaults(func=_native_down)
     serve = commands.add_parser("serve", help="start the OTLP and SDK receiver")
     serve.add_argument("--host", default=None)
-    serve.add_argument("--port", type=_port, default=None)
+    serve.add_argument("--receiver-port", "--port", dest="port", type=_port, default=None)
     serve.add_argument("--db")
+    serve.add_argument("--data-dir")
     serve.add_argument("--log-level", default=None)
     serve.set_defaults(func=_serve)
     dashboard = commands.add_parser("dashboard", help="open the live dashboard")
     dashboard.add_argument("--db")
+    dashboard.add_argument("--data-dir")
     dashboard.add_argument("--dashboard-host", default=None)
     dashboard.add_argument("--dashboard-port", type=_port, default=None)
     dashboard.set_defaults(func=_dashboard)
     dev = commands.add_parser("dev", help="start the receiver and dashboard together")
-    dev.add_argument("--host", default=None)
-    dev.add_argument("--port", type=_port, default=None)
-    dev.add_argument("--dashboard-host", default=None)
-    dev.add_argument("--dashboard-port", type=_port, default=None)
-    dev.add_argument("--db")
+    _add_runtime_options(dev)
     dev.add_argument("--log-level", default=None)
     dev.add_argument("--open", action="store_true")
     dev.set_defaults(func=_dev)
@@ -476,14 +625,17 @@ def build_parser() -> argparse.ArgumentParser:
     reset.add_argument("--no-backup", action="store_true")
     reset.set_defaults(func=_reset)
     doctor = commands.add_parser("doctor", help="validate local Witdem configuration")
-    doctor.add_argument("--host", default=None)
-    doctor.add_argument("--port", type=_port, default=None)
-    doctor.add_argument("--dashboard-host", default=None)
-    doctor.add_argument("--dashboard-port", type=_port, default=None)
-    doctor.add_argument("--db")
+    _add_runtime_options(doctor)
     doctor.set_defaults(func=_doctor)
     version = commands.add_parser("version", help="show installed Witdem versions")
     version.set_defaults(func=_version)
+    update = commands.add_parser("update", help="check for compatible Witdem releases")
+    update.add_argument("--check", action="store_true", help="detect updates without changing anything")
+    update.add_argument("--refresh", action="store_true", help="bypass the 24-hour verified cache")
+    update.add_argument("--offline", action="store_true", help="use only the last verified cache")
+    update.add_argument("--data-dir")
+    update.add_argument("--json", action="store_true")
+    update.set_defaults(func=_update_check)
     prune = commands.add_parser("prune", help="delete corpus data older than a retention window")
     prune.add_argument("--older-than", required=True, type=_older_than_days, metavar="DAYS")
     prune.add_argument("--data-dir")
@@ -500,6 +652,24 @@ def build_parser() -> argparse.ArgumentParser:
     elt_worker.set_defaults(func=_elt_worker)
     elt_status = elt_commands.add_parser("status", help="show corpus and transform status")
     elt_status.set_defaults(func=_elt_status)
+    workflow = commands.add_parser("workflow", help="compile and rebuild workflow projections")
+    workflow_commands = workflow.add_subparsers(dest="workflow_command", required=True)
+    workflow_compile = workflow_commands.add_parser(
+        "compile",
+        help="validate and compile configured YAML workflows",
+    )
+    workflow_compile.add_argument("--config")
+    workflow_compile.add_argument("--data-dir")
+    workflow_compile.add_argument("--check", action="store_true")
+    workflow_compile.add_argument("--force", action="store_true")
+    workflow_compile.set_defaults(func=_workflow_compile)
+    workflow_rebuild = workflow_commands.add_parser(
+        "rebuild",
+        help="rebuild serving data and materialized workflow projections",
+    )
+    workflow_rebuild.add_argument("--db")
+    workflow_rebuild.add_argument("--data-dir")
+    workflow_rebuild.set_defaults(func=_workflow_rebuild)
     return parser
 
 

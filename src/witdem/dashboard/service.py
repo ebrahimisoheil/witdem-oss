@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from witdem.analytics.contracts import MetadataSnapshot
 from witdem.analytics.repository import AnalyticsRepository, create_backend
 from witdem.analytics.repository.state import FilterState
+from witdem.update import check_updates, installed_versions
 from witdem.workflows import WorkflowDefinition, definition_from_record, load_registry, project_execution
 
 
@@ -73,6 +74,8 @@ def _metadata_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
         ),
         "filters": {field: list(values) for field, values in snapshot.filters.items()},
         "contracts": list(snapshot.contracts),
+        "versions": installed_versions(),
+        "update": check_updates(offline=True),
     }
 
 
@@ -139,7 +142,11 @@ def runs(repo: AnalyticsRepository, filters: FilterState, page: int = 1, page_si
 
 def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] | None:
     fact = repo.execution_fact(execution_id)
-    rows = [row for row in repo.execution_rows(limit=None) if str(row["execution_id"]) == execution_id]
+    rows = (
+        []
+        if fact is not None
+        else [row for row in repo.execution_rows(limit=None) if str(row["execution_id"]) == execution_id]
+    )
     execution_row = rows[0] if rows else None
     if fact is None and execution_row is None:
         return None
@@ -154,9 +161,9 @@ def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] |
     graph = repo.replay(execution_id).model_dump(mode="json")
     semantic_records = [record.to_dict() for record in repo.semantic_replay_records(execution_id)]
     workflow = _resolve_workflow(repo, summary, graph, semantic_records)
-    projection = (
-        project_execution(workflow, execution=summary, graph=graph) if workflow is not None else None
-    )
+    projection = repo.workflow_projection(execution_id)
+    if projection is None and workflow is not None:
+        projection = project_execution(workflow, execution=summary, graph=graph)
     return cast(
         dict[str, Any],
         jsonable_encoder(
@@ -172,6 +179,46 @@ def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] |
             }
         ),
     )
+
+
+def _projection_for_execution(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] | None:
+    fact = repo.execution_fact(execution_id)
+    rows = (
+        []
+        if fact is not None
+        else [row for row in repo.execution_rows(limit=None) if str(row["execution_id"]) == execution_id]
+    )
+    execution_row = rows[0] if rows else None
+    if fact is None and execution_row is None:
+        return None
+    summary = {**(fact or {}), **(execution_row or {})}
+    summary["runtime_outcome"] = summary.get("runtime_outcome") or summary.get("runtime_status")
+    summary["known_cost"] = (
+        summary.get("known_cost")
+        if summary.get("known_cost") is not None
+        else summary.get("measured_cost")
+    )
+    graph = repo.replay(execution_id).model_dump(mode="json")
+    semantic_records = [record.to_dict() for record in repo.semantic_replay_records(execution_id)]
+    workflow = _resolve_workflow(repo, summary, graph, semantic_records)
+    return project_execution(workflow, execution=summary, graph=graph) if workflow is not None else None
+
+
+def materialize_workflow_projections(database: Path, execution_ids: list[str] | None = None) -> dict[str, int]:
+    """Build projections outside dashboard request handling and persist them atomically."""
+
+    projections: list[dict[str, Any]] = []
+    with repository(database) as repo:
+        selected = execution_ids or [str(row["execution_id"]) for row in repo.execution_rows(limit=None)]
+        for execution_id in selected:
+            projection = _projection_for_execution(repo, execution_id)
+            if projection is not None:
+                projections.append(projection)
+    from witdem.ingest.live_db import store_workflow_projection
+
+    for projection in projections:
+        store_workflow_projection(database, projection)
+    return {"requested": len(execution_ids or projections), "materialized": len(projections)}
 
 
 def _persisted_definitions(repo: AnalyticsRepository) -> dict[str, WorkflowDefinition]:
@@ -215,17 +262,9 @@ def _resolve_workflow(
 
 def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:
     definitions = {**_persisted_definitions(repo), **load_registry().definitions}
-    runs_by_workflow: dict[str, list[dict[str, Any]]] = {workflow_id: [] for workflow_id in definitions}
-    for row in repo.execution_rows(limit=None):
-        execution_id = str(row["execution_id"])
-        association = repo.execution_workflow(execution_id)
-        workflow_id = str(association.get("workflow_id")) if association else None
-        if workflow_id not in definitions:
-            detail = run_detail(repo, execution_id)
-            replay = detail.get("workflow_replay") if detail else None
-            workflow_id = str(replay["workflow"]["id"]) if replay else None
-        if workflow_id in runs_by_workflow:
-            runs_by_workflow[workflow_id].append(row)
+    projection_catalog = {
+        str(row["workflow_id"]): row for row in repo.workflow_projection_catalog()
+    }
     return cast(
         dict[str, Any],
         jsonable_encoder(
@@ -240,10 +279,17 @@ def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:
                         "template_hash": definition.template_hash,
                         "stage_count": len(definition.stages),
                         "node_count": len(definition.nodes),
-                        "execution_count": len(runs_by_workflow[definition.id]),
+                        "execution_count": int(
+                            (projection_catalog.get(definition.id) or {}).get("execution_count") or 0
+                        ),
                         "latest_execution": (
-                            runs_by_workflow[definition.id][0]
-                            if runs_by_workflow[definition.id]
+                            (projection_catalog.get(definition.id) or {})
+                            .get("latest_projection", {})
+                            .get("execution")
+                            if isinstance(
+                                (projection_catalog.get(definition.id) or {}).get("latest_projection"),
+                                dict,
+                            )
                             else None
                         ),
                     }
@@ -260,15 +306,15 @@ def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, An
     if definition is None:
         return None
     executions = []
-    for row in repo.execution_rows(limit=None):
-        execution_id = str(row["execution_id"])
-        association = repo.execution_workflow(execution_id)
-        detail = run_detail(repo, execution_id)
-        replay = detail.get("workflow_replay") if detail else None
-        associated = association and str(association.get("workflow_id")) == workflow_id
-        projected = replay and replay["workflow"]["id"] == workflow_id
-        if not associated and not projected:
+    catalog_row = next(
+        (row for row in repo.workflow_projection_catalog() if str(row["workflow_id"]) == workflow_id),
+        None,
+    )
+    for projected_row in repo.workflow_projection_rows(workflow_id):
+        replay = projected_row.get("projection")
+        if not isinstance(replay, dict) or replay.get("workflow", {}).get("id") != workflow_id:
             continue
+        row = dict(replay.get("execution") or {})
         nodes = replay.get("nodes", []) if replay else []
         active_nodes = [node for node in nodes if node.get("state") != "inactive"]
         attempts = sum(int(node.get("attempts") or 0) for node in active_nodes)
@@ -304,6 +350,7 @@ def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, An
                     "template_hash": definition.template_hash,
                 },
                 "executions": executions,
+                "execution_count": int((catalog_row or {}).get("execution_count") or len(executions)),
             }
         ),
     )

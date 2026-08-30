@@ -1,19 +1,9 @@
 import { Badge, Button, ProgressBar } from "@lemonsqueezy/wedges";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
-import {
-  GridComponent,
-  LegendComponent,
-  TooltipComponent,
-} from "echarts/components";
-import { LabelLayout } from "echarts/features";
-import * as echarts from "echarts/core";
-import { CanvasRenderer } from "echarts/renderers";
-import ReactEChartsCore from "echarts-for-react/lib/core";
 import { lazy, Suspense, useState } from "react";
 import type { ComparisonInsight, Overview, Performance, ProjectedWorkflowNode, Run, RunDetail, WorkflowStage } from "./api";
-import { formatNumber, money, percent, seconds } from "./api";
+import { api, formatNumber, money, percent, seconds } from "./api";
 import witdemMark from "./assets/witdem-mark-purple.png";
 
 const AdvancedWorkflowGraph = lazy(() =>
@@ -21,18 +11,16 @@ const AdvancedWorkflowGraph = lazy(() =>
     default: module.AdvancedWorkflowGraph,
   })),
 );
+const EChartsRuntime = lazy(() => import("./echarts-runtime"));
+const echarts = undefined;
 
-echarts.use([
-  ScatterChart,
-  BarChart,
-  LineChart,
-  PieChart,
-  GridComponent,
-  LegendComponent,
-  TooltipComponent,
-  LabelLayout,
-  CanvasRenderer,
-]);
+function ReactEChartsCore(props: React.ComponentProps<typeof EChartsRuntime>) {
+  return (
+    <Suspense fallback={<div className="animate-pulse rounded-lg bg-[#f4f3f0]" style={props.style as React.CSSProperties} />}>
+      <EChartsRuntime {...props} />
+    </Suspense>
+  );
+}
 
 const chartColors = [
   "#6d4aff",
@@ -109,9 +97,47 @@ export function Shell() {
       </aside>
       <main className="ml-56 min-h-screen">
         <div className="mx-auto max-w-[1480px] px-8 py-7">
+          <UpdateNotice />
           <Outlet />
         </div>
       </main>
+    </div>
+  );
+}
+
+function UpdateNotice() {
+  const { data } = useQuery({ queryKey: ["meta"], queryFn: api.meta, staleTime: 60_000 });
+  const update = data?.update;
+  const latest = update?.latest?.platform;
+  const incompatible = update?.compatibility?.compatible === false;
+  const visible = update?.status === "update-available" || incompatible;
+  const dismissalKey = `witdem-update-dismissed:${latest || "compatibility"}`;
+  const [dismissed, setDismissed] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem(dismissalKey) === "1",
+  );
+  if (!visible || dismissed) return null;
+  return (
+    <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-[#d9d0ef] bg-[#f5f1ff] px-4 py-2 text-xs text-[#4d3b75]">
+      <span>
+        {incompatible
+          ? "Witdem components need a compatibility update."
+          : `Witdem ${latest} is available.`}{" "}
+        {update?.release_notes_url && (
+          <a className="font-semibold underline" href={update.release_notes_url} target="_blank" rel="noreferrer">
+            Release notes
+          </a>
+        )}
+      </span>
+      <button
+        type="button"
+        className="shrink-0 font-semibold text-[#684bb0]"
+        onClick={() => {
+          window.localStorage.setItem(dismissalKey, "1");
+          setDismissed(true);
+        }}
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

@@ -89,3 +89,28 @@ CREATE TABLE IF NOT EXISTS execution_workflows (
     match_source VARCHAR,
     matched_at TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS workflow_execution_projections (
+    execution_id VARCHAR PRIMARY KEY,
+    workflow_id VARCHAR,
+    template_hash VARCHAR,
+    projector_version VARCHAR,
+    projection VARCHAR,
+    projected_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS workflow_execution_nodes (
+    execution_id VARCHAR,
+    workflow_id VARCHAR,
+    template_hash VARCHAR,
+    node_id VARCHAR,
+    state VARCHAR,
+    attempts BIGINT,
+    duration_seconds DOUBLE,
+    known_cost DOUBLE,
+    total_tokens DOUBLE,
+    providers VARCHAR,
+    models VARCHAR,
+    evidence VARCHAR,
+    PRIMARY KEY (execution_id, node_id)
+);

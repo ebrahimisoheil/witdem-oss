@@ -246,6 +246,29 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             match_source VARCHAR,
             matched_at TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS workflow_execution_projections (
+            execution_id VARCHAR PRIMARY KEY,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            projector_version VARCHAR,
+            projection VARCHAR,
+            projected_at TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS workflow_execution_nodes (
+            execution_id VARCHAR,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            node_id VARCHAR,
+            state VARCHAR,
+            attempts BIGINT,
+            duration_seconds DOUBLE,
+            known_cost DOUBLE,
+            total_tokens DOUBLE,
+            providers VARCHAR,
+            models VARCHAR,
+            evidence VARCHAR,
+            PRIMARY KEY (execution_id, node_id)
+        );
         """
     )
     # Additive serving migrations keep existing local databases rebuildable.
@@ -666,7 +689,7 @@ def _store_workflow_definition(
     *,
     source: str,
 ) -> None:
-    from witdem.workflows import WorkflowDefinition
+    from witdem.workflows import WorkflowDefinition, compile_definition
 
     validated = (
         definition
@@ -685,6 +708,7 @@ def _store_workflow_definition(
             utc_now(),
         ],
     )
+    compile_definition(validated)
 
 
 def _associate_workflow(
@@ -699,6 +723,73 @@ def _associate_workflow(
         "(execution_id, workflow_id, template_hash, match_source, matched_at) VALUES (?, ?, ?, ?, ?)",
         [execution_id, workflow_id, template_hash, source, utc_now()],
     )
+
+
+def store_workflow_projection(path: str | Path, projection: Mapping[str, Any]) -> None:
+    """Atomically replace one rebuildable workflow execution projection."""
+
+    from witdem.workflows import WORKFLOW_PROJECTOR_VERSION
+
+    database_path = Path(path).expanduser()
+    workflow = dict(projection.get("workflow") or {})
+    execution = dict(projection.get("execution") or {})
+    execution_id = str(execution.get("execution_id") or "")
+    workflow_id = str(workflow.get("id") or "")
+    template_hash = str(workflow.get("template_hash") or "")
+    if not execution_id or not workflow_id or not template_hash:
+        raise ValueError("workflow projection requires execution, workflow, and template identifiers")
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            connection.execute("DELETE FROM workflow_execution_nodes WHERE execution_id = ?", [execution_id])
+            connection.execute("DELETE FROM workflow_execution_projections WHERE execution_id = ?", [execution_id])
+            connection.execute(
+                "INSERT INTO workflow_execution_projections VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    execution_id,
+                    workflow_id,
+                    template_hash,
+                    WORKFLOW_PROJECTOR_VERSION,
+                    json.dumps(dict(projection), sort_keys=True, default=str),
+                    utc_now(),
+                ],
+            )
+            for node in projection.get("nodes", []):
+                if not isinstance(node, Mapping):
+                    continue
+                connection.execute(
+                    "INSERT INTO workflow_execution_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        execution_id,
+                        workflow_id,
+                        template_hash,
+                        str(node.get("id") or ""),
+                        str(node.get("state") or "inactive"),
+                        int(node.get("attempts") or 0),
+                        node.get("duration_seconds"),
+                        node.get("known_cost"),
+                        node.get("total_tokens"),
+                        json.dumps(node.get("providers") or []),
+                        json.dumps(node.get("models") or []),
+                        json.dumps(
+                            {
+                                "observations": node.get("observations") or [],
+                                "model_calls": node.get("model_calls") or [],
+                            },
+                            sort_keys=True,
+                            default=str,
+                        ),
+                    ],
+                )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
 
 
 def _match_configured_workflow(connection: duckdb.DuckDBPyConnection, execution: Execution) -> None:
