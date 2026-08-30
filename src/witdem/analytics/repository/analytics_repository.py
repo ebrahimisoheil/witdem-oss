@@ -50,7 +50,7 @@ from witdem.analytics.identity import (
     display_tool,
     model_value,
 )
-from witdem.analytics.operations import operation_identity
+from witdem.analytics.operations import operation_identity, token_measurement_applicable
 from witdem.analytics.read_model import aggregate_performance, dashboard_metrics, runtime_state
 from witdem.analytics.repository.sql_loader import load_query
 from witdem.analytics.repository.state import Capabilities, FilterState
@@ -185,19 +185,9 @@ def _cost_eligible(operation: Operation) -> bool:
 
 
 def _token_eligible(operation: Operation) -> bool:
-    return operation.kind == "model" or (
-        operation_identity(operation)["family"] in {"inference", "media"}
-        and any(
-            isinstance(operation.attributes.get(key), (int, float))
-            for key in (
-                "input_tokens",
-                "output_tokens",
-                "total_tokens",
-                "gen_ai.usage.input_tokens",
-                "gen_ai.usage.output_tokens",
-                "gen_ai.usage.total_tokens",
-            )
-        )
+    identity = operation_identity(operation)
+    return identity["family"] in {"inference", "media"} and token_measurement_applicable(
+        str(identity["type"]), operation.attributes
     )
 
 

@@ -41,7 +41,10 @@ def test_ocr_pages_are_measured_while_tokens_are_not_applicable() -> None:
     assert facts["pages.processed"]["value"] == 3
     assert facts["pages.processed"]["status"] == "measured"
     assert facts["cost.usd"]["value"] == 0.004
-    assert "tokens.total" not in facts
+    assert facts["tokens.input"]["status"] == "not_applicable"
+    assert facts["tokens.output"]["status"] == "not_applicable"
+    assert facts["tokens.total"]["status"] == "not_applicable"
+    assert _token_eligible(operation) is False
 
 
 def test_extension_operation_survives_without_provider_inference() -> None:

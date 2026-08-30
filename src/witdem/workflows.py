@@ -19,6 +19,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from witdem.analytics.operations import token_measurement_applicable
 from witdem.config import storage_root
 
 WORKFLOW_MANIFEST_SCHEMA_VERSION = 1
@@ -640,7 +641,15 @@ def _project_node(
         )
     ]
     cost_measured = [item for item in cost_eligible if isinstance(item.get("known_cost"), (int, float))]
-    token_eligible = [item for item in attributed if str(item.get("kind")) == "model"]
+    token_eligible = [
+        item
+        for item in attributed
+        if str(item.get("kind")) == "model"
+        and token_measurement_applicable(
+            str(_mapping(item.get("attributes")).get("witdem.operation.type") or "text_generation"),
+            _mapping(item.get("attributes")),
+        )
+    ]
     token_measured = [item for item in token_eligible if isinstance(item.get("total_tokens"), (int, float))]
     return {
         **node.model_dump(mode="json"),

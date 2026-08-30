@@ -147,6 +147,12 @@ MEASUREMENT_REGISTRY: dict[str, dict[str, MeasurementDefinition]] = {
         "pages.processed": MeasurementDefinition("pages.processed", "page", requirement="required"),
         "bytes.input": MeasurementDefinition("bytes.input", "byte"),
         "characters.output": MeasurementDefinition("characters.output", "character"),
+        # OCR providers commonly bill per page and do not expose token usage.
+        # Keep token fields visible as explicitly not applicable instead of
+        # treating their absence as incomplete model telemetry.
+        "tokens.input": MeasurementDefinition("tokens.input", "token"),
+        "tokens.output": MeasurementDefinition("tokens.output", "token"),
+        "tokens.total": MeasurementDefinition("tokens.total", "token"),
     },
     "document_processing": {
         "pages.processed": MeasurementDefinition("pages.processed", "page", requirement="conditional"),
@@ -250,6 +256,34 @@ ATTRIBUTE_MEASUREMENTS = {
     "cost_usd": ("cost.usd", "USD"),
     "gen_ai.cost.usd": ("cost.usd", "USD"),
 }
+
+
+def token_measurement_applicable(operation_type: str, attributes: Mapping[str, Any]) -> bool:
+    """Return whether complete token reporting applies to one operation.
+
+    Observed token values always make the operation applicable. Otherwise the
+    registry controls applicability: required and conditional token meters are
+    eligible, while optional-only token meters (such as OCR) are explicitly
+    not applicable when the provider reports none.
+    """
+
+    token_attributes = (
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.total_tokens",
+    )
+    if any(
+        isinstance(attributes.get(key), (int, float)) and not isinstance(attributes.get(key), bool)
+        for key in token_attributes
+    ):
+        return True
+    return any(
+        key.startswith("tokens.") and definition.requirement in {"required", "conditional"}
+        for key, definition in MEASUREMENT_REGISTRY.get(operation_type, {}).items()
+    )
 
 
 def _strings(value: Any) -> list[str]:

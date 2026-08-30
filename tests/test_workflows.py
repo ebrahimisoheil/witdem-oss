@@ -232,6 +232,46 @@ def test_projected_node_uses_deduplicated_active_wall_time_and_measurement_cover
     assert node["token_measured_operations"] == 0
 
 
+def test_projected_ocr_node_marks_unreported_tokens_not_applicable() -> None:
+    replay = project_execution(
+        _definition(),
+        execution={"execution_id": "ocr-run"},
+        graph={
+            "nodes": [
+                {
+                    "id": "response",
+                    "name": "respond",
+                    "kind": "graph_node",
+                    "status": "ok",
+                    "attributes": {"technical.span_id": "response-span"},
+                },
+                {
+                    "id": "model",
+                    "name": "ocr",
+                    "kind": "model",
+                    "status": "ok",
+                    "parent_operation_id": "response-span",
+                    "provider": "gateway-any",
+                    "model": "document-reader",
+                    "known_cost": 0.004,
+                    "attributes": {
+                        "witdem.operation.type": "ocr",
+                        "gen_ai.usage.ocr_pages": 1,
+                    },
+                },
+            ],
+            "edges": [],
+        },
+    )
+
+    node = next(item for item in replay["nodes"] if item["id"] == "respond")
+    assert node["cost_eligible_operations"] == 1
+    assert node["cost_measured_operations"] == 1
+    assert node["token_eligible_operations"] == 0
+    assert node["token_measured_operations"] == 0
+    assert node["total_tokens"] is None
+
+
 def test_parallel_declared_nodes_keep_independent_active_wall_time() -> None:
     replay = project_execution(
         _definition(),
