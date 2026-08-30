@@ -54,9 +54,9 @@ const modelFamily = (name: string) =>
 
 const nav = [
   ["/", "Overview"],
-  ["/workflows", "Workflows"],
   ["/system-health", "System health"],
   ["/goal-performance", "Goal performance"],
+  ["/workflows", "Workflows"],
   ["/runs", "All executions"],
   ["/compare", "Compare"],
   ["/issues", "Issues"],

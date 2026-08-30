@@ -43,6 +43,18 @@ contracts:
     return target
 
 
+def test_sdk_help_is_available_without_the_analytics_package(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "usage: witdem-sdk" in help_text
+    assert "init" in help_text
+    assert "validate" in help_text
+    assert "run" in help_text
+
+
 def test_contract_evaluates_complete_business_meaning(tmp_path: Path) -> None:
     config = load_project_config(_write_config(tmp_path), required=True)
     assert config is not None

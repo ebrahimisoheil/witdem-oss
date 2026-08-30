@@ -66,7 +66,7 @@ def _delegate_to_analytics(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments and arguments[0] not in {"init", "validate", "run"}:
+    if arguments and arguments[0] not in {"init", "validate", "run", "-h", "--help"}:
         return _delegate_to_analytics(arguments)
     parser = argparse.ArgumentParser(prog="witdem-sdk")
     commands = parser.add_subparsers(dest="command", required=True)
