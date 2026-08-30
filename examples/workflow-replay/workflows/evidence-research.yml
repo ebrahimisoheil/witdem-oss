@@ -76,4 +76,3 @@ stages:
 outcomes:
   - {id: answered, name: Answer delivered, from: [validate]}
   - {id: safe_failure, name: Safe fallback delivered, from: [safe_fallback]}
-

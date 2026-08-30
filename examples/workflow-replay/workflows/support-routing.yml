@@ -42,4 +42,3 @@ stages:
 outcomes:
   - {id: resolved, name: Resolved, from: [answer]}
   - {id: escalated, name: Escalated, from: [escalate]}
-

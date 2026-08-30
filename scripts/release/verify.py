@@ -185,8 +185,13 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         )
     if observed_tag and not existing_tag_commit:
         errors.append(f"release tag {expected_tag} is not available in the checkout")
-    if require_clean and _git("status", "--porcelain"):
-        errors.append("release worktree is not clean")
+    if require_clean:
+        if _git("status", "--porcelain"):
+            errors.append("release worktree is not clean")
+        try:
+            _git("show", "--check", "--oneline", "--no-renames", "HEAD")
+        except RuntimeError as error:
+            errors.append(f"release commit contains whitespace errors: {error}")
     return errors
 
 

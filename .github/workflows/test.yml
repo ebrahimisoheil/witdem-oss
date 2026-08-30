@@ -6,6 +6,21 @@ on:
     branches: [main]
 
 jobs:
+  diff-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject whitespace errors in the commit and proposed diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git show --check --oneline --no-renames HEAD
+          if test -n "$BASE_SHA" && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --check "$BASE_SHA...HEAD"
+          fi
+
   npm-launcher:
     runs-on: ubuntu-latest
     defaults:

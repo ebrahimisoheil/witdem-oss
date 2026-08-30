@@ -10,4 +10,3 @@ workflows:
   - id: support-routing
     definition: workflows/support-routing.yml
 default_workflow: evidence-research
-

@@ -9,7 +9,7 @@
   "packageManager": "npm@11.4.1",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/normalize-generated-assets.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run"
   },
