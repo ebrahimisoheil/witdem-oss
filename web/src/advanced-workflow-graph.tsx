@@ -148,17 +148,20 @@ const runtimeTone = (node: Record<string, unknown>, isRoot: boolean): Tone => {
   return "slate";
 };
 
-const evaluationMissed = (record: Record<string, unknown>) => {
-  if (record.kind !== "evaluation") return false;
+const evaluationPass = (record: Record<string, unknown>): boolean | null => {
+  if (record.kind !== "evaluation") return null;
   const attributes = (record.attributes || {}) as Record<string, unknown>;
+  if (typeof attributes.passed === "boolean") return attributes.passed;
   const target = attributes.target;
   const score = record.score ?? attributes.score ?? record.value;
-  if (typeof target === "boolean") return Boolean(score) !== target;
+  if (typeof target === "boolean" && typeof score === "boolean") return score === target;
+  if (typeof target === "boolean" && (score === 0 || score === 1)) return Boolean(score) === target;
   if (typeof target === "number" && typeof score === "number") {
     const direction = String(attributes.direction || "higher_is_better");
-    return direction === "lower_is_better" ? score > target : score < target;
+    return direction === "lower_is_better" ? score <= target : score >= target;
   }
-  return ["invalid", "failed", "error"].includes(String(record.status || "").toLowerCase());
+  if (target != null && score != null) return score === target;
+  return null;
 };
 
 export const businessTone = (record: Record<string, unknown>): Tone => {
@@ -167,7 +170,10 @@ export const businessTone = (record: Record<string, unknown>): Tone => {
   if (record.name === "product_goal") return value === "achieved" ? "green" : "red";
   if (record.kind === "evaluation_summary") return Number(attributes.failed_count || 0) > 0 ? "red" : "green";
   if (record.kind === "metric_summary") return "slate";
-  if (record.kind === "evaluation") return evaluationMissed(record) ? "red" : "green";
+  if (record.kind === "evaluation") {
+    const passed = evaluationPass(record);
+    return passed === true ? "green" : passed === false ? "red" : "slate";
+  }
   if (attributes.decision_correct === false || ["invalid", "failed", "error"].includes(value)) return "red";
   if (["escalated", "warning", "partial"].includes(value)) return "amber";
   if (["rejected", "false"].includes(value)) return "slate";
@@ -198,7 +204,7 @@ export const selectBusinessGraphRecords = (records: Array<Record<string, unknown
   });
   const evaluations = records.filter((record) => record.kind === "evaluation");
   if (evaluations.length) {
-    const failed = evaluations.filter(evaluationMissed);
+    const failed = evaluations.filter((record) => evaluationPass(record) === false);
     selected.push({
       record_id: "contract-checks",
       kind: "evaluation_summary",
@@ -211,7 +217,7 @@ export const selectBusinessGraphRecords = (records: Array<Record<string, unknown
           : "All declared checks passed",
         summary_items: evaluations.map((record) => ({
           label: String(record.name || "Evaluation"),
-          value: evaluationMissed(record) ? "Needs attention" : "Passed",
+          value: evaluationPass(record) === false ? "Needs attention" : evaluationPass(record) === true ? "Passed" : "Unassessed",
         })),
         summary_records: evaluations,
       },
@@ -791,11 +797,11 @@ const makeBusinessGraph = (detail: RunDetail) => {
           const diagnostics = Object.entries(itemAttributes)
             .filter(([key, itemValue]) => !reserved.has(key) && itemValue != null && !key.startsWith("witdem."))
             .map(([key, itemValue]) => ({ label: human(key), value: displayValue(itemValue) }));
-          const missed = evaluationMissed(item);
+          const passed = evaluationPass(item);
           return {
             title: String(item.name || "Evaluation"),
-            status: missed ? "Needs attention" : "Passed",
-            tone: missed ? "amber" : "green",
+            status: passed === false ? "Needs attention" : passed === true ? "Passed" : "Unassessed",
+            tone: passed === false ? "amber" : passed === true ? "green" : "slate",
             description: itemAttributes.evaluation_description ? String(itemAttributes.evaluation_description) : undefined,
             facts: [
               { label: "Observed", value: displayValue(observed) },

@@ -64,9 +64,7 @@ def test_duckle_commits_do_not_create_parallel_jsonl_stores(monkeypatch, tmp_pat
     raw_store.commit_spans(
         [{"trace_id": "trace-1", "span_id": "span-1", "attributes": {"witdem.execution_id": "run-4"}}]
     )
-    sdk_store.commit_record(
-        {"event_id": "event-1", "execution_id": "run-4", "kind": "event", "name": "reported"}
-    )
+    sdk_store.commit_record({"event_id": "event-1", "execution_id": "run-4", "kind": "event", "name": "reported"})
 
     assert not (tmp_path / "raw_spans").exists()
     assert not (tmp_path / "sdk_records").exists()

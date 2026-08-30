@@ -249,9 +249,7 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
             return
 
         input_tokens = _usage_value(usage, "prompt_tokens", "input_tokens", "prompt_token_count")
-        output_tokens = _usage_value(
-            usage, "completion_tokens", "output_tokens", "candidates_token_count"
-        )
+        output_tokens = _usage_value(usage, "completion_tokens", "output_tokens", "candidates_token_count")
         total_tokens = _usage_value(usage, "total_tokens", "total_token_count")
         cache_read_tokens = _usage_value(
             usage, "cache_read_tokens", "cache_read_input_tokens", "cached_content_token_count"

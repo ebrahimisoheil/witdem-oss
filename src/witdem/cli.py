@@ -307,11 +307,7 @@ def _doctor(args: argparse.Namespace) -> None:
         if _port_available(host, port):
             checks[label] = "available"
         else:
-            health_url = (
-                f"http://{host}:{port}/readiness"
-                if label == "server_port"
-                else f"http://{host}:{port}/health"
-            )
+            health_url = f"http://{host}:{port}/readiness" if label == "server_port" else f"http://{host}:{port}/health"
             checks[label] = "running and healthy" if _url_healthy(health_url) else "error: occupied but unhealthy"
     checks["python"] = sys.version.split()[0]
     checks["witdem_analytics"] = __version__
@@ -405,9 +401,7 @@ def _native_status(args: argparse.Namespace) -> None:
 def _native_logs(args: argparse.Namespace) -> None:
     from witdem.lifecycle import native_logs
 
-    raise SystemExit(
-        native_logs(ResolvedConfig.from_args(args), args.service, follow=bool(args.follow))
-    )
+    raise SystemExit(native_logs(ResolvedConfig.from_args(args), args.service, follow=bool(args.follow)))
 
 
 def _native_down(args: argparse.Namespace) -> None:
@@ -442,6 +436,40 @@ def _workflow_rebuild(args: argparse.Namespace) -> None:
         transform = run_pending(rebuild=True, maintenance_lock_held=True)
         projections = materialize_workflow_projections(config.database)
     print(json.dumps({"status": "ok", "transform": transform, "projections": projections}, indent=2))
+
+
+def _eval_validate(args: argparse.Namespace) -> None:
+    from witdem.evaluation_campaigns import validate_jsonl
+
+    try:
+        campaign, results = validate_jsonl(args.path)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"evaluation campaign validation failed: {exc}") from exc
+    print(
+        json.dumps(
+            {"status": "ok", "campaign_id": campaign.campaign_id, "results": len(results)},
+            indent=2,
+        )
+    )
+
+
+def _eval_import(args: argparse.Namespace) -> None:
+    from witdem.evaluation_campaigns import validate_jsonl
+    from witdem.ingest.live_db import initialize_analytics_store, store_evaluation_campaign
+
+    config = ResolvedConfig.from_args(args)
+    try:
+        campaign, results = validate_jsonl(args.path)
+        initialize_analytics_store(config.database)
+        store_evaluation_campaign(config.database, campaign, results)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"evaluation campaign import failed: {exc}") from exc
+    print(
+        json.dumps(
+            {"status": "ok", "campaign_id": campaign.campaign_id, "results": len(results)},
+            indent=2,
+        )
+    )
 
 
 def _update_check(args: argparse.Namespace) -> None:
@@ -670,6 +698,16 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_rebuild.add_argument("--db")
     workflow_rebuild.add_argument("--data-dir")
     workflow_rebuild.set_defaults(func=_workflow_rebuild)
+    evaluations = commands.add_parser("eval", help="validate or import offline evaluation campaigns")
+    evaluation_commands = evaluations.add_subparsers(dest="evaluation_command", required=True)
+    evaluation_validate = evaluation_commands.add_parser("validate", help="validate campaign JSONL without writes")
+    evaluation_validate.add_argument("path")
+    evaluation_validate.set_defaults(func=_eval_validate)
+    evaluation_import = evaluation_commands.add_parser("import", help="import a validated campaign JSONL")
+    evaluation_import.add_argument("path")
+    evaluation_import.add_argument("--db")
+    evaluation_import.add_argument("--data-dir")
+    evaluation_import.set_defaults(func=_eval_import)
     return parser
 
 

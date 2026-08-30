@@ -313,10 +313,7 @@ class _ClientProxy:
 def instrument_openrouter(client: Any, *, witdem: Any) -> Any:
     """Return a content-safe proxy for an OpenAI-compatible OpenRouter client."""
 
-    if not (
-        (hasattr(client, "chat") and hasattr(client.chat, "completions"))
-        or hasattr(client, "responses")
-    ):
+    if not ((hasattr(client, "chat") and hasattr(client.chat, "completions")) or hasattr(client, "responses")):
         raise TypeError("OpenRouter instrumentation expects an OpenAI-compatible client")
     return _ClientProxy(client, witdem)
 

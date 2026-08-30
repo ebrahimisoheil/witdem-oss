@@ -1317,7 +1317,7 @@ wheels = [
 
 [[package]]
 name = "witdem-analytics"
-version = "0.3.0"
+version = "0.1.0"
 source = { editable = "../../../" }
 dependencies = [
     { name = "cryptography" },
@@ -1366,7 +1366,7 @@ dev = [
 
 [[package]]
 name = "witdem-sdk"
-version = "0.3.0"
+version = "0.1.0"
 source = { editable = "../../../witdem-sdk" }
 dependencies = [
     { name = "httpx" },

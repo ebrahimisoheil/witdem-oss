@@ -11,6 +11,7 @@ import os
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal
@@ -22,7 +23,7 @@ from witdem.config import storage_root
 
 WORKFLOW_MANIFEST_SCHEMA_VERSION = 1
 WORKFLOW_COMPILER_VERSION = "1"
-WORKFLOW_PROJECTOR_VERSION = "1"
+WORKFLOW_PROJECTOR_VERSION = "2"
 
 
 class WorkflowMatch(BaseModel):
@@ -57,6 +58,34 @@ class RetrySpec(BaseModel):
     max_attempts: int | None = Field(default=None, ge=2)
 
 
+class OperationDeclaration(BaseModel):
+    """Optional vendor-neutral analytics expectations for a workflow node."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = Field(min_length=1)
+    expects: list[str] = Field(default_factory=list)
+    optional: list[str] = Field(default_factory=list)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: str) -> str:
+        normalized = value.strip().casefold()
+        from witdem.analytics.operations import OPERATION_FAMILIES
+
+        if normalized not in OPERATION_FAMILIES and not normalized.startswith("x."):
+            raise ValueError("operation type must be a well-known type or use x.<namespace>.<name>")
+        return normalized
+
+    @field_validator("expects", "optional")
+    @classmethod
+    def normalize_measurements(cls, values: list[str]) -> list[str]:
+        normalized = [str(value).strip().casefold() for value in values]
+        if any(not value for value in normalized):
+            raise ValueError("operation measurement names cannot be empty")
+        return list(dict.fromkeys(normalized))
+
+
 class WorkflowNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -67,6 +96,7 @@ class WorkflowNode(BaseModel):
     match: NodeMatch = Field(default_factory=NodeMatch)
     depends_on: list[NodeDependency] = Field(default_factory=list)
     retry: RetrySpec | None = None
+    operation: OperationDeclaration | None = None
 
     @field_validator("depends_on", mode="before")
     @classmethod
@@ -104,6 +134,13 @@ class WorkflowOutcome(BaseModel):
     from_nodes: list[str] = Field(default_factory=list, alias="from")
 
 
+class EvaluationSuite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workflow: str | None = None
+    evaluations: list[str] = Field(min_length=1)
+
+
 class WorkflowDefinition(BaseModel):
     """Framework-neutral presentation contract stored as ordinary YAML."""
 
@@ -118,6 +155,7 @@ class WorkflowDefinition(BaseModel):
     ignore_observed: list[NodeMatch] = Field(default_factory=list)
     stages: list[WorkflowStage] = Field(min_length=1)
     outcomes: list[WorkflowOutcome] = Field(default_factory=list)
+    evaluation_suites: dict[str, EvaluationSuite] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_references(self) -> WorkflowDefinition:
@@ -142,6 +180,13 @@ class WorkflowDefinition(BaseModel):
             unknown = set(outcome.from_nodes) - set(node_ids)
             if unknown:
                 raise ValueError(f"outcome {outcome.id!r} references unknown nodes: {', '.join(sorted(unknown))}")
+        for suite_id, suite in self.evaluation_suites.items():
+            if not suite_id.strip():
+                raise ValueError("evaluation suite ids cannot be empty")
+            if suite.workflow is not None and suite.workflow != self.id:
+                raise ValueError(
+                    f"evaluation suite {suite_id!r} references workflow {suite.workflow!r}, expected {self.id!r}"
+                )
         return self
 
     @property
@@ -263,9 +308,7 @@ def load_registry(path: str | Path | None = None) -> WorkflowRegistry:
         definition_path = (resolved.parent / reference.definition).resolve()
         definition = WorkflowDefinition.model_validate(yaml.safe_load(definition_path.read_text(encoding="utf-8")))
         if definition.id != reference.id:
-            raise ValueError(
-                f"workflow reference {reference.id!r} points to definition with id {definition.id!r}"
-            )
+            raise ValueError(f"workflow reference {reference.id!r} points to definition with id {definition.id!r}")
         definitions.append(definition)
     return WorkflowRegistry(definitions)
 
@@ -275,9 +318,7 @@ def _dependency_order(definition: WorkflowDefinition) -> list[str]:
     order: list[str] = []
     while len(order) < len(dependencies):
         ready = sorted(
-            node_id
-            for node_id, required in dependencies.items()
-            if node_id not in order and required <= set(order)
+            node_id for node_id, required in dependencies.items() if node_id not in order and required <= set(order)
         )
         if not ready:  # validation normally prevents this; keep the compiler defensive.
             raise ValueError(f"workflow {definition.id!r} has no valid dependency order")
@@ -487,8 +528,7 @@ def project_execution(
             parent = str((parent_item or {}).get("parent_operation_id") or (parent_item or {}).get("parent") or "")
 
     projected_nodes = [
-        _project_node(node, matches.get(node.id, []), owned_models.get(node.id, []))
-        for node in definition.nodes
+        _project_node(node, matches.get(node.id, []), owned_models.get(node.id, [])) for node in definition.nodes
     ]
     projected_by_id = {node["id"]: node for node in projected_nodes}
     stage_nodes: dict[str, list[dict[str, Any]]] = {
@@ -553,9 +593,7 @@ def project_execution(
         "outcomes": [outcome.model_dump(mode="json", by_alias=True) for outcome in definition.outcomes],
         "discrepancies": {
             "unexpected_operations": unexpected_operations,
-            "unexpected_transitions": [
-                {"from": source, "to": target} for source, target in unexpected_edges
-            ],
+            "unexpected_transitions": [{"from": source, "to": target} for source, target in unexpected_edges],
         },
     }
 
@@ -587,13 +625,34 @@ def _project_node(
         ),
         None,
     )
+    attributed = [*attempts, *models]
+    cost_eligible = [
+        item
+        for item in attributed
+        if str(item.get("kind")) == "model"
+        or (
+            str(item.get("kind")) == "tool"
+            and (
+                item.get("known_cost") is not None
+                or _mapping(item.get("attributes")).get("cost_unavailable_reason") is not None
+                or _mapping(item.get("attributes")).get("cost_applicable") is True
+            )
+        )
+    ]
+    cost_measured = [item for item in cost_eligible if isinstance(item.get("known_cost"), (int, float))]
+    token_eligible = [item for item in attributed if str(item.get("kind")) == "model"]
+    token_measured = [item for item in token_eligible if isinstance(item.get("total_tokens"), (int, float))]
     return {
         **node.model_dump(mode="json"),
         "state": state,
         "attempts": len(attempts),
-        "duration_seconds": _sum_known(attempts, "duration_seconds"),
-        "known_cost": _sum_known([*attempts, *models], "known_cost"),
-        "total_tokens": _sum_known([*attempts, *models], "total_tokens"),
+        "duration_seconds": _active_wall_seconds(attributed),
+        "known_cost": _sum_known(cost_measured, "known_cost"),
+        "total_tokens": _sum_known(token_measured, "total_tokens"),
+        "cost_eligible_operations": len(cost_eligible),
+        "cost_measured_operations": len(cost_measured),
+        "token_eligible_operations": len(token_eligible),
+        "token_measured_operations": len(token_measured),
         "providers": sorted(provider_values),
         "models": sorted(model_values),
         "emitted_route": route,
@@ -662,6 +721,36 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
 def _sum_known(items: Sequence[Mapping[str, Any]], field: str) -> float | None:
     values = [float(item[field]) for item in items if isinstance(item.get(field), (int, float))]
     return sum(values) if values else None
+
+
+def _active_wall_seconds(items: Sequence[Mapping[str, Any]]) -> float | None:
+    intervals: list[tuple[datetime, datetime]] = []
+    for item in items:
+        start = item.get("start") or item.get("started_at")
+        end = item.get("end") or item.get("ended_at")
+        try:
+            start_value = (
+                start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            )
+            end_value = end if isinstance(end, datetime) else datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        intervals.append((start_value, end_value))
+    if intervals:
+        intervals.sort()
+        total = 0.0
+        start, end = intervals[0]
+        for next_start, next_end in intervals[1:]:
+            if next_start <= end:
+                end = max(end, next_end)
+            else:
+                total += max(0.0, (end - start).total_seconds())
+                start, end = next_start, next_end
+        return total + max(0.0, (end - start).total_seconds())
+    # Older replay records may have only durations. Preserve a truthful value
+    # while avoiding model/child double counting by preferring declared attempts.
+    attempt_total = _sum_known(items, "duration_seconds")
+    return attempt_total
 
 
 def _validate_dag(nodes: Sequence[WorkflowNode]) -> None:

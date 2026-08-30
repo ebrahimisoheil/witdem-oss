@@ -1,6 +1,6 @@
 # Release notes
 
-## 0.3.0
+## 0.1.0
 
 - Hardened package and container reproducibility with locked runtime constraints and pinned build tools.
 - Made platform and SDK release identities tag-verified and immutable across PyPI, npm, and GHCR.

@@ -116,11 +116,7 @@ def _valid_process(service: dict[str, Any]) -> bool:
     recognized = bool(identity and "witdem.cli" in identity) if os.name != "nt" else "witdem.cli" in command
     command_matches = bool(identity and expected_suffix and expected_suffix in identity)
     return bool(
-        identity
-        and expected_token
-        and _start_token(identity) == expected_token
-        and recognized
-        and command_matches
+        identity and expected_token and _start_token(identity) == expected_token and recognized and command_matches
     )
 
 
@@ -196,8 +192,7 @@ def native_up(config: ResolvedConfig, *, open_dashboard: bool = True) -> dict[st
     compile_registry(root=config.data_directory)
     base = [sys.executable, "-m", "witdem.cli"]
     commands = {
-        "receiver": base
-        + ["serve", "--host", config.host, "--port", str(config.port), "--db", str(config.database)],
+        "receiver": base + ["serve", "--host", config.host, "--port", str(config.port), "--db", str(config.database)],
         "worker": base + ["elt", "worker", "--poll-interval", "0.25"],
         "dashboard": base
         + [

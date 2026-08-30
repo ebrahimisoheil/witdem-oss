@@ -53,9 +53,7 @@ class WorkflowDefinition(BaseModel):
         return sha256(payload.encode("utf-8")).hexdigest()
 
 
-def load_workflow_definitions(
-    raw: Mapping[str, Any], project_path: Path
-) -> dict[str, WorkflowDefinition]:
+def load_workflow_definitions(raw: Mapping[str, Any], project_path: Path) -> dict[str, WorkflowDefinition]:
     references = raw.get("workflows", [])
     if isinstance(references, Mapping):
         references = [{"id": key, **dict(value)} for key, value in references.items()]
@@ -65,8 +63,6 @@ def load_workflow_definitions(
         path = (project_path.parent / reference.definition).resolve()
         definition = WorkflowDefinition.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
         if definition.id != reference.id:
-            raise ValueError(
-                f"workflow reference {reference.id!r} points to definition with id {definition.id!r}"
-            )
+            raise ValueError(f"workflow reference {reference.id!r} points to definition with id {definition.id!r}")
         result[definition.id] = definition
     return result

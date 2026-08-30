@@ -1,4 +1,10 @@
 export type Performance = {
+  participant_id: string;
+  dimension: string;
+  provider_id: string | null;
+  model_id: string | null;
+  model_family: string | null;
+  vendor_id: string | null;
   label: string;
   runs: number;
   completed: number;
@@ -9,8 +15,22 @@ export type Performance = {
   total_tokens: number | null;
   failure_rate: number;
   cost_coverage: number;
+  active_seconds: number;
+  p50_call_seconds: number | null;
+  p95_call_seconds: number | null;
+  cost_eligible_operations: number;
+  cost_measured_operations: number;
+  token_eligible_operations: number;
+  token_measured_operations: number;
 };
 export type ComparisonInsight = {
+  participant_id: string;
+  dimension: string;
+  provider_id: string | null;
+  model_id: string | null;
+  model_family: string | null;
+  vendor_id: string | null;
+  scope: "cohort+direct-attribution";
   label: string;
   runs: number;
   avg_duration_seconds: number | null;
@@ -23,6 +43,10 @@ export type ComparisonInsight = {
   goal_rate: number | null;
   decision_correctness_rate: number | null;
   recovered_runs: number;
+  cost_eligible_operations: number;
+  cost_measured_operations: number;
+  token_eligible_operations: number;
+  token_measured_operations: number;
   evaluations?: Array<{ name: string; reported_runs: number; average_score: number | null; target?: number | string | boolean; direction: string }>;
 };
 export type WorkflowInsight = ComparisonInsight & { runtime_id: string };
@@ -56,6 +80,8 @@ export type Issues = {
   quality_gaps: Array<{ execution_id: string; display_name?: string; name: string; score: number; target: number; direction: string }>;
   outliers: Array<{ execution_id: string; display_name?: string; reasons: string[]; duration_seconds?: number; known_cost?: number; total_tokens?: number }>;
   measurement: { cost: number; tokens: number; business_goal: number; total: number; cost_unavailable: Record<string, number> };
+  operation_failures: OperationTypeSummary[];
+  missing_required_measurements: Overview["operation_measurement_alerts"];
 };
 export type Overview = {
   metadata: Meta;
@@ -69,6 +95,10 @@ export type Overview = {
     measured_cost: number | null;
     cost_coverage: number;
     business_reported_runs: number;
+    terminal_runs: number;
+    unknown_runs: number;
+    attention_runs: number;
+    runtime_success_rate: number;
   };
   goals: {
     reported_runs: number;
@@ -82,12 +112,17 @@ export type Overview = {
     cost_per_achieved_goal: number | null;
     time_per_achieved_goal: number | null;
     tokens_per_achieved_goal: number | null;
+    cost_measured_achieved_runs: number;
+    time_measured_achieved_runs: number;
+    token_measured_achieved_runs: number;
   };
   costs: {
     measured_cost: number | null;
     measured_cost_per_run: number | null;
     total_tokens: number | null;
     token_runs: number;
+    cost: MeasurementCoverage;
+    tokens: MeasurementCoverage;
   };
   cost_unavailable: Record<string, number>;
   models: Performance[];
@@ -103,6 +138,12 @@ export type Overview = {
     total_tokens: number | null;
     failures: number;
     extra_attempts?: number;
+    workflow?: string;
+    source?: "declared_workflow" | "observed_operations";
+    cost_eligible_operations: number;
+    cost_measured_operations: number;
+    token_eligible_operations: number;
+    token_measured_operations: number;
   }>;
   runtime_breakdown: Record<string, number>;
   outcome_breakdown: Record<string, number>;
@@ -112,6 +153,11 @@ export type Overview = {
     terminal_runs: number;
     recovered_runs: number;
     known_cost: number | null;
+    time_seconds: number;
+    total_tokens?: number | null;
+    affected_run_time_seconds: number;
+    affected_run_cost: number | null;
+    affected_run_tokens: number | null;
   }>;
   evaluations: Array<{
     key: string;
@@ -139,6 +185,8 @@ export type Overview = {
     success_rate: number;
     time_per_achieved_goal: number | null;
     cost_per_achieved_goal: number | null;
+    duration_runs: number;
+    cost_runs: number;
   }>;
   goal_portfolio: GoalPortfolioItem[];
   assurance_summary: {
@@ -152,6 +200,15 @@ export type Overview = {
     attention_rate: number;
     assessment_coverage: number;
   };
+  operation_health: OperationSummary;
+  operation_measurement_coverage: OperationMeasurementCoverage;
+  operation_measurement_alerts: Array<{
+    operation_type: string;
+    measurement_key: string;
+    operations: number;
+    executions: number;
+    workflow_ids: string[];
+  }>;
   paths: Array<{
     path: string;
     steps: string[];
@@ -161,6 +218,18 @@ export type Overview = {
     known_cost: number | null;
   }>;
   contracts: ContractDefinition[];
+};
+export type MeasurementCoverage = {
+  total_runs: number;
+  applicable_runs: number;
+  complete_runs: number;
+  partial_runs: number;
+  missing_runs: number;
+  not_applicable_runs: number;
+  eligible_operations: number;
+  measured_operations: number;
+  coverage: number;
+  operation_coverage: number;
 };
 export type GoalEvaluationSummary = {
   key: string;
@@ -295,7 +364,97 @@ export type RunDetail = {
   };
   semantic_records: Array<Record<string, unknown>>;
   workflow_replay?: WorkflowReplay | null;
+  operation_summary?: OperationSummary;
+  measurements?: OperationMeasurement[];
+  measurement_coverage?: OperationMeasurementCoverage;
+  evaluation_results?: Array<Record<string, unknown>>;
   canonical_url?: string | null;
+};
+
+export type OperationMeasurement = {
+  operation_id: string;
+  execution_id: string;
+  workflow_id: string;
+  node_id?: string | null;
+  measurement_key: string;
+  value: number | null;
+  unit: string;
+  measurement_status: "measured" | "missing" | "not_applicable";
+  provenance: string;
+};
+export type OperationMeasurementCoverage = {
+  measured: number;
+  missing: number;
+  not_applicable: number;
+  applicable: number;
+  coverage: number | null;
+};
+export type OperationFact = {
+  operation_id: string;
+  execution_id: string;
+  workflow_id: string;
+  node_id?: string | null;
+  family: string;
+  operation_type: string;
+  subtype?: string | null;
+  interface: string;
+  role: string;
+  input_modalities: string[];
+  output_modalities: string[];
+  provider_id?: string | null;
+  model_id?: string | null;
+  gateway_id?: string | null;
+  vendor_id?: string | null;
+  runtime_id?: string | null;
+  framework_id?: string | null;
+  duration_seconds: number;
+  status: string;
+  attributes: Record<string, unknown>;
+};
+export type OperationTypeSummary = {
+  type: string;
+  family: string;
+  operations: number;
+  failed: number;
+  active_seconds: number;
+  roles: string[];
+  interfaces: string[];
+  providers: string[];
+  models: string[];
+  measurements: Record<string, number>;
+};
+export type OperationSummary = {
+  total_operations: number;
+  failed_operations: number;
+  types: OperationTypeSummary[];
+};
+export type WorkflowOperations = {
+  workflow_id: string;
+  summary: OperationSummary;
+  measurement_coverage: OperationMeasurementCoverage;
+  operations: OperationFact[];
+  measurements: OperationMeasurement[];
+};
+export type EvaluationResult = {
+  evaluation_id: string;
+  execution_id: string;
+  execution_started_at?: string | null;
+  subject_id: string;
+  name: string;
+  value?: number | string | boolean | null;
+  label?: string | null;
+  score?: number | null;
+  source?: string | null;
+  confidence?: number | null;
+  definition_version?: string | null;
+  passed?: boolean | null;
+  attributes: Record<string, unknown>;
+};
+export type WorkflowEvaluations = {
+  workflow_id: string;
+  summary: { reported: number; passed: number; needs_attention: number; unassessed: number; executions: number };
+  results: EvaluationResult[];
+  campaigns: Array<Record<string, unknown>>;
 };
 
 export type WorkflowDefinitionSummary = {
@@ -388,6 +547,10 @@ export const api = {
     get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
   workflowExecution: (workflowId: string, executionId: string) =>
     get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
+  workflowOperations: (workflowId: string) =>
+    get<WorkflowOperations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/operations`),
+  workflowEvaluations: (workflowId: string) =>
+    get<WorkflowEvaluations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/evaluations`),
   compare: (dimension: string, filters: DashboardFilters = {}) =>
     get<{ dimension: string; items: ComparisonInsight[] }>(
       withFilters(`/api/v1/compare/${dimension}`, filters),

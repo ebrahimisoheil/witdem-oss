@@ -1,9 +1,9 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { Graph as DagreGraph, layout as runDagreLayout, type Point } from "@dagrejs/dagre";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, type DeclaredWorkflow, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowReplay } from "./api";
-import { AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, formatDateTime, formatNumber, money, seconds, useQuery } from "./components";
+import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationMeasurement, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
+import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
 
 export const statePresentation = (state: string) => {
@@ -96,26 +96,261 @@ export function WorkflowDefinitionsPage() {
 export function WorkflowDefinitionPage() {
   const { workflowId } = useParams({ from: "/workflows/$workflowId" });
   const q = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
+  const operationQuery = useQuery({ queryKey: ["workflow-operations", workflowId], queryFn: () => api.workflowOperations(workflowId) });
+  const evaluationQuery = useQuery({ queryKey: ["workflow-evaluations", workflowId], queryFn: () => api.workflowEvaluations(workflowId) });
   const workflowFilter = String(q.data?.executions[0]?.workflow || q.data?.workflow.name || "");
   if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   const workflow = q.data!.workflow;
   const executions = q.data!.executions;
-  const recentExecutions = [...executions].sort((left, right) => String(right.started_at || "").localeCompare(String(left.started_at || ""))).slice(0, 5);
   const stats = summarizeWorkflowRuns(q.data!.executions);
   return <>
     <PageHeader compact eyebrow="Workflow" title={workflow.name} description={workflow.description || "Declared workflow template"} action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
+    <WorkflowSubnav workflowId={workflowId} />
     <Panel title="Declared structure" note="The YAML topology stays stable while telemetry activates the path taken by each runtime.">
       <DeclaredOverview replay={{ workflow, execution: { execution_id: "template" }, stages: workflow.stages.map((stage) => ({ ...stage, state: "inactive", active_nodes: 0, duration_seconds: null, known_cost: null, total_tokens: null })), nodes: [], transitions: workflow.transitions, outcomes: workflow.outcomes, discrepancies: { unexpected_operations: [], unexpected_transitions: [] } }} />
     </Panel>
+    <WorkflowContextSummary workflowId={workflowId} operations={operationQuery.data} evaluations={evaluationQuery.data} />
     <WorkflowAtAGlance executions={executions} stats={stats} overview={q.data!.analytics} workflowFilter={workflowFilter} />
-    <Panel className="mt-4" title="Recent executions" note="The five newest runs matched to this workflow.">
-      <div className="space-y-2">{recentExecutions.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(run.execution_id)}`} />)}</div>
+  </>;
+}
+
+function WorkflowSubnav({ workflowId }: { workflowId: string }) {
+  const path = useRouterState({ select: (state) => state.location.pathname });
+  const links = [
+    { label: "Overview", to: `/workflows/${encodeURIComponent(workflowId)}` },
+    { label: "Operations", to: `/workflows/${encodeURIComponent(workflowId)}/operations` },
+    { label: "Evaluations", to: `/workflows/${encodeURIComponent(workflowId)}/evaluations` },
+    { label: "Executions", to: `/workflows/${encodeURIComponent(workflowId)}/executions` },
+  ];
+  return <nav className="mb-4 flex w-fit rounded-lg border border-[#ddd8e5] bg-[#f3f1f5] p-1" aria-label="Workflow views">{links.map((item) => <a key={item.label} href={item.to} aria-current={path === item.to ? "page" : undefined} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${path === item.to ? "bg-white text-[#5b3aa5] shadow-sm" : "text-[#767079] hover:text-[#4c4650]"}`}>{item.label}</a>)}</nav>;
+}
+
+function WorkflowContextSummary({ workflowId, operations, evaluations }: { workflowId: string; operations?: WorkflowOperations; evaluations?: WorkflowEvaluations }) {
+  return <div className="mt-4 grid gap-3 md:grid-cols-2">
+    <a href={`/workflows/${encodeURIComponent(workflowId)}/operations`} className="rounded-lg border border-[#e5e2e8] bg-white p-3 text-left transition hover:border-[#cfc6ef]">
+      <div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Operation profile</h3><span className="text-[10px] font-semibold text-[#6544b0]">Open →</span></div>
+      <p className="mt-1 text-[10px] text-[#7c767e]">{formatNumber(operations?.summary.total_operations)} observed operations · {formatNumber(operations?.summary.types.length)} types · {formatNumber(operations?.summary.failed_operations)} failed</p>
+    </a>
+    <a href={`/workflows/${encodeURIComponent(workflowId)}/evaluations`} className="rounded-lg border border-[#e5e2e8] bg-white p-3 text-left transition hover:border-[#cfc6ef]">
+      <div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Evaluation status</h3><span className="text-[10px] font-semibold text-[#6544b0]">Open →</span></div>
+      <p className="mt-1 text-[10px] text-[#7c767e]">{formatNumber(evaluations?.summary.reported)} reported · {formatNumber(evaluations?.summary.passed)} passed · {formatNumber(evaluations?.summary.needs_attention)} need attention</p>
+    </a>
+  </div>;
+}
+
+export function WorkflowOperationsPage() {
+  const { workflowId } = useParams({ from: "/workflows/$workflowId/operations" });
+  const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
+  const operations = useQuery({ queryKey: ["workflow-operations", workflowId], queryFn: () => api.workflowOperations(workflowId) });
+  if (workflow.isLoading || operations.isLoading) return <LoadingPage />;
+  if (workflow.error) return <ErrorPage error={workflow.error} />;
+  if (operations.error) return <ErrorPage error={operations.error} />;
+  return <>
+    <PageHeader compact eyebrow="Workflow operations" title={workflow.data!.workflow.name} description="What ran, where time and usage accumulated, and which providers or models performed the work." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
+    <WorkflowSubnav workflowId={workflowId} />
+    <WorkflowOperationsView workflowId={workflowId} data={operations.data} loading={false} />
+  </>;
+}
+
+export function WorkflowEvaluationsPage() {
+  const { workflowId } = useParams({ from: "/workflows/$workflowId/evaluations" });
+  const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
+  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId], queryFn: () => api.workflowEvaluations(workflowId) });
+  if (workflow.isLoading || evaluations.isLoading) return <LoadingPage />;
+  if (workflow.error) return <ErrorPage error={workflow.error} />;
+  if (evaluations.error) return <ErrorPage error={evaluations.error} />;
+  return <>
+    <PageHeader compact eyebrow="Workflow evaluations" title={workflow.data!.workflow.name} description="Assessment coverage, score-versus-target results, regressions, and the exact executions behind them." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
+    <WorkflowSubnav workflowId={workflowId} />
+    <WorkflowEvaluationsView workflowId={workflowId} data={evaluations.data} loading={false} />
+  </>;
+}
+
+export function WorkflowExecutionsPage() {
+  const { workflowId } = useParams({ from: "/workflows/$workflowId/executions" });
+  const q = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
+  if (q.isLoading) return <LoadingPage />;
+  if (q.error) return <ErrorPage error={q.error} />;
+  const workflow = q.data!.workflow;
+  const executions = q.data!.executions;
+  const workflowFilter = String(executions[0]?.workflow || workflow.name || "");
+  return <>
+    <PageHeader compact eyebrow="Workflow executions" title={workflow.name} description="Runs matched to this workflow and its historical template versions." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
+    <WorkflowSubnav workflowId={workflowId} />
+    <Panel title="Executions" note="Select a run to inspect its path, operations, measurements, and evaluations.">
+      <div className="space-y-2">{executions.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(run.execution_id)}`} />)}</div>
       {!executions.length ? <Empty>No executions have matched this workflow yet.</Empty> : null}
       {executions.length ? <div className="mt-4 flex justify-end border-t border-[#eceae4] pt-4"><a href={`/runs?workflow=${encodeURIComponent(workflowFilter)}`} className="text-xs font-semibold text-[#5c35c8] hover:underline">See all executions for this workflow →</a></div> : null}
     </Panel>
   </>;
 }
+
+function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowOperations; loading: boolean }) {
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  if (loading) return <LoadingPage />;
+  if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
+  const executionCount = new Set(data.operations.map((operation) => operation.execution_id)).size;
+  const selectedOperations = data.operations.filter((operation) => !selectedType || operation.operation_type === selectedType).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
+  const selectedLabel = selectedType ? operationLabel(selectedType) : "All operation types";
+  return <div className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <InsightCard label="Observed work" value={formatNumber(data.summary.total_operations)} note={`${formatNumber(executionCount)} executions · ${formatNumber(data.summary.types.length)} operation types`} />
+      <InsightCard label="Direct failures" value={formatNumber(data.summary.failed_operations)} note="Failure location, not affected-run exposure" tone={data.summary.failed_operations ? "attention" : "good"} />
+      <InsightCard label="Applicable meter coverage" value={data.measurement_coverage.coverage == null ? "Not applicable" : `${Math.round(data.measurement_coverage.coverage * 100)}%`} note={`${formatNumber(data.measurement_coverage.measured)} measured · ${formatNumber(data.measurement_coverage.missing)} missing`} tone={data.measurement_coverage.missing ? "attention" : "good"} />
+      <InsightCard label="Not-applicable meters" value={formatNumber(data.measurement_coverage.not_applicable)} note="Excluded from coverage instead of treated as zero" />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Panel title="Where work happened" note="Switch between volume, active time, cost, tokens, and operation-specific meters. Select a bar to filter evidence."><OperationActivityChart items={data.summary.types} onSelect={setSelectedType} /></Panel>
+      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by reported provider or model."><ParticipantOperationChart operations={data.operations} measurements={data.measurements} /></Panel>
+    </div>
+    <Panel title="Operation profile" note="Each card summarizes one semantically distinct kind of work. Select a card to inspect its operations.">
+      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{data.summary.types.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
+    </Panel>
+    <Panel title={`Observed operations · ${selectedLabel}`} note="Longest operations first. Open an execution to inspect the operation in its workflow path.">
+      <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
+        <div className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 bg-[#f5f3f6] px-3 py-2 text-[9px] font-semibold uppercase tracking-[.1em] text-[#847e86]"><span>Operation / node</span><span>Participant</span><span>Elapsed</span><span>Status</span></div>
+        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operation.status === "error" || operation.status === "failed" ? "font-semibold text-red-700" : "text-[#27754c]"}>{operation.status === "unset" ? "Observed" : operation.status}</div></a>)}
+      </div>
+      {!selectedOperations.length ? <Empty>No operations match this type.</Empty> : null}
+    </Panel>
+  </div>;
+}
+
+function WorkflowEvaluationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean }) {
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  if (loading) return <LoadingPage />;
+  if (!data) return null;
+  const groups = groupEvaluations(data.results);
+  const assessed = data.summary.passed + data.summary.needs_attention;
+  const passRate = assessed ? data.summary.passed / assessed : null;
+  const selected = selectedName ? data.results.filter((result) => result.name === selectedName) : data.results;
+  return <div className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <InsightCard label="Assessed pass rate" value={passRate == null ? "Not assessed" : `${Math.round(passRate * 100)}%`} note={`${formatNumber(data.summary.passed)} passed of ${formatNumber(assessed)} assessed`} tone={data.summary.needs_attention ? "attention" : assessed ? "good" : "default"} />
+      <InsightCard label="Evaluation coverage" value={`${formatNumber(data.summary.reported)} results`} note={`${formatNumber(data.summary.executions)} executions · ${formatNumber(groups.length)} definitions`} />
+      <InsightCard label="Needs attention" value={formatNumber(data.summary.needs_attention)} note={`${formatNumber(data.summary.unassessed)} unassessed results remain neutral`} tone={data.summary.needs_attention ? "attention" : "good"} />
+      <InsightCard label="Offline campaigns" value={formatNumber(data.campaigns.length)} note={data.campaigns.length ? "Dataset and regression campaigns" : "No campaign results imported"} />
+    </div>
+    {!data.results.length && !data.campaigns.length ? <Panel title="Evaluations"><Empty>No online evaluation results or offline campaigns have been reported.</Empty></Panel> : null}
+    {data.results.length ? <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
+      <Panel title="Assessment state" note="Only explicit status or declared target semantics produce pass/attention."><EvaluationOutcomeChart summary={data.summary} /></Panel>
+      <Panel title="Score versus declared target" note="Average observed score and target by evaluation definition. Select a bar for supporting runs."><EvaluationScoreChart groups={groups} onSelect={setSelectedName} /></Panel>
+    </div> : null}
+    {groups.length ? <Panel title="Evaluation definitions" note="Compact definition-level analytics replace repeated result rows. Select a card to drill into runs.">
+      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{groups.map((group) => <EvaluationDefinitionCard key={group.name} group={group} active={selectedName === group.name} onClick={() => setSelectedName(selectedName === group.name ? null : group.name)} />)}</div>
+    </Panel> : null}
+    {selected.length ? <Panel title={`Supporting results · ${selectedName || "all evaluations"}`} note="The exact workflow executions behind the aggregate; evaluator economics remain in Operations.">
+      <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
+        <div className={`grid gap-3 bg-[#f5f3f6] px-3 py-1.5 text-[8px] font-semibold uppercase tracking-[.1em] text-[#847e86] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><span>{selectedName ? "Execution" : "Definition / execution"}</span><span>Observed value</span><span>Assessment</span><span className="text-right">Source</span></div>
+        {selected.slice(0, 18).map((result) => <a key={result.evaluation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(result.execution_id)}`} className={`grid items-center gap-3 border-t border-[#ece9ed] px-3 py-2 text-[9px] transition hover:bg-[#faf8ff] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><div className="min-w-0">{selectedName ? <><div className="truncate font-medium text-[#39343e]">{result.execution_id.slice(0, 12)}</div><div className="mt-0.5 truncate text-[8px] text-[#89838b]">{formatDateTime(result.execution_started_at)}</div></> : <><div className="truncate font-semibold">{result.name}</div><div className="truncate text-[8px] text-[#89838b]">{result.execution_id.slice(0, 12)} · {formatDateTime(result.execution_started_at)}</div></>}</div><div className="font-medium text-[#39343e]">{evaluationValue(result)}</div><div><EvaluationState result={result} /></div><div className="truncate text-right text-[8px] text-[#777178]" title={result.source || "reported"}>{evaluationSourceLabel(result.source)}</div></a>)}
+      </div>
+    </Panel> : null}
+  </div>;
+}
+
+function InsightCard({ label, value, note, tone = "default" }: { label: string; value: string; note: string; tone?: "default" | "good" | "attention" }) {
+  return <div className={`rounded-xl border bg-white p-4 ${tone === "attention" ? "border-red-200" : tone === "good" ? "border-emerald-200" : "border-[#e4e4df]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.11em] text-[#88828a]">{label}</div><div className={`mt-2 text-xl font-semibold tracking-[-.02em] ${tone === "attention" ? "text-red-700" : tone === "good" ? "text-emerald-700" : "text-[#332e37]"}`}>{value}</div><div className="mt-1 text-[10px] leading-4 text-[#777178]">{note}</div></div>;
+}
+
+function OperationActivityChart({ items, onSelect }: { items: OperationTypeSummary[]; onSelect: (type: string) => void }) {
+  const [metric, setMetric] = useState<"operations" | "time" | "cost" | "tokens" | "pages">("operations");
+  const value = (item: OperationTypeSummary) => metric === "operations" ? item.operations : metric === "time" ? item.active_seconds : metric === "cost" ? item.measurements["cost.usd"] : metric === "tokens" ? item.measurements["tokens.total"] : item.measurements["pages.processed"];
+  const rows = [...items].filter((item) => value(item) != null).sort((left, right) => Number(value(right)) - Number(value(left))).reverse();
+  const labels = { operations: "Operations", time: "Active time", cost: "Measured cost", tokens: "Tokens", pages: "Pages" };
+  return <div><MetricToggle choices={["operations", "time", "cost", "tokens", "pages"]} active={metric} onChange={setMetric} labels={{ operations: "Volume", time: "Active time", cost: "Cost", tokens: "Tokens", pages: "Pages" }} />{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} onEvents={{ click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item.type) }} option={{ color: [metric === "cost" ? "#16a085" : metric === "time" ? "#2477e6" : "#6d4aff"], tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${operationLabel(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measurements["cost.usd"])}<br/>Tokens: ${item.measurements["tokens.total"] == null ? "Not applicable" : formatNumber(item.measurements["tokens.total"])}<br/><span style="color:#6d4aff">Select to inspect operations</span>` : ""; } }, grid: { left: 132, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", name: labels[metric], nameLocation: "middle", nameGap: 26, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((item) => operationLabel(item.type)), axisLabel: { width: 122, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }] }} /> : <Empty>This measurement is not applicable to the observed operation types.</Empty>}</div>;
+}
+
+function ParticipantOperationChart({ operations, measurements }: { operations: OperationFact[]; measurements: OperationMeasurement[] }) {
+  const [dimension, setDimension] = useState<"provider" | "model">("provider");
+  const [metric, setMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
+  const rows = participantOperationRows(operations, measurements, dimension).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
+  return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
+}
+
+type ParticipantOperationRow = { id: string; calls: number; time: number; cost: number | null; tokens: number | null };
+export function participantOperationRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model") {
+  const measurementByOperation = new Map<string, OperationMeasurement[]>();
+  measurements.filter((item) => item.measurement_status === "measured").forEach((item) => measurementByOperation.set(item.operation_id, [...(measurementByOperation.get(item.operation_id) || []), item]));
+  const grouped = new Map<string, ParticipantOperationRow>();
+  operations.forEach((operation) => {
+    const id = dimension === "provider" ? operation.provider_id : operation.model_id;
+    if (!id) return;
+    const row = grouped.get(id) || { id, calls: 0, time: 0, cost: null, tokens: null };
+    row.calls += 1;
+    row.time += operation.duration_seconds || 0;
+    for (const measurement of measurementByOperation.get(operation.operation_id) || []) {
+      if (measurement.measurement_key === "cost.usd" && measurement.value != null) row.cost = (row.cost || 0) + measurement.value;
+      if (measurement.measurement_key === "tokens.total" && measurement.value != null) row.tokens = (row.tokens || 0) + measurement.value;
+    }
+    grouped.set(id, row);
+  });
+  return [...grouped.values()];
+}
+
+function OperationTypeCard({ item, active, onClick }: { item: OperationTypeSummary; active: boolean; onClick: () => void }) {
+  const important = [["cost.usd", "Cost"], ["tokens.total", "Tokens"], ["pages.processed", "Pages"], ["documents.returned", "Documents"], ["vectors.output", "Vectors"]] as const;
+  const usage = important.filter(([key]) => item.measurements[key] != null).slice(0, 3);
+  return <button type="button" onClick={onClick} className={`min-w-0 rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
+    <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0"><div className="truncate text-[13px] font-semibold">{operationLabel(item.type)}</div><div className="mt-0.5 truncate text-[9px] text-[#817b83]">{item.family} · {item.interfaces.join(", ") || "unknown interface"}</div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${item.failed ? "bg-red-50 text-red-700" : "bg-[#eef8f2] text-[#27754c]"}`}>{item.failed ? `${item.failed} failed` : "Healthy"}</span></div>
+    <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Calls" value={formatNumber(item.operations)} /><CardCell label="Active" value={seconds(item.active_seconds)} /></div>
+    {usage.length ? <div className={`mt-2 grid gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed] ${usage.length === 1 ? "grid-cols-1" : usage.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>{usage.map(([key, label]) => <CardCell key={key} label={label} value={key === "cost.usd" ? money(item.measurements[key]) : formatNumber(item.measurements[key])} />)}</div> : <div className="mt-2 text-[9px] text-[#89838b]">Usage meters not applicable</div>}
+    {item.providers.length || item.models.length ? <div className="mt-2 truncate text-[9px] text-[#777178]" title={[...item.providers, ...item.models].join(", ")}>{item.providers.join(", ") || "Provider not reported"} · {item.models.join(", ") || "Model not reported"}</div> : null}
+  </button>;
+}
+
+function CardValue({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-xs font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
+function CardCell({ label, value }: { label: string; value: string }) { return <div className="min-w-0 bg-[#fbfafc] px-2.5 py-2"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-[11px] font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
+
+type EvaluationGroup = { name: string; results: EvaluationResult[]; passed: number; attention: number; unassessed: number; averageScore: number | null; target: number | null; direction: string | null };
+export function groupEvaluations(results: EvaluationResult[]): EvaluationGroup[] {
+  const grouped = new Map<string, EvaluationResult[]>();
+  results.forEach((result) => grouped.set(result.name, [...(grouped.get(result.name) || []), result]));
+  return [...grouped].map(([name, rows]) => {
+    const scores = rows.map((row) => row.score).filter((score): score is number => typeof score === "number");
+    const targets = rows.map((row) => row.attributes.target).filter((target): target is number => typeof target === "number");
+    const direction = rows.map((row) => row.attributes.direction).find((value) => typeof value === "string");
+    return { name, results: rows, passed: rows.filter((row) => row.passed === true).length, attention: rows.filter((row) => row.passed === false).length, unassessed: rows.filter((row) => row.passed == null).length, averageScore: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null, target: targets.length ? targets[0] : null, direction: typeof direction === "string" ? direction : null };
+  }).sort((left, right) => right.results.length - left.results.length || left.name.localeCompare(right.name));
+}
+
+function EvaluationOutcomeChart({ summary }: { summary: WorkflowEvaluations["summary"] }) {
+  return <AnalyticsChart style={{ height: 260, width: "100%" }} option={{ tooltip: { trigger: "item", formatter: (point: { name: string; value: number; percent: number }) => `<b>${point.name}</b><br/>${formatNumber(point.value)} results · ${formatNumber(point.percent)}%` }, legend: { orient: "vertical", right: 8, top: "center", itemWidth: 10, itemHeight: 10, selectedMode: true }, series: [{ type: "pie", radius: ["48%", "70%"], center: ["34%", "50%"], label: { show: false }, data: [{ name: "Passed", value: summary.passed, itemStyle: { color: "#16864b" } }, { name: "Needs attention", value: summary.needs_attention, itemStyle: { color: "#dc5a5a" } }, { name: "Unassessed", value: summary.unassessed, itemStyle: { color: "#aaa6ad" } }] }] }} />;
+}
+
+function EvaluationScoreChart({ groups, onSelect }: { groups: EvaluationGroup[]; onSelect: (name: string) => void }) {
+  const rows = groups.filter((group) => group.averageScore != null).slice(0, 10).reverse();
+  if (!rows.length) return <Empty>No numeric evaluation scores were reported.</Empty>;
+  const maximum = Math.max(1, ...rows.flatMap((row) => [row.averageScore || 0, row.target || 0]));
+  return <AnalyticsChart onEvents={{ click: (point: { data?: { item?: EvaluationGroup } }) => point.data?.item && onSelect(point.data.item.name) }} style={{ height: Math.max(260, rows.length * 54), width: "100%" }} option={{ color: ["#6d4aff", "#2d2a2f"], tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data?: { item?: EvaluationGroup } }>) => { const item = points.find((point) => point.data?.item)?.data?.item; return item ? `<b>${item.name}</b><br/>Average score: ${formatNumber(item.averageScore)}<br/>Target: ${item.target == null ? "Not declared" : formatNumber(item.target)}<br/>${formatNumber(item.passed)} passed · ${formatNumber(item.attention)} attention · ${formatNumber(item.unassessed)} unassessed<br/><span style="color:#6d4aff">Select for supporting runs</span>` : ""; } }, legend: { top: 0, itemWidth: 10, itemHeight: 8 }, grid: { left: 190, right: 32, top: 38, bottom: 28 }, xAxis: { type: "value", min: 0, max: maximum, axisLabel: { fontSize: 8 }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.name), axisLabel: { width: 178, overflow: "truncate", fontSize: 9 } }, series: [{ name: "Average score", type: "bar", barMaxWidth: 18, data: rows.map((row) => ({ value: row.averageScore, item: row })), itemStyle: { borderRadius: [0, 4, 4, 0] } }, { name: "Declared target", type: "scatter", symbol: "rect", symbolSize: [4, 22], data: rows.filter((row) => row.target != null).map((row) => ({ value: [row.target, row.name], item: row })) }] }} />;
+}
+
+function EvaluationDefinitionCard({ group, active, onClick }: { group: EvaluationGroup; active: boolean; onClick: () => void }) {
+  const assessed = group.passed + group.attention;
+  const rate = assessed ? Math.round(group.passed / assessed * 100) : null;
+  return <button type="button" onClick={onClick} className={`min-w-0 rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
+    <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0 truncate text-[13px] font-semibold" title={group.name}>{group.name}</div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${group.attention ? "bg-red-50 text-red-700" : assessed ? "bg-[#eef8f2] text-[#27754c]" : "bg-stone-100 text-stone-600"}`}>{rate == null ? "Unassessed" : `${rate}% pass`}</span></div>
+    <div className="mt-2.5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Reported" value={formatNumber(group.results.length)} /><CardCell label="Average" value={group.averageScore == null ? "Not scored" : formatNumber(group.averageScore)} /><CardCell label="Target" value={group.target == null ? "None" : formatNumber(group.target)} /></div>
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[8px]"><span className="text-emerald-700">{group.passed} passed</span><span className={group.attention ? "font-semibold text-red-700" : "text-[#89838b]"}>{group.attention} attention</span><span className="text-[#777178]">{group.unassessed} unassessed</span>{group.direction ? <span className="ml-auto text-[#89838b]">{group.direction.replaceAll("_", " ")}</span> : null}</div>
+  </button>;
+}
+
+function EvaluationState({ result }: { result: EvaluationResult }) { return <span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${result.passed === true ? "bg-[#eef8f2] text-[#27754c]" : result.passed === false ? "bg-red-50 text-red-700" : "bg-stone-100 text-stone-600"}`}>{result.passed === true ? "Passed" : result.passed === false ? "Needs attention" : "Unassessed"}</span>; }
+function evaluationValue(result: EvaluationResult) { return result.score != null ? formatNumber(result.score) : result.value != null ? String(result.value) : result.label || "Reported"; }
+function evaluationSourceLabel(source?: string | null) { return source === "sdk" ? "SDK" : source ? source.replaceAll("_", " ") : "Reported"; }
+
+function MetricToggle<T extends string>({ choices, active, onChange, labels }: { choices: readonly T[]; active: T; onChange: (choice: T) => void; labels: Record<T, string> }) { return <div className="flex flex-wrap justify-end gap-1">{choices.map((choice) => <button key={choice} type="button" onClick={() => onChange(choice)} className={`rounded-md px-2.5 py-1 text-[10px] font-medium ${active === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{labels[choice]}</button>)}</div>; }
+
+function CompactFact({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "attention" }) {
+  return <div className="rounded-md border border-[#e7e4e8] bg-[#fbfbf9] px-2.5 py-2"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className={`mt-0.5 text-xs font-semibold ${tone === "attention" ? "text-[#b84040]" : "text-[#39343e]"}`}>{value}</div></div>;
+}
+
+const operationLabel = (value: string) => {
+  if (value === "component") return "Workflow step";
+  if (value === "x.witdem.unclassified") return "Observed operation";
+  if (value === "ocr") return "OCR";
+  return value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+};
 
 export function WorkflowExecutionPage() {
   const { workflowId, executionId } = useParams({ from: "/workflows/$workflowId/executions/$executionId" });
@@ -123,8 +358,11 @@ export function WorkflowExecutionPage() {
   if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   const replay = q.data!.workflow_replay!;
+  const operationSummary = q.data!.operation_summary;
+  const evaluationResults = q.data!.evaluation_results || [];
   return <div className="-mb-[21px]">
     <PageHeader compact eyebrow="Workflow replay" title={replay.workflow.name} description={`Execution ${executionId}`} action={<Link to="/workflows/$workflowId" params={{ workflowId }}><Button variant="outline">Workflow executions</Button></Link>} />
+    {(operationSummary || evaluationResults.length) ? <div className="mb-3 grid grid-cols-4 gap-2"><CompactFact label="Operations" value={formatNumber(operationSummary?.total_operations)} /><CompactFact label="Operation types" value={formatNumber(operationSummary?.types.length)} /><CompactFact label="Operation failures" value={formatNumber(operationSummary?.failed_operations)} tone={operationSummary?.failed_operations ? "attention" : "default"} /><CompactFact label="Evaluations" value={formatNumber(evaluationResults.length)} /></div> : null}
     <WorkflowReplayView replay={replay} />
   </div>;
 }
@@ -237,8 +475,8 @@ function LatencyTrend({ runs }: { runs: Run[] }) {
     <line x1="34" y1="130" x2="356" y2="130" stroke="#d9d6dc" /><line x1="34" y1="30" x2="34" y2="130" stroke="#d9d6dc" />
     <polyline points={points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="#7255b5" strokeWidth="2.5" strokeLinejoin="round" />
     {points.map((point) => <g key={point.run.execution_id}><circle cx={point.x} cy={point.y} r="5" fill="#fff" stroke="#7255b5" strokeWidth="2.5"><title>{`${formatDateTime(point.run.started_at)} · ${seconds(point.run.duration_seconds)}`}</title></circle></g>)}
-    <text x="34" y="148" fontSize="9" fill="#827c84">{formatDateTime(ordered[0].started_at).split(",")[0]}</text>
-    <text x="356" y="148" fontSize="9" textAnchor="end" fill="#827c84">{formatDateTime(ordered.at(-1)?.started_at).split(",")[0]}</text>
+    <text x="34" y="148" fontSize="9" fill="#827c84">{formatBrowserDate(ordered[0].started_at)}</text>
+    <text x="356" y="148" fontSize="9" textAnchor="end" fill="#827c84">{formatBrowserDate(ordered.at(-1)?.started_at)}</text>
     <text x="28" y="34" fontSize="9" textAnchor="end" fill="#827c84">{seconds(high)}</text><text x="28" y="132" fontSize="9" textAnchor="end" fill="#827c84">{seconds(low)}</text>
   </svg>;
 }

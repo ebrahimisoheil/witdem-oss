@@ -2,7 +2,7 @@ import { Badge, Button, ProgressBar } from "@lemonsqueezy/wedges";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
-import type { ComparisonInsight, Overview, Performance, ProjectedWorkflowNode, Run, RunDetail, WorkflowStage } from "./api";
+import type { ComparisonInsight, OperationTypeSummary, Overview, Performance, ProjectedWorkflowNode, Run, RunDetail, WorkflowStage } from "./api";
 import { api, formatNumber, money, percent, seconds } from "./api";
 import witdemMark from "./assets/witdem-mark-purple.png";
 
@@ -14,7 +14,7 @@ const AdvancedWorkflowGraph = lazy(() =>
 const EChartsRuntime = lazy(() => import("./echarts-runtime"));
 const echarts = undefined;
 
-function ReactEChartsCore(props: React.ComponentProps<typeof EChartsRuntime>) {
+export function AnalyticsChart(props: React.ComponentProps<typeof EChartsRuntime>) {
   return (
     <Suspense fallback={<div className="animate-pulse rounded-lg bg-[#f4f3f0]" style={props.style as React.CSSProperties} />}>
       <EChartsRuntime {...props} />
@@ -22,7 +22,9 @@ function ReactEChartsCore(props: React.ComponentProps<typeof EChartsRuntime>) {
   );
 }
 
-const chartColors = [
+const ReactEChartsCore = AnalyticsChart;
+
+export const chartColors = [
   "#6d4aff",
   "#2477e6",
   "#16a085",
@@ -31,26 +33,11 @@ const chartColors = [
   "#637083",
   "#9b59b6",
 ];
-const providerColors: Record<string, string> = {
-  Anthropic: "#6d4aff",
-  OpenAI: "#2477e6",
-  DeepSeek: "#16a085",
-  Mistral: "#e38317",
-  Ollama: "#637083",
-  Other: "#9b59b6",
+export const stableColor = (identity: string) => {
+  let hash = 2166136261;
+  for (const character of identity) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return chartColors[Math.abs(hash) % chartColors.length];
 };
-const familyColor = (family: string, fallbackIndex: number) =>
-  providerColors[family] || chartColors[fallbackIndex % chartColors.length];
-const modelFamily = (name: string) =>
-  name.includes("claude")
-    ? "Anthropic"
-    : name.startsWith("gpt") || name.startsWith("o")
-      ? "OpenAI"
-      : name.includes("deepseek")
-        ? "DeepSeek"
-        : name.includes("mistral")
-          ? "Mistral"
-          : "Other";
 
 const nav = [
   ["/", "Overview"],
@@ -214,6 +201,25 @@ export function formatDateTime(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(parsed);
 }
 
+export function formatBrowserDate(value?: string | null) {
+  if (!value) return "Date not reported";
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Date not reported";
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(parsed);
+}
+
+export function browserDateDaysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function ExecutionListCard({ run, href }: { run: Run; href: string }) {
   const runtime = String(run.runtime_outcome || run.status || "unknown");
   const outcome = String(run.application_outcome || "Not reported").replaceAll("_", " ");
@@ -290,22 +296,23 @@ export function CostSpeedChart({
   );
   if (!data.length)
     return <Empty>No models have both measured time and cost yet.</Empty>;
-  const familyFor = (label: string) =>
-    breakdown === "provider" ? label : modelFamily(label);
-  const families = [...new Set(data.map((x) => familyFor(x.label)))];
+  const participants = data.map((item) => ({
+    ...item,
+    color: stableColor(item.participant_id || `${breakdown}:${item.label}`),
+  }));
   return (
     <div className="min-w-0">
       <div className="mb-1 flex flex-wrap justify-end gap-3">
-        {families.map((family, index) => (
+        {participants.map((participant) => (
           <span
-            key={family}
+            key={participant.participant_id}
             className="flex items-center gap-1.5 text-xs text-[#666]"
           >
             <span
               className="size-2.5 rounded-full"
-              style={{ background: familyColor(family, index) }}
+              style={{ background: participant.color }}
             />
-            {family}
+            {participant.label}
           </span>
         ))}
       </div>
@@ -324,10 +331,10 @@ export function CostSpeedChart({
           tooltip: {
             trigger: "item",
             formatter: (p: { data: { name: string; value: number[] } }) =>
-              `<b>${p.data.name}</b><br/>${seconds(p.data.value[0])} per successful run<br/>${money(p.data.value[1])} measured spend<br/>${formatNumber(p.data.value[2])} runs`,
+              `<b>${p.data.name}</b><br/>${seconds(p.data.value[0])} attributed active time / successful involved run<br/>${money(p.data.value[1])} directly measured spend<br/>${formatNumber(p.data.value[2])} involved runs`,
           },
           xAxis: {
-            name: "Seconds per successful run",
+            name: "Attributed active seconds / successful involved run",
             nameLocation: "middle",
             nameGap: 34,
             splitLine: { lineStyle: { color: "#eee" } },
@@ -339,18 +346,16 @@ export function CostSpeedChart({
             axisLabel: { formatter: (v: number) => money(v) },
             splitLine: { lineStyle: { color: "#eee" } },
           },
-          series: families.map((family, index) => ({
-            name: family,
+          series: participants.map((participant) => ({
+            name: participant.label,
             type: "scatter",
-            itemStyle: { color: familyColor(family, index) },
+            itemStyle: { color: participant.color },
             symbolSize: (v: number[]) =>
               Math.max(13, Math.min(30, 10 + v[2] * 1.2)),
-            data: data
-              .filter((x) => familyFor(x.label) === family)
-              .map((x) => ({
-                name: x.label,
-                value: [x.time_per_positive_run, x.measured_cost, x.runs],
-              })),
+            data: [{
+              name: participant.label,
+              value: [participant.time_per_positive_run, participant.measured_cost, participant.runs],
+            }],
             emphasis: {
               label: { show: true, position: "top", formatter: "{b}" },
             },
@@ -540,7 +545,7 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
         <div className="flex flex-wrap items-center gap-4 text-xs text-[#666]">
           <span className="flex items-center gap-2">
             <span className="h-2.5 w-6 rounded-sm bg-[#2477e6]" />
-            Time / successful run
+            Attributed time / successful involved run
           </span>
           <span className="flex items-center gap-2">
             <span className="h-2.5 w-6 rounded-sm bg-[#e38317]" />
@@ -579,7 +584,7 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
               }>,
             ) => {
               const timePoint = p.find(
-                (point) => point.seriesName === "Time / successful run",
+                (point) => point.seriesName === "Attributed time / successful involved run",
               );
               const costPoint = p.find(
                 (point) => point.seriesName === "Measured cost",
@@ -627,7 +632,7 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
           ],
           series: [
             {
-              name: "Time / successful run",
+              name: "Attributed time / successful involved run",
               type: "bar",
               data: shown.map((x) => x.time_per_positive_run),
               barMaxWidth: 28,
@@ -703,7 +708,7 @@ export function ProviderSpendChart({
                 itemStyle: {
                   color:
                     breakdown === "provider"
-                      ? familyColor(x.label, index)
+                      ? stableColor(x.participant_id || `provider:${x.label}`)
                       : chartColors[index % chartColors.length],
                 },
               })),
@@ -930,7 +935,7 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
           trigger: "item",
           formatter: (point: { data: { item: ComparisonInsight } }) => {
             const item = point.data.item;
-            return `<b>${item.label}</b><br/>Goal achievement: ${percent(item.goal_rate)}<br/>Cost / run: ${money(item.avg_cost_per_run)}<br/>Time / run: ${seconds(item.avg_duration_seconds)}<br/>${formatNumber(item.runs)} runs`;
+            return `<b>${item.label}</b><br/>Goal achievement for involved runs: ${percent(item.goal_rate)}<br/>Direct cost / involved run: ${money(item.avg_cost_per_run)}<br/>Attributed active time / involved run: ${seconds(item.avg_duration_seconds)}<br/>${formatNumber(item.runs)} involved runs`;
           },
         },
         legend: { type: "scroll", bottom: 0, left: 72, right: 24, itemWidth: 10, itemHeight: 10, icon: "circle" },
@@ -970,7 +975,7 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
 
 export function GoalRateColumns({ items, onSelect, height = 330 }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void; height?: number }) {
   const shown = [...items].filter((item) => item.goal_rate != null).sort((a, b) => b.runs - a.runs).slice(0, 8);
-  if (!shown.length) return <Empty>No goal outcomes are attributable in this view.</Empty>;
+  if (!shown.length) return <Empty>No participant cohorts have reported goal outcomes in this view.</Empty>;
   return (
     <ReactEChartsCore
       echarts={echarts}
@@ -1046,18 +1051,22 @@ export function StageAccumulation({ items }: { items: Overview["stages"] }) {
     sortBy === "time"
       ? item.time_seconds
       : sortBy === "tokens"
-        ? item.total_tokens || 0
-        : item.known_cost || 0;
-  const shown = [...items].sort((a, b) => value(b) - value(a)).slice(0, 10);
-  const maximum = Math.max(1e-9, ...shown.map(value));
+        ? item.total_tokens
+        : item.known_cost;
+  const available = (metric: "time" | "tokens" | "cost") => metric === "time" || items.some((item) =>
+    metric === "cost" ? item.cost_eligible_operations > 0 : item.token_eligible_operations > 0,
+  );
+  const shown = [...items].filter((item) => value(item) != null).sort((a, b) => Number(value(b)) - Number(value(a))).slice(0, 10);
+  const maximum = Math.max(1e-9, ...shown.map((item) => Number(value(item))));
   return (
     <div>
       <div className="mb-4 flex flex-wrap justify-end gap-1">
         {(["time", "tokens", "cost"] as const).map((metric) => (
           <button
             key={metric}
+            disabled={!available(metric)}
             onClick={() => setSortBy(metric)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium ${sortBy === metric ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${sortBy === metric ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}
           >
             Sort by {metric}
           </button>
@@ -1069,15 +1078,15 @@ export function StageAccumulation({ items }: { items: Overview["stages"] }) {
             <div key={item.label} className="grid gap-2 sm:grid-cols-[minmax(160px,1.2fr)_minmax(160px,2fr)_80px_90px_90px] sm:items-center">
               <div className="min-w-0 text-sm font-medium" title={item.label}>{item.label}</div>
               <div className="h-2.5 overflow-hidden rounded-full bg-[#ecebe7]">
-                <div className="h-full rounded-full bg-[#6d4aff]" style={{ width: `${Math.max(2, (value(item) / maximum) * 100)}%` }} />
+                <div className="h-full rounded-full bg-[#6d4aff]" style={{ width: `${Math.max(2, (Number(value(item)) / maximum) * 100)}%` }} />
               </div>
               <div className="text-xs text-[#666]">{seconds(item.time_seconds)}</div>
-              <div className="text-xs text-[#666]">{formatNumber(item.total_tokens)} tokens</div>
-              <div className="text-xs text-[#666]">{money(item.known_cost)}</div>
+              <div className="text-xs text-[#666]">{item.token_eligible_operations === 0 ? "Not applicable" : item.total_tokens == null ? "Not measured" : `${formatNumber(item.total_tokens)} tokens`}</div>
+              <div className="text-xs text-[#666]">{item.cost_eligible_operations === 0 ? "Not applicable" : item.known_cost == null ? "Not measured" : money(item.known_cost)}</div>
             </div>
           ))}
         </div>
-      ) : <Empty>No workflow-stage measurements in this view.</Empty>}
+      ) : <Empty>{available(sortBy) ? "No measured values for this metric." : "This metric is not applicable in this view."}</Empty>}
     </div>
   );
 }
@@ -1115,11 +1124,19 @@ export function GoalTrendChart({ items }: { items: Overview["goal_trend"] }) {
             color: ["#6d4aff"],
             tooltip: {
               trigger: "axis",
-              formatter: (points: Array<{ axisValue: string; value: number }>) =>
-                `<b>${points[0]?.axisValue || ""}</b><br/>${label}: ${formatted(points[0]?.value)}`,
+              formatter: (points: Array<{ axisValue: string; value: number; dataIndex: number }>) => {
+                const point = points[0];
+                const item = items[point?.dataIndex || 0];
+                const coverage = metric === "cost"
+                  ? `${formatNumber(item.cost_runs)} measured of ${formatNumber(item.achieved_runs)} achieved`
+                  : metric === "time"
+                    ? `${formatNumber(item.duration_runs)} timed of ${formatNumber(item.achieved_runs)} achieved`
+                    : `${formatNumber(item.achieved_runs)} achieved of ${formatNumber(item.reported_runs)} reported`;
+                return `<b>${formatBrowserDate(item?.date)}</b><br/>${label}: ${formatted(point?.value)}<br/>${coverage}`;
+              },
             },
             grid: { left: 64, right: 24, top: 20, bottom: 44 },
-            xAxis: { type: "category", data: items.map((item) => item.date), axisLabel: { hideOverlap: true } },
+            xAxis: { type: "category", data: items.map((item) => formatBrowserDate(item.date)), axisLabel: { hideOverlap: true } },
             yAxis: {
               type: "value",
               min: 0,
@@ -1228,6 +1245,30 @@ export function StageDiagnosticsChart({ items, height = 310 }: { items: Overview
     }} />}
   </div>;
 }
+
+export function OperationHealthChart({ items, height = 260 }: { items: OperationTypeSummary[]; height?: number }) {
+  const [metric, setMetric] = useState<"volume" | "time" | "failures">("volume");
+  const value = (item: OperationTypeSummary) => metric === "volume" ? item.operations : metric === "time" ? item.active_seconds : item.failed;
+  const shown = [...items].sort((left, right) => value(right) - value(left)).slice(0, 10).reverse();
+  const name = metric === "volume" ? "Operations" : metric === "time" ? "Active time" : "Failures";
+  return <div>
+    <div className="mb-2 flex justify-end gap-1">{(["volume", "time", "failures"] as const).map((choice) => <button key={choice} type="button" onClick={() => setMetric(choice)} className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${metric === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{choice === "volume" ? "Volume" : choice === "time" ? "Active time" : "Failures"}</button>)}</div>
+    {!shown.length ? <Empty>No operation classifications have been materialized.</Empty> : metric === "failures" && !shown.some((item) => item.failed) ? <Empty>No operation failures were observed in this selection.</Empty> : <AnalyticsChart echarts={echarts} style={{ height: Math.max(height, shown.length * 38), width: "100%" }} option={{
+      color: [metric === "failures" ? "#dc5a5a" : metric === "time" ? "#2477e6" : "#6d4aff"],
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${humanizeOperationType(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Interface: ${item.interfaces.join(", ") || "unknown"}<br/>Providers: ${item.providers.join(", ") || "not reported"}` : ""; } },
+      grid: { left: 142, right: 28, top: 12, bottom: 30 },
+      xAxis: { type: "value", minInterval: metric === "time" ? undefined : 1, name, nameLocation: "middle", nameGap: 24, nameTextStyle: { fontSize: 9 }, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
+      yAxis: { type: "category", data: shown.map((item) => humanizeOperationType(item.type)), axisLabel: { width: 132, overflow: "truncate", fontSize: 9 } },
+      series: [{ name, type: "bar", barMaxWidth: 18, data: shown.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }],
+    }} />}
+  </div>;
+}
+
+const humanizeOperationType = (value: string) => {
+  if (value === "component") return "Workflow step";
+  if (value === "x.witdem.unclassified") return "Observed operation";
+  return value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+};
 
 export function ExecutionStepDiagnostics({ nodes, onSelect, height = 360, completedIsSupporting = false }: { nodes: ProjectedWorkflowNode[]; onSelect?: (node: ProjectedWorkflowNode) => void; height?: number; completedIsSupporting?: boolean }) {
   const [metric, setMetric] = useState<"time" | "attempts" | "cost" | "tokens">("time");

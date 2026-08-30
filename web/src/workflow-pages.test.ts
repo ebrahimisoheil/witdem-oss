@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, validateWorkflowGeometry, workflowFitZoom, workflowLayout } from "./workflow-pages";
+import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, validateWorkflowGeometry, workflowFitZoom, workflowLayout } from "./workflow-pages";
+import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
 
 describe("workflow presentation", () => {
   it("fits the complete workflow inside both viewport axes", () => {
@@ -97,5 +98,19 @@ describe("workflow presentation", () => {
       ["step:research", "operation"],
       ["operation", "model-call"],
     ]);
+  });
+
+  it("attributes participant measurements without mixing providers", () => {
+    const operation = (id: string, provider: string): OperationFact => ({ operation_id: id, execution_id: "run-1", workflow_id: "flow", family: "inference", operation_type: "text_generation", interface: "model_api", role: "application", input_modalities: ["text"], output_modalities: ["text"], provider_id: provider, model_id: `${provider}-model`, duration_seconds: provider === "one" ? 2 : 3, status: "ok", attributes: {} });
+    const measurement = (operation_id: string, measurement_key: string, value: number): OperationMeasurement => ({ operation_id, execution_id: "run-1", workflow_id: "flow", measurement_key, value, unit: measurement_key === "cost.usd" ? "USD" : "token", measurement_status: "measured", provenance: "provider" });
+    const rows = participantOperationRows([operation("a", "one"), operation("b", "two")], [measurement("a", "cost.usd", 1), measurement("b", "cost.usd", 4), measurement("b", "tokens.total", 20)], "provider");
+    expect(rows).toEqual([{ id: "one", calls: 1, time: 2, cost: 1, tokens: null }, { id: "two", calls: 1, time: 3, cost: 4, tokens: 20 }]);
+  });
+
+  it("groups evaluation definitions and preserves unassessed results", () => {
+    const result = (id: string, passed: boolean | null, score: number): EvaluationResult => ({ evaluation_id: id, execution_id: `run-${id}`, subject_id: `case-${id}`, name: "Evidence quality", score, passed, attributes: { target: 0.8, direction: "higher_is_better" } });
+    const [group] = groupEvaluations([result("a", true, 1), result("b", null, 0.9), result("c", false, 0.5)]);
+    expect(group).toMatchObject({ name: "Evidence quality", passed: 1, attention: 1, unassessed: 1, target: 0.8, direction: "higher_is_better" });
+    expect(group.averageScore).toBeCloseTo(0.8);
   });
 });

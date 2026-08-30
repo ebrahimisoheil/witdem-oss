@@ -18,14 +18,14 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from witdem import __version__
+from witdem.analytics.operations import MEASUREMENT_REGISTRY_VERSION, OPERATION_TAXONOMY_VERSION
 from witdem.config import storage_root
+from witdem.evaluation_campaigns import EVALUATION_SCHEMA_VERSION
 from witdem.protocol import CORPUS_SCHEMA_VERSION, SEMANTIC_RECORD_PROTOCOL_VERSION
 from witdem.workflows import WORKFLOW_COMPILER_VERSION, WORKFLOW_PROJECTOR_VERSION
 
 RELEASE_MANIFEST_SCHEMA_VERSION = 1
-RELEASE_MANIFEST_URL = (
-    "https://github.com/ebrahimisoheil/witdem-oss/releases/latest/download/witdem-release.json"
-)
+RELEASE_MANIFEST_URL = "https://github.com/ebrahimisoheil/witdem-oss/releases/latest/download/witdem-release.json"
 # Release engineering replaces this key before the first signed publication.
 # Tests and private channels may supply WITDEM_RELEASE_PUBLIC_KEY.
 RELEASE_PUBLIC_KEY = "uhFX8JHG8gdmHzYy8oJ/zH9pX3PglkYELBCggmv89Pk="
@@ -145,6 +145,9 @@ def installed_versions() -> dict[str, str]:
         "workflow_schema": "1",
         "compiler": WORKFLOW_COMPILER_VERSION,
         "projector": WORKFLOW_PROJECTOR_VERSION,
+        "operation_taxonomy": OPERATION_TAXONOMY_VERSION,
+        "measurement_registry": MEASUREMENT_REGISTRY_VERSION,
+        "evaluation_schema": EVALUATION_SCHEMA_VERSION,
     }
 
 
@@ -153,9 +156,7 @@ def _report(manifest: Mapping[str, Any], *, source: str) -> dict[str, Any]:
     latest = str(manifest["platform_version"])
     minimum = dict(manifest.get("minimum_compatible_versions") or {})
     protocol_compatible = str(manifest["protocol_version"]) == current["protocol"]
-    platform_compatible = _version_tuple(current["platform"]) >= _version_tuple(
-        minimum.get("platform") or "0"
-    )
+    platform_compatible = _version_tuple(current["platform"]) >= _version_tuple(minimum.get("platform") or "0")
     update_available = _version_tuple(latest) > _version_tuple(current["platform"])
     target_sdk = str(manifest["sdk_version"])
     return {

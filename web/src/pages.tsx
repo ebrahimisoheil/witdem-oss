@@ -22,12 +22,14 @@ import {
   Empty,
   ErrorPage,
   ExecutionListCard,
+  browserDateDaysAgo,
   formatNumber,
   Kpi,
   LoadingPage,
   LatencyVariabilityChart,
   money,
   NormalizedComparisonChart,
+  OperationHealthChart,
   PageHeader,
   Panel,
   percent,
@@ -48,17 +50,7 @@ import {
 import { contractOutcomeColors } from "./outcome-colors";
 
 const providerDisplayName = (value: string) => {
-  const known: Record<string, string> = {
-    anthropic: "Anthropic",
-    deepseek: "DeepSeek",
-    mistral: "Mistral",
-    ollama: "Ollama",
-    openai: "OpenAI",
-  };
-  return (
-    known[value.toLowerCase()] ||
-    value.replace(/(^|[\s_-])\p{L}/gu, (match) => match.toUpperCase())
-  );
+  return value.replace(/(^|[\s_-])\p{L}/gu, (match) => match.toUpperCase());
 };
 
 const routeParam = (name: string) =>
@@ -85,11 +77,9 @@ export function OverviewPage() {
   if (providers.error) return <ErrorPage error={providers.error} />;
   const d = q.data!;
   const assurance = d.assurance_summary;
-  const runtimeAttention =
-    d.execution.failed_runs + d.execution.recovered_runs + d.execution.running_runs;
-  const completionRate = d.execution.total_runs
-    ? (d.execution.successful_runs + d.execution.recovered_runs) / d.execution.total_runs
-    : 0;
+  const runtimeAttention = d.execution.attention_runs;
+  const completionRate = d.execution.runtime_success_rate;
+  const costIncomplete = d.costs.cost.partial_runs + d.costs.cost.missing_runs > 0;
   return (
     <>
       <PageHeader
@@ -113,7 +103,7 @@ export function OverviewPage() {
             </div>
             <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <div><div className="text-2xl font-semibold text-[#7ee0aa]">{formatNumber(assurance.assured_runs)}</div><div className="text-[#bdb5cf]">assured</div></div>
-              <div><div className="text-2xl font-semibold text-[#ffc267]">{formatNumber(assurance.attention_runs)}</div><div className="text-[#bdb5cf]">achieved · attention</div></div>
+              <div><div className="text-2xl font-semibold text-[#ffc267]">{formatNumber(assurance.attention_runs + assurance.unassessed_runs)}</div><div className="text-[#bdb5cf]">assurance attention</div></div>
             </div>
           </div>
           <a href="/goal-performance" className="mt-6 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Explore goal performance →</a>
@@ -131,24 +121,24 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="mt-5 grid grid-cols-3 gap-2 border-t border-[#ecebe6] pt-4 text-xs">
-            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">average elapsed</div></div>
-            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">cost / run</div></div>
-            <div><div className="font-semibold text-[#333]">{percent(d.execution.cost_coverage)}</div><div className="mt-1 text-[#777]">cost coverage</div></div>
+            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">avg / terminal run</div></div>
+            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">complete measured / applicable run</div></div>
+            <div><div className="font-semibold text-[#333]">{percent(d.costs.cost.coverage)}</div><div className="mt-1 text-[#777]">applicable cost coverage</div></div>
           </div>
           <a href="/system-health" className="mt-5 inline-flex text-xs font-semibold text-[#603bd1]">Explore system health →</a>
         </section>
         <section className="flex min-w-0 flex-col rounded-2xl border border-[#ded7f3] bg-[#f8f5ff] p-6 shadow-[0_8px_30px_rgba(62,42,112,.06)]">
-          <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">Total spent</div>
+          <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">{costIncomplete ? "Known subtotal" : "Measured spend"}</div>
           <div className="mt-3 break-words text-4xl font-semibold tracking-[-.04em] text-[#2f2450]">
             {money(d.costs.measured_cost)}
           </div>
           <div className="mt-2 text-sm leading-5 text-[#716a7f]">
-            measured spend in the selected population
+            {formatNumber(d.costs.cost.applicable_runs)} of {formatNumber(d.execution.total_runs)} runs contained billable activity
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#e5def6] pt-4 text-xs">
             <div>
-              <div className="font-semibold text-[#3e3458]">{percent(d.execution.cost_coverage)}</div>
-              <div className="mt-1 text-[#817a8d]">cost coverage</div>
+              <div className="font-semibold text-[#3e3458]">{percent(d.costs.cost.coverage)}</div>
+              <div className="mt-1 text-[#817a8d]">of applicable runs</div>
             </div>
             <div>
               <div className="font-semibold text-[#3e3458]">{money(d.costs.measured_cost_per_run)}</div>
@@ -158,6 +148,7 @@ export function OverviewPage() {
           <a href="/system-health" className="mt-auto pt-5 text-xs font-semibold text-[#603bd1]">Inspect spend →</a>
         </section>
       </div>
+      {(d.operation_health.failed_operations > 0 || d.operation_measurement_alerts.length > 0) ? <a href="/issues" className="mt-3 flex items-center justify-between rounded-xl border border-[#ead9c8] bg-[#fff9f1] px-4 py-2.5 text-xs text-[#805527]"><span><strong>{formatNumber(d.operation_health.failed_operations)} operation failures</strong>{d.operation_measurement_alerts.length ? ` · ${formatNumber(d.operation_measurement_alerts.length)} required measurement gaps` : ""}</span><span className="font-semibold">Inspect issues →</span></a> : null}
       <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-stretch">
         <Panel
           className="xl:col-span-7"
@@ -180,10 +171,10 @@ export function OverviewPage() {
         </div>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Panel className="h-full" title="Model goal trade-offs" note="Business-goal achievement versus measured cost. Bubble size is run volume; select a model to drill down.">
+        <Panel className="h-full" title="Model goal trade-offs" note="Goal outcomes for runs involving each model versus that model’s directly attributed cost.">
           <GoalTradeoffChart items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { model: item.label }))} />
         </Panel>
-        <Panel className="h-full" title="Model latency distribution" note="Typical latency and tail risk are operational signals. Select a model to inspect System Health.">
+        <Panel className="h-full" title="Model call latency distribution" note="Direct model-call p50 and p95 latency. Select a model to inspect System Health.">
           <LatencyVariabilityChart height={360} items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/system-health", { model: item.label }))} />
         </Panel>
       </div>
@@ -191,8 +182,8 @@ export function OverviewPage() {
         <Panel className="h-full" title="Runtime state mix" note="Completed, recovered, failed, and still-running executions.">
           <RuntimeDonutChart height={310} data={d.runtime_breakdown} colors={{ completed: "#24a267", recovered: "#168e89", failed: "#d95858", running: "#2477e6", unknown: "#9aa1ad" }} />
         </Panel>
-        <Panel className="h-full" title="Provider goal outcomes" note="Achievement and decision correctness by provider. Select a column to drill down.">
-          <GoalRateColumns height={310} items={providers.data!.items.map((item) => ({ ...item, label: providerDisplayName(item.label) }))} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { provider: item.label.toLowerCase() }))} />
+        <Panel className="h-full" title="Provider goal outcomes" note="Achievement and decision correctness for runs involving each provider.">
+          <GoalRateColumns height={310} items={providers.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { provider: item.provider_id || item.label }))} />
         </Panel>
         <Panel className="h-full" title="Provider share of measured spend" note="Operational spend composition for the same population. Select a segment to inspect System Health.">
           <ProviderSpendChart height={310} items={d.providers} breakdown="provider" onSelect={(item) => window.location.assign(drilldownHref("/system-health", { provider: item.label }))} />
@@ -212,9 +203,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
   const startDate =
     range === "all"
       ? undefined
-      : new Date(Date.now() - Number(range) * 86_400_000)
-          .toISOString()
-          .slice(0, 10);
+      : browserDateDaysAgo(Number(range));
   const filters: DashboardFilters = {
     contract_hash: contractHash || undefined,
     provider: provider || undefined,
@@ -242,10 +231,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
   const breakdownItems =
     breakdown === "model"
       ? d.models
-      : d.providers.map((item) => ({
-          ...item,
-          label: providerDisplayName(item.label),
-        }));
+      : d.providers;
   const breakdownLabel = breakdown === "model" ? "Model" : "Provider";
   const goalNote = `${formatNumber(d.goals.achieved_runs)} of ${formatNumber(d.goals.reported_runs)} reported goals achieved`;
   const runtimeColors = {
@@ -304,13 +290,13 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
             <Kpi label="Runs" value={formatNumber(d.execution.total_runs)} />
             <Kpi
               label="Runtime completion"
-              value={percent((d.execution.successful_runs + d.execution.recovered_runs) / d.execution.total_runs)}
-              note={`${formatNumber(d.execution.recovered_runs)} recovered`}
+              value={percent(d.execution.runtime_success_rate)}
+              note={`${formatNumber(d.execution.successful_runs + d.execution.recovered_runs)} of ${formatNumber(d.execution.terminal_runs)} terminal runs`}
               tone="good"
             />
             <Kpi
               label="Needs attention"
-              value={formatNumber(d.execution.failed_runs + d.execution.recovered_runs + d.execution.running_runs)}
+              value={formatNumber(d.execution.attention_runs)}
               note={`${formatNumber(d.execution.failed_runs)} failed · ${formatNumber(d.execution.recovered_runs)} recovered`}
               tone={d.execution.failed_runs ? "warn" : "neutral"}
             />
@@ -318,7 +304,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
             <Kpi
               label="Measured cost / run"
               value={money(d.costs.measured_cost_per_run)}
-              note={`${formatNumber(Math.round(d.execution.cost_coverage * d.execution.total_runs))} of ${formatNumber(d.execution.total_runs)} measured`}
+              note={`${formatNumber(d.costs.cost.complete_runs)} complete of ${formatNumber(d.costs.cost.applicable_runs)} applicable`}
             />
           </div>
           <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
@@ -330,13 +316,23 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
           <Panel className="mt-4" title="Workflow volume and reliability" note="Where work is completing, recovering, or breaking.">
             <WorkflowBarChart items={d.workflows} />
           </Panel>
-          <Panel className="mt-4" title="Where work accumulates" note="Workflow stages ranked by observed time, tokens, or measured cost.">
+          <Panel className="mt-4" title="Where work accumulates" note="Declared YAML steps ranked by deduplicated active wall time, directly attributed tokens, or measured cost.">
             <StageAccumulation items={d.stages} />
+          </Panel>
+          <Panel className="mt-4" title="Operation health" note="Cross-workflow failures and required measurement coverage by vendor-neutral operation type.">
+            <div className="grid gap-4 xl:grid-cols-[1.45fr_.55fr]">
+              <OperationHealthChart items={d.operation_health.types} height={230} />
+              <div className="grid content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                <div className="rounded-lg border border-[#e8e5e9] bg-[#fbfbf9] p-3"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Observed activity</div><div className="mt-1 text-xl font-semibold">{formatNumber(d.operation_health.total_operations)}</div><div className="mt-1 text-[10px] text-[#777178]">across {formatNumber(d.operation_health.types.length)} operation types</div></div>
+                <div className={`rounded-lg border p-3 ${d.operation_health.failed_operations ? "border-red-200 bg-red-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Direct failures</div><div className={`mt-1 text-xl font-semibold ${d.operation_health.failed_operations ? "text-red-700" : ""}`}>{formatNumber(d.operation_health.failed_operations)}</div><div className="mt-1 text-[10px] text-[#777178]">failed operations, not affected-run exposure</div></div>
+                <div className={`rounded-lg border p-3 sm:col-span-2 xl:col-span-1 ${d.operation_measurement_alerts.length ? "border-amber-200 bg-amber-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Required measurement gaps</div><div className="mt-1 text-xl font-semibold">{formatNumber(d.operation_measurement_alerts.length)}</div>{d.operation_measurement_alerts.length ? <div className="mt-2 space-y-1 text-[10px] text-[#86531d]">{d.operation_measurement_alerts.slice(0, 3).map((item) => <div key={`${item.operation_type}-${item.measurement_key}`}>{humanizeOperation(item.operation_type)} · {item.measurement_key}: {formatNumber(item.operations)}</div>)}</div> : <div className="mt-1 text-[10px] text-[#777178]">No required meters are missing.</div>}</div>
+              </div>
+            </div>
           </Panel>
           <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-[#e4e2da] bg-white px-4 py-3 text-xs text-[#666]">
             <span className="font-semibold text-[#333]">Telemetry coverage</span>
-            <span>Cost: {formatNumber(Math.round(d.execution.cost_coverage * d.execution.total_runs))} of {formatNumber(d.execution.total_runs)} runs</span>
-            <span>Tokens: {formatNumber(d.costs.token_runs)} of {formatNumber(d.execution.total_runs)} runs</span>
+            <span>Cost: {formatNumber(d.costs.cost.complete_runs)} complete · {formatNumber(d.costs.cost.partial_runs)} partial · {formatNumber(d.costs.cost.applicable_runs)} applicable of {formatNumber(d.execution.total_runs)}</span>
+            <span>Tokens: {formatNumber(d.costs.tokens.complete_runs)} complete · {formatNumber(d.costs.tokens.partial_runs)} partial · {formatNumber(d.costs.tokens.applicable_runs)} applicable</span>
             <span>Business goals: {formatNumber(d.goals.reported_runs)} of {formatNumber(d.execution.total_runs)} runs</span>
           </div>
         </>
@@ -356,12 +352,12 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               tone="good"
             />
             <Kpi
-              label="Achieved · needs attention"
-              value={formatNumber(d.assurance_summary.attention_runs)}
-              note={`${formatNumber(d.assurance_summary.unassessed_runs)} achieved but unassessed`}
-              tone={d.assurance_summary.attention_runs ? "warn" : "good"}
+              label="Assurance attention"
+              value={formatNumber(d.assurance_summary.attention_runs + d.assurance_summary.unassessed_runs)}
+              note={`${formatNumber(d.assurance_summary.attention_runs)} needs attention · ${formatNumber(d.assurance_summary.unassessed_runs)} unassessed`}
+              tone={d.assurance_summary.attention_runs + d.assurance_summary.unassessed_runs ? "warn" : "good"}
             />
-            <Kpi label="Cost / achieved goal" value={money(d.goals.cost_per_achieved_goal)} />
+            <Kpi label="Cost / achieved goal" value={money(d.goals.cost_per_achieved_goal)} note={`${formatNumber(d.goals.cost_measured_achieved_runs)} of ${formatNumber(d.goals.achieved_runs)} achieved runs measured`} />
           </div>
           {selectedContract ? (
             <>
@@ -462,36 +458,36 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       </div>
       {mode === "health" ? (
         <>
-          <Panel className="mt-3" title={`${breakdownLabel} runtime reliability`} note="Completion, recovery, and failure by operational participant.">
+          <Panel className="mt-3" title={`${breakdownLabel} runtime reliability`} note="Execution outcomes for runs involving each operational participant; cost, tokens, calls, and active time remain directly attributed.">
             <SystemBreakdownList items={breakdownItems} dimension={breakdown} destination="/system-health" />
           </Panel>
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,.8fr)]">
-            <Panel title={`${breakdownLabel} cost versus speed`} note="Bubble size shows run volume. Hover for exact values.">
+            <Panel title={`${breakdownLabel} cost versus active time`} note="Directly attributed active time and measured spend; bubble size shows involved-run volume.">
               <CostSpeedChart items={breakdownItems} breakdown={breakdown} />
             </Panel>
             <Panel title={`${breakdownLabel} share of measured spend`} note="Share of measured spend. Hover for the exact amount.">
               <ProviderSpendChart items={breakdownItems} breakdown={breakdown} />
             </Panel>
           </div>
-          <Panel className="mt-4" title={`${breakdownLabel} operational ranking`} note="Slowest and most expensive configurations in the selected system population.">
+          <Panel className="mt-4" title={`${breakdownLabel} operational ranking`} note="Direct active time and measured cost for each participant.">
             <EconomicsBarChart items={breakdownItems} />
           </Panel>
         </>
       ) : (
         <>
           <div className="mt-3 grid gap-4 xl:grid-cols-2">
-            <Panel title={`Goal outcomes by ${breakdown}`} note="Achievement and decision correctness; runtime completion is intentionally excluded.">
+            <Panel title={`Goal outcomes for runs involving each ${breakdown}`} note="These are cohort outcomes, not causal attribution; runtime completion is excluded.">
               <GoalRateColumns
-                items={(goalComparison.data?.items || []).map((item) => breakdown === "provider" ? { ...item, label: providerDisplayName(item.label) } : item)}
-                onSelect={(item) => breakdown === "model" ? setModel(item.label) : setProvider(item.label.toLowerCase())}
+                items={goalComparison.data?.items || []}
+                onSelect={(item) => breakdown === "model" ? setModel(item.model_family || item.model_id || item.label) : setProvider(item.provider_id || item.label)}
               />
             </Panel>
-            <Panel title="Goal achievement versus measured cost" note="Higher is better vertically; lower measured cost is better horizontally. Bubble size is run volume.">
+            <Panel title="Goal achievement versus attributed cost" note="Vertical values are cohort outcomes for involved runs; horizontal values are directly attributed participant cost.">
               <GoalTradeoffChart items={goalComparison.data?.items || []} />
             </Panel>
           </div>
           {selectedContract && (
-            <Panel className="mt-4" title="Declared evaluation quality by participant" note="Average scores compared with targets declared by this selected business contract.">
+            <Panel className="mt-4" title="Evaluation results for runs involving participant" note="Average final evaluation facts for each participant cohort, compared with the selected contract targets.">
               <QualityComparisonChart items={goalComparison.data?.items || []} />
             </Panel>
           )}
@@ -773,9 +769,7 @@ const resolvedFilters = (values: SharedFilterValues): DashboardFilters => ({
   start_date:
     values.range === "all"
       ? undefined
-      : new Date(Date.now() - Number(values.range) * 86_400_000)
-          .toISOString()
-          .slice(0, 10),
+      : browserDateDaysAgo(Number(values.range)),
 });
 function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { metadata: Meta; values: SharedFilterValues; onChange: (values: SharedFilterValues) => void; includeGoal?: boolean }) {
   const set = (key: keyof SharedFilterValues, value: string) => onChange({ ...values, [key]: value });
@@ -831,6 +825,7 @@ function ContractCard({ contract }: { contract: ContractDefinition }) {
 }
 
 function AttentionPanel({ data }: { data: Overview }) {
+  const measurementMessages = measurementAttentionMessages(data);
   return (
     <Panel title="What needs attention" note="Concrete breakpoints and missing measurements.">
       {data.failures.length ? (
@@ -839,7 +834,8 @@ function AttentionPanel({ data }: { data: Overview }) {
             <div key={failure.failure_location} className="flex items-center justify-between rounded-lg bg-[#fff5f5] p-3">
               <div>
                 <div className="text-sm font-medium">{failure.failure_location}</div>
-                <div className="text-xs text-[#777]">{formatNumber(failure.recovered_runs)} recovered · {money(failure.known_cost)}</div>
+                <div className="text-xs text-[#777]">{formatNumber(failure.recovered_runs)} recovered · failed operation {seconds(failure.time_seconds)} · {money(failure.known_cost)}</div>
+                <div className="mt-0.5 text-[10px] text-[#999]">Affected-run exposure: {seconds(failure.affected_run_time_seconds)} · {money(failure.affected_run_cost)}</div>
               </div>
               <Badge color={failure.terminal_runs ? "red" : "green"}>
                 {failure.terminal_runs
@@ -849,11 +845,25 @@ function AttentionPanel({ data }: { data: Overview }) {
             </div>
           ))}
         </div>
+      ) : measurementMessages.length ? (
+        <div className="space-y-2">
+          {measurementMessages.map((message) => <div key={message} className="rounded-lg bg-amber-50 p-3 text-sm text-[#80520e]">{message}</div>)}
+        </div>
       ) : Object.keys(data.cost_unavailable).length ? (
         <div className="space-y-2">{Object.entries(data.cost_unavailable).map(([reason, count]) => <div key={reason} className="rounded-lg bg-amber-50 p-3 text-sm">{reason.replaceAll("_", " ")} · {formatNumber(count)} runs</div>)}</div>
-      ) : <Empty>No failures or missing measurements in this view.</Empty>}
+      ) : <Empty>No failures or incomplete applicable measurements in this view.</Empty>}
     </Panel>
   );
+}
+
+export function measurementAttentionMessages(data: Overview): string[] {
+  return ([
+    ["Cost", data.costs.cost],
+    ["Token", data.costs.tokens],
+  ] as const).flatMap(([label, coverage]) => {
+    if (coverage.partial_runs + coverage.missing_runs === 0) return [];
+    return [`${label} measurement is incomplete for ${formatNumber(coverage.partial_runs)} partial and ${formatNumber(coverage.missing_runs)} unmeasured applicable runs.`];
+  });
 }
 
 export function RunsPage() {
@@ -1016,15 +1026,17 @@ type SemanticRecord = Record<string, unknown> & {
 
 export const evaluationMetTarget = (record: SemanticRecord): boolean | null => {
   const attributes = record.attributes || {};
+  if (typeof attributes.passed === "boolean") return attributes.passed;
   const score = typeof record.score === "number" ? record.score : typeof attributes.score === "number" ? attributes.score : typeof record.value === "number" ? record.value : null;
   const target = attributes.target;
-  const direction = String(attributes.direction || "higher_is_better");
+  const direction = String(attributes.direction || "equal");
   if (score != null && typeof target === "number") {
-    return direction === "lower_is_better" ? score <= target : score >= target;
+    if (["lower_is_better", "max", "at_most", "<="].includes(direction)) return score <= target;
+    if (["higher_is_better", "min", "at_least", ">="].includes(direction)) return score >= target;
+    return score === target;
   }
-  const label = String(record.label || attributes.label || "").trim().toLowerCase();
-  if (["valid", "passed", "pass", "yes", "true", "achieved", "correct"].includes(label)) return true;
-  if (["invalid", "failed", "fail", "no", "false", "not achieved", "incorrect"].includes(label)) return false;
+  const observed = record.value ?? record.label ?? attributes.label;
+  if (target != null && observed != null) return observed === target;
   return null;
 };
 
@@ -1139,9 +1151,14 @@ export function IssuesPage() {
           <CoverageMeter label="Business goal reported" value={q.data!.measurement.business_goal} total={q.data!.measurement.total} />
         </div>
       </Panel>
+      {(q.data!.operation_failures.length || q.data!.missing_required_measurements.length) ? <Panel className="mt-4" title="Operation and measurement issues" note="Only explicit operation failures and missing required meters appear here; optional meters are excluded.">
+        <div className="grid gap-2 md:grid-cols-2">{q.data!.operation_failures.map((item) => <div key={`failure-${item.type}`} className="rounded-lg border border-red-100 bg-red-50 p-3 text-xs"><div className="font-semibold text-red-800">{humanizeOperation(item.type)}</div><div className="mt-1 text-[10px] text-red-700">{formatNumber(item.failed)} failed of {formatNumber(item.operations)} operations</div></div>)}{q.data!.missing_required_measurements.map((item) => <div key={`meter-${item.operation_type}-${item.measurement_key}`} className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs"><div className="font-semibold text-amber-900">{humanizeOperation(item.operation_type)} · {item.measurement_key}</div><div className="mt-1 text-[10px] text-amber-800">Missing for {formatNumber(item.operations)} operations across {formatNumber(item.executions)} executions</div></div>)}</div>
+      </Panel> : null}
     </>
   );
 }
+
+const humanizeOperation = (value: string) => value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 
 type IssueQueueItem = {
   key: string;

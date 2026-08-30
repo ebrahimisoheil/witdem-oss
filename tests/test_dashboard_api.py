@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 
 import duckdb
-from fastapi.encoders import jsonable_encoder
 from fastapi.testclient import TestClient
 from filelock import Timeout as FileLockTimeout
 
 from witdem.analytics.repository import AnalyticsRepository
+from witdem.analytics.repository.analytics_repository import _goal_assurance_state, runtime_state
 from witdem.analytics.repository.state import FilterState
 from witdem.dashboard import service
 from witdem.dashboard.app import create_dashboard_app
@@ -32,6 +32,18 @@ def test_dashboard_serves_api_and_spa(tmp_path) -> None:
     }
     assert "Witdem Dashboard API" in client.get("/api/openapi.json").text
     assert client.get("/").status_code == 200
+
+
+def test_evaluation_pass_uses_explicit_direction_and_target() -> None:
+    assert service._explicit_evaluation_pass(
+        {"value": 0.9, "attributes": {"target": 0.7, "direction": "higher_is_better"}}
+    ) is True
+    assert service._explicit_evaluation_pass(
+        {"value": 0.9, "attributes": {"target": 0.7, "direction": "lower_is_better"}}
+    ) is False
+    assert service._explicit_evaluation_pass(
+        {"value": 1.0, "status": "valid", "attributes": {"label": "valid"}}
+    ) is None
 
 
 def test_dashboard_rejects_unknown_run(tmp_path) -> None:
@@ -129,11 +141,11 @@ def test_overview_uses_one_read_session_and_reuses_shared_populations(tmp_path, 
     result = service.overview(repo, FilterState())
 
     assert result["execution"]["total_runs"] == 0
-    assert query_count <= 10
+    assert query_count <= 14
     assert lock_count == 1
 
 
-def test_overview_snapshot_preserves_the_public_payload(tmp_path) -> None:
+def test_overview_snapshot_uses_direct_participant_and_applicability_contract(tmp_path) -> None:
     database = tmp_path / "live.duckdb"
     live_db.initialize_analytics_store(database)
     connection = duckdb.connect(str(database))
@@ -154,58 +166,149 @@ def test_overview_snapshot_preserves_the_public_payload(tmp_path) -> None:
     finally:
         connection.close()
 
-    filters = FilterState()
-    baseline_repo = AnalyticsRepository(database)
-    rows = baseline_repo.execution_rows(filters, limit=None)
-    runtime_breakdown: dict[str, int] = {}
-    outcome_breakdown: dict[str, int] = {}
-    for row in rows:
-        runtime = str(row.get("runtime_outcome") or row.get("runtime_status") or row.get("status") or "unknown")
-        runtime_breakdown[runtime] = runtime_breakdown.get(runtime, 0) + 1
-        outcome = row.get("application_outcome") or row.get("business_outcome") or row.get("outcome")
-        if outcome:
-            label = str(outcome)
-            outcome_breakdown[label] = outcome_breakdown.get(label, 0) + 1
-    goals = baseline_repo.get_product_goal_summary(filters)
-    baseline = jsonable_encoder(
-        {
-            "execution": baseline_repo.get_execution_summary(filters).to_dict(),
-            "goals": {
-                **goals.to_dict(),
-                "coverage": goals.coverage,
-                "success_rate": goals.success_rate,
-                "decision_correctness_rate": goals.decision_correctness_rate,
-            },
-            "costs": baseline_repo.get_cost_summary(filters).to_dict(),
-            "cost_unavailable": baseline_repo.cost_unavailable_reasons(filters),
-            "models": [item.to_dict() for item in baseline_repo.get_model_breakdown(filters)],
-            "providers": [item.to_dict() for item in baseline_repo.get_provider_breakdown(filters)],
-            "workflows": [item.to_dict() for item in baseline_repo.get_performance_summary("workflow", filters)],
-            "stages": baseline_repo.entity_summary("stages", filters),
-            "runtime_breakdown": runtime_breakdown,
-            "outcome_breakdown": outcome_breakdown,
-            "failures": [item.to_dict() for item in baseline_repo.get_failure_summary(filters)[:8]],
-            "evaluations": baseline_repo.evaluation_summary(filters),
-            "goal_misses": baseline_repo.goal_miss_summary(filters),
-            "goal_trend": baseline_repo.goal_trend(filters),
-            "goal_portfolio": baseline_repo.goal_assurance(filters)[0],
-            "assurance_summary": baseline_repo.goal_assurance(filters)[1],
-            "paths": [],
-            "contracts": baseline_repo.contract_definitions(filters),
-        }
-    )
+    optimized = service.overview(AnalyticsRepository(database), FilterState())
 
-    optimized = service.overview(AnalyticsRepository(database), filters)
-    assert {key: value for key, value in optimized.items() if key != "metadata"} == baseline
-    assert optimized["metadata"] == service.metadata(AnalyticsRepository(database))
+    assert optimized["runtime_breakdown"] == {"completed": 1}
+    assert optimized["outcome_breakdown"] == {}
+    assert optimized["costs"]["measured_cost"] == 0.01
+    assert optimized["costs"]["cost"] == {
+        "total_runs": 1,
+        "applicable_runs": 1,
+        "complete_runs": 1,
+        "partial_runs": 0,
+        "missing_runs": 0,
+        "not_applicable_runs": 0,
+        "eligible_operations": 1,
+        "measured_operations": 1,
+        "coverage": 1.0,
+        "operation_coverage": 1.0,
+    }
+    assert optimized["models"][0]["measured_cost"] == 0.01
+    assert optimized["models"][0]["active_seconds"] == 1.0
+    assert optimized["providers"][0]["participant_id"] == "test"
 
 
 def test_goal_assurance_respects_declared_evaluation_targets() -> None:
-    assert AnalyticsRepository._evaluation_met_target(
-        {"score": 0.8333},
-        {"target": 1.0, "direction": "higher_is_better"},
-    ) is False
-    assert AnalyticsRepository._evaluation_met_target(
-        {"score": 0.2},
-        {"target": 0.5, "direction": "lower_is_better"},
-    ) is True
+    assert (
+        AnalyticsRepository._evaluation_met_target(
+            {"score": 0.8333},
+            {"target": 1.0, "direction": "higher_is_better"},
+        )
+        is False
+    )
+    assert (
+        AnalyticsRepository._evaluation_met_target(
+            {"score": 0.2},
+            {"target": 0.5, "direction": "lower_is_better"},
+        )
+        is True
+    )
+    assert AnalyticsRepository._evaluation_met_target({"score": 1.0}, {}) is None
+    assert AnalyticsRepository._evaluation_met_target({"label": "valid"}, {}) is None
+    assert AnalyticsRepository._evaluation_met_target({"label": "anything"}, {"passed": True}) is True
+    assert _goal_assurance_state({"product_goal_achieved": False, "assurance_status": "assured"}) == "not_achieved"
+    assert _goal_assurance_state({"product_goal_achieved": True, "assurance_status": "assured"}) == "assured"
+    assert (
+        _goal_assurance_state({"product_goal_achieved": True, "assurance_status": "needs_attention"})
+        == "needs_attention"
+    )
+    assert _goal_assurance_state({"product_goal_achieved": True}) == "unassessed"
+
+
+def test_runtime_states_are_mutually_exclusive_and_running_is_not_attention() -> None:
+    assert runtime_state({"runtime_outcome": "running", "failure_count": 4}) == "running"
+    assert runtime_state({"runtime_outcome": "recovered"}) == "recovered"
+    assert runtime_state({"runtime_outcome": "completed", "failure_count": 1}) == "failed"
+    assert runtime_state({"runtime_outcome": "completed", "failure_count": 0}) == "completed"
+    assert runtime_state({"runtime_outcome": "future-state"}) == "unknown"
+
+
+def test_participant_attribution_is_direct_neutral_and_materialized(tmp_path) -> None:
+    database = tmp_path / "live.duckdb"
+    live_db.initialize_analytics_store(database)
+    connection = duckdb.connect(str(database))
+    try:
+        for execution_id, start, end in (
+            ("idle", "2026-08-23T11:59:00+00:00", "2026-08-23T11:59:01+00:00"),
+            ("complete", "2026-08-23T12:00:00+00:00", "2026-08-23T12:00:20+00:00"),
+            ("partial", "2026-08-23T12:01:00+00:00", "2026-08-23T12:01:04+00:00"),
+        ):
+            connection.execute(
+                "INSERT INTO executions VALUES (?, 'runtime-any', ?, ?, 'completed', '1.0', '{}')",
+                [execution_id, start, end],
+            )
+        operations = [
+            (
+                "alpha-outer",
+                "complete",
+                "2026-08-23T12:00:00+00:00",
+                "2026-08-23T12:00:10+00:00",
+                {
+                    "provider": "alpha-gateway",
+                    "model": "shared-model",
+                    "model_vendor": "vendor-any",
+                    "cost_usd": 0.01,
+                    "total_tokens": 10,
+                },
+            ),
+            (
+                "alpha-inner",
+                "complete",
+                "2026-08-23T12:00:02+00:00",
+                "2026-08-23T12:00:04+00:00",
+                {"provider": "alpha-gateway", "model": "shared-model", "cost_usd": 0.02, "total_tokens": 20},
+            ),
+            (
+                "beta",
+                "complete",
+                "2026-08-23T12:00:10+00:00",
+                "2026-08-23T12:00:15+00:00",
+                {"provider": "beta-gateway", "model": "shared-model", "cost_usd": 0.5, "total_tokens": 40},
+            ),
+            (
+                "alpha-unknown",
+                "partial",
+                "2026-08-23T12:01:00+00:00",
+                "2026-08-23T12:01:04+00:00",
+                {"provider": "alpha-gateway", "model": "shared-model", "total_tokens": 7},
+            ),
+            (
+                "alpha-partial-measured",
+                "partial",
+                "2026-08-23T12:01:01+00:00",
+                "2026-08-23T12:01:02+00:00",
+                {"provider": "alpha-gateway", "model": "shared-model", "cost_usd": 0.01, "total_tokens": 3},
+            ),
+        ]
+        for operation_id, execution_id, start, end, attributes in operations:
+            connection.execute(
+                "INSERT INTO operations VALUES (?, ?, NULL, ?, NULL, 'model', 'call', 'ok', ?, ?, NULL, ?)",
+                [operation_id, execution_id, operation_id, start, end, json.dumps(attributes)],
+            )
+    finally:
+        connection.close()
+
+    service.materialize_workflow_projections(database)
+    payload = service.overview(AnalyticsRepository(database), FilterState())
+    models = {item["participant_id"]: item for item in payload["models"]}
+
+    assert set(models) == {
+        "alpha-gateway::model:shared_model",
+        "beta-gateway::model:shared_model",
+    }
+    assert models["alpha-gateway::model:shared_model"]["active_seconds"] == 14.0
+    assert models["alpha-gateway::model:shared_model"]["vendor_id"] == "vendor-any"
+    assert models["alpha-gateway::model:shared_model"]["measured_cost"] == 0.04
+    assert models["alpha-gateway::model:shared_model"]["cost_coverage"] == 3 / 4
+    assert models["beta-gateway::model:shared_model"]["measured_cost"] == 0.5
+    assert payload["costs"]["cost"]["applicable_runs"] == 2
+    assert payload["costs"]["cost"]["complete_runs"] == 1
+    assert payload["costs"]["cost"]["partial_runs"] == 1
+    assert payload["costs"]["cost"]["not_applicable_runs"] == 1
+    assert payload["costs"]["cost"]["operation_coverage"] == 0.8
+
+    connection = duckdb.connect(str(database), read_only=True)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM participant_execution_facts").fetchone() == (6,)
+    finally:
+        connection.close()

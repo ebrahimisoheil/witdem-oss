@@ -29,9 +29,7 @@ def _definition() -> WorkflowDefinition:
                 {
                     "id": "prepare",
                     "name": "Prepare",
-                    "nodes": [
-                        {"id": "classify", "name": "Classify", "match": {"names": ["classify"]}}
-                    ],
+                    "nodes": [{"id": "classify", "name": "Classify", "match": {"names": ["classify"]}}],
                 },
                 {
                     "id": "answer",
@@ -41,10 +39,9 @@ def _definition() -> WorkflowDefinition:
                         {
                             "id": "retrieve",
                             "name": "Retrieve",
+                            "operation": {"type": "retrieval", "expects": ["queries", "documents.output"]},
                             "match": {"names": ["retrieve"]},
-                            "depends_on": [
-                                {"node": "classify", "type": "branch", "route": "grounded"}
-                            ],
+                            "depends_on": [{"node": "classify", "type": "branch", "route": "grounded"}],
                         },
                         {
                             "id": "respond",
@@ -57,14 +54,13 @@ def _definition() -> WorkflowDefinition:
                             "id": "fallback",
                             "name": "Fallback",
                             "match": {"names": ["fallback"]},
-                            "depends_on": [
-                                {"node": "classify", "type": "fallback", "route": "unsupported"}
-                            ],
+                            "depends_on": [{"node": "classify", "type": "fallback", "route": "unsupported"}],
                         },
                     ],
                 },
             ],
             "outcomes": [{"id": "answered", "name": "Answered", "from": ["respond", "fallback"]}],
+            "evaluation_suites": {"answer_quality": {"workflow": "answer-flow", "evaluations": ["groundedness"]}},
         }
     )
 
@@ -138,9 +134,7 @@ def test_project_execution_keeps_template_stable_and_embeds_model_calls() -> Non
 
     assert replay["workflow"]["template_hash"] == definition.template_hash
     assert replay["workflow"]["stages"][1]["nodes"] == ["retrieve", "respond", "fallback"]
-    assert ("classify", "retrieve") in {
-        (edge["from"], edge["to"]) for edge in replay["transitions"]
-    }
+    assert ("classify", "retrieve") in {(edge["from"], edge["to"]) for edge in replay["transitions"]}
     projected = {node["id"]: node for node in replay["nodes"]}
     assert projected["fallback"]["state"] == "inactive"
     assert projected["retrieve"]["attempts"] == 2
@@ -151,20 +145,19 @@ def test_project_execution_keeps_template_stable_and_embeds_model_calls() -> Non
     assert replay["discrepancies"]["unexpected_operations"][0]["name"] == "framework.checkpoint"
 
     analytics = _workflow_projection_analytics([replay])
-    assert analytics["models"] == [
-        {
-            "label": "gpt-5",
-            "runs": 1,
-            "completed": 1,
-            "failed": 0,
-            "recovered": 1,
-            "measured_cost": 0.01,
-            "time_per_positive_run": None,
-            "total_tokens": 42.0,
-            "failure_rate": 0.0,
-            "cost_coverage": 1.0,
-        }
-    ]
+    model = analytics["models"][0]
+    assert model["participant_id"] == "openai::gpt-5"
+    assert model["dimension"] == "model"
+    assert model["provider_id"] == "openai"
+    assert model["model_id"] == "gpt-5"
+    assert model["runs"] == 1
+    assert model["completed"] == 0
+    assert model["failed"] == 0
+    assert model["recovered"] == 1
+    assert model["measured_cost"] == 0.01
+    assert model["total_tokens"] == 42.0
+    assert model["cost_coverage"] == 1.0
+    assert model["semantics"] == "cohort+direct-attribution"
     assert analytics["providers"][0]["label"] == "openai"
     assert next(row for row in analytics["stages"] if row["label"] == "Respond")["total_tokens"] == 42.0
 
@@ -194,6 +187,81 @@ def test_project_execution_matches_framework_native_component_identity() -> None
     projected = {node["id"]: node for node in replay["nodes"]}
     assert projected["classify"]["state"] == "completed"
     assert replay["discrepancies"]["unexpected_operations"] == []
+
+
+def test_projected_node_uses_deduplicated_active_wall_time_and_measurement_coverage() -> None:
+    replay = project_execution(
+        _definition(),
+        execution={"execution_id": "overlap-run"},
+        graph={
+            "nodes": [
+                {
+                    "id": "response",
+                    "name": "respond",
+                    "kind": "graph_node",
+                    "status": "ok",
+                    "start": "2026-08-23T12:00:00+00:00",
+                    "end": "2026-08-23T12:00:10+00:00",
+                    "duration_seconds": 10.0,
+                    "attributes": {"technical.span_id": "response-span"},
+                },
+                {
+                    "id": "model",
+                    "name": "call",
+                    "kind": "model",
+                    "status": "ok",
+                    "parent_operation_id": "response-span",
+                    "start": "2026-08-23T12:00:02+00:00",
+                    "end": "2026-08-23T12:00:04+00:00",
+                    "duration_seconds": 2.0,
+                    "provider": "gateway-any",
+                    "model": "model-any",
+                    "known_cost": 0.0,
+                },
+            ],
+            "edges": [],
+        },
+    )
+
+    node = next(item for item in replay["nodes"] if item["id"] == "respond")
+    assert node["duration_seconds"] == 10.0
+    assert node["known_cost"] == 0.0
+    assert node["cost_eligible_operations"] == 1
+    assert node["cost_measured_operations"] == 1
+    assert node["token_eligible_operations"] == 1
+    assert node["token_measured_operations"] == 0
+
+
+def test_parallel_declared_nodes_keep_independent_active_wall_time() -> None:
+    replay = project_execution(
+        _definition(),
+        execution={"execution_id": "parallel-run"},
+        graph={
+            "nodes": [
+                {
+                    "id": "retrieve",
+                    "name": "retrieve",
+                    "kind": "tool",
+                    "status": "ok",
+                    "start": "2026-08-23T12:00:00+00:00",
+                    "end": "2026-08-23T12:00:05+00:00",
+                },
+                {
+                    "id": "respond",
+                    "name": "respond",
+                    "kind": "graph_node",
+                    "status": "ok",
+                    "start": "2026-08-23T12:00:00+00:00",
+                    "end": "2026-08-23T12:00:05+00:00",
+                },
+            ],
+            "edges": [],
+        },
+    )
+
+    nodes = {node["id"]: node for node in replay["nodes"]}
+    assert nodes["retrieve"]["duration_seconds"] == 5.0
+    assert nodes["respond"]["duration_seconds"] == 5.0
 
 
 def test_declared_business_retry_is_recovered_without_a_failed_span() -> None:
@@ -240,6 +308,7 @@ def test_product_factory_yaml_is_the_shared_cross_runtime_workflow() -> None:
     assert registry.match({"runtime_id": "anthropic_messages"}) is workflow
     assert registry.match({"runtime_id": "openai_agents"}) is workflow
     assert registry.match({"runtime_id": "haystack"}) is workflow
+    assert registry.match({"runtime_id": "langchain"}) is workflow
     assert registry.match({"runtime_id": "langgraph"}) is workflow
     assert {node.kind for node in workflow.nodes} >= {
         "Research",
@@ -266,6 +335,25 @@ def test_product_factory_yaml_is_the_shared_cross_runtime_workflow() -> None:
 
     assert replay["nodes"][0]["attempts"] == 1
     assert replay["discrepancies"]["unexpected_operations"] == []
+    runtime_states = []
+    for runtime_id in ("anthropic_messages", "openai_agents", "haystack", "langchain", "langgraph"):
+        runtime_replay = project_execution(
+            registry.match({"runtime_id": runtime_id}),
+            execution={"execution_id": f"{runtime_id}-run", "runtime_id": runtime_id},
+            graph={
+                "nodes": [
+                    {
+                        "id": f"{runtime_id}-research",
+                        "name": "product_factory.research",
+                        "kind": "operation",
+                        "status": "ok",
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        runtime_states.append([(node["id"], node["state"]) for node in runtime_replay["nodes"]])
+    assert all(states == runtime_states[0] for states in runtime_states[1:])
 
 
 def test_dependency_cycles_are_rejected() -> None:
@@ -293,9 +381,7 @@ def test_invalid_historical_definition_record_does_not_break_replay() -> None:
     assert definition is None
 
 
-def test_historical_and_new_executions_share_one_persisted_template(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_historical_and_new_executions_share_one_persisted_template(tmp_path: Path, monkeypatch) -> None:
     workflow_dir = tmp_path / "workflows"
     workflow_dir.mkdir()
     config_path = tmp_path / "witdem.yml"
@@ -355,6 +441,9 @@ def test_historical_and_new_executions_share_one_persisted_template(
     workflow = client.get("/api/v1/workflow-definitions/answer-flow").json()
     old = client.get("/api/v1/runs/historical-run").json()
     new = client.get("/api/v1/workflow-definitions/answer-flow/executions/new-run").json()
+    operations = client.get("/api/v1/workflow-definitions/answer-flow/operations").json()
+    evaluations = client.get("/api/v1/workflow-definitions/answer-flow/evaluations").json()
+    campaigns = client.get("/api/v1/workflow-definitions/answer-flow/evaluation-campaigns").json()
 
     assert catalog["items"][0]["execution_count"] == 2
     assert catalog["items"][0]["version"] == 1
@@ -367,3 +456,69 @@ def test_historical_and_new_executions_share_one_persisted_template(
     assert old["workflow_replay"]["workflow"]["template_hash"] == new["workflow_replay"]["workflow"]["template_hash"]
     assert next(node for node in old["workflow_replay"]["nodes"] if node["id"] == "fallback")["state"] == "inactive"
     assert next(node for node in new["workflow_replay"]["nodes"] if node["id"] == "fallback")["state"] == "completed"
+    assert operations["summary"]["total_operations"] == 4
+    assert operations["measurement_coverage"]["missing"] == 2
+    assert evaluations["summary"]["reported"] == 0
+    assert campaigns["campaigns"] == []
+
+
+def test_projection_materialization_preserves_operations_without_a_declared_workflow(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "analytics.duckdb"
+    monkeypatch.delenv("WITDEM_CONFIG", raising=False)
+    monkeypatch.setenv("WITDEM_DB_PATH", str(database))
+    live_db.initialize_analytics_store(database)
+    execution_id = "unmatched-operation-run"
+    operation_id = "embedding-call"
+    operation = Operation(
+        operation_id=operation_id,
+        execution_id=execution_id,
+        span_id="embedding-span",
+        kind="model",
+        name="embed",
+        status="ok",
+        attributes={"witdem.operation.type": "embedding", "gen_ai.provider.name": "provider-a"},
+    )
+    live_db.publish_transformed_bundle(
+        Execution(execution_id=execution_id, runtime_id="custom/runtime", status="completed"),
+        [operation],
+        [],
+        [],
+        operation_classifications=[
+            {
+                "operation_id": operation_id,
+                "taxonomy_version": "1",
+                "family": "inference",
+                "operation_type": "embedding",
+                "subtype": "embed",
+                "interface": "model_api",
+                "role": "application",
+                "input_modalities": ["text"],
+                "output_modalities": ["vector"],
+                "provider_id": "provider-a",
+                "status": "ok",
+            }
+        ],
+        operation_measurements=[
+            {
+                "operation_id": operation_id,
+                "registry_version": "1",
+                "measurement_key": "vectors.output",
+                "value": 2,
+                "unit": "vector",
+                "aggregation": "sum",
+                "scope": "operation",
+                "measurement_status": "measured",
+                "provenance": "provider_reported",
+                "applicability_source": "core_registry",
+            }
+        ],
+    )
+
+    materialize_workflow_projections(database, [execution_id])
+
+    client = TestClient(create_dashboard_app(database, static_dir=tmp_path / "missing"))
+    detail = client.get(f"/api/v1/runs/{execution_id}").json()
+    assert detail["operation_summary"]["total_operations"] == 1
+    assert detail["measurements"][0]["measurement_key"] == "vectors.output"

@@ -129,9 +129,7 @@ def apply_retention(plan: RetentionPlan) -> RetentionResult:
         with corpus.maintenance_lock(timeout=60.0):
             cutoff = _observed_at(plan.cutoff)
             current_ingest_ids = tuple(
-                commit.ingest_id
-                for commit in corpus.list_commits()
-                if _observed_at(commit.received_at) < cutoff
+                commit.ingest_id for commit in corpus.list_commits() if _observed_at(commit.received_at) < cutoff
             )
             if current_ingest_ids != plan.ingest_ids:
                 raise RuntimeError("corpus changed after the retention preview; run the command again")

@@ -23,7 +23,7 @@ def _signed_manifest(private_key: Ed25519PrivateKey, *, platform_version: str = 
         "workflow_schema_version": "1",
         "compiler_version": update.WORKFLOW_COMPILER_VERSION,
         "projector_version": update.WORKFLOW_PROJECTOR_VERSION,
-        "minimum_compatible_versions": {"platform": "0.3.0", "sdk": "0.3.0"},
+        "minimum_compatible_versions": {"platform": "0.1.0", "sdk": "0.1.0"},
         "published_at": "2026-08-30T00:00:00Z",
         "release_notes_url": "https://example.test/releases/9.0.0",
         "artifacts": {"wheel": "witdem-analytics", "npm": "witdem", "image": "witdem:9.0.0"},

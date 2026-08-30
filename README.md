@@ -151,6 +151,8 @@ Statuses reflect current implementation and test evidence, not roadmap intent.
 | Generic provider calls | **Experimental** | Sync/async callable wrapper with explicit provider/model and observed result metadata |
 | Standard OTLP/HTTP | **Supported** | Generic OpenTelemetry, OTel GenAI, and OpenInference evidence |
 
+Witdem also normalizes retrieval, reranking, search, embeddings, OCR, tools, evaluations, image, audio, video, and extension operations without inferring vendors. See [AI operations and evaluations](docs/ai-operations.md).
+
 See [`compatibility.json`](compatibility.json) for machine-readable version constraints and [Providers](docs/providers.md) for the difference between native, framework-observed, and generic support.
 
 ## Providers

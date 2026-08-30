@@ -71,16 +71,10 @@ class ResolvedConfig:
             host=str(values.get("host") or os.getenv("WITDEM_HOST") or DEFAULT_HOST),
             port=int(str(values.get("port") or os.getenv("WITDEM_PORT") or DEFAULT_PORT)),
             dashboard_host=str(
-                values.get("dashboard_host")
-                or os.getenv("WITDEM_DASHBOARD_HOST")
-                or DEFAULT_DASHBOARD_HOST
+                values.get("dashboard_host") or os.getenv("WITDEM_DASHBOARD_HOST") or DEFAULT_DASHBOARD_HOST
             ),
             dashboard_port=int(
-                str(
-                    values.get("dashboard_port")
-                    or os.getenv("WITDEM_DASHBOARD_PORT")
-                    or DEFAULT_DASHBOARD_PORT
-                )
+                str(values.get("dashboard_port") or os.getenv("WITDEM_DASHBOARD_PORT") or DEFAULT_DASHBOARD_PORT)
             ),
             database=database,
             data_directory=database.parent,

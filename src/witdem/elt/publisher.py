@@ -32,5 +32,12 @@ def publish_staging_row(row: Mapping[str, Any]) -> str:
             or getattr(semantic, "outcome_id", None)
         )
         semantic_by_id[str(identifier)] = semantic
-    live_db.publish_transformed_bundle(execution, operations, links, list(semantic_by_id.values()))
+    live_db.publish_transformed_bundle(
+        execution,
+        operations,
+        links,
+        list(semantic_by_id.values()),
+        operation_classifications=_json_list(row.get("operation_classifications_json") or []),
+        operation_measurements=_json_list(row.get("operation_measurements_json") or []),
+    )
     return execution.execution_id

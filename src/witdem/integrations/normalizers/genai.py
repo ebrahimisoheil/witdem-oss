@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from witdem.analytics.operations import OPERATION_FAMILIES, OTEL_OPERATION_TYPES
 from witdem.integrations.models.normalized_operation import NormalizedOperation
 from witdem.integrations.models.normalized_span import NormalizedSpan
 
@@ -90,6 +91,21 @@ class GenAIDialectNormalizer:
 
         kind = self.kind_for(span, operation_name=operation_name, tool_name=tool_name, agent_name=agent_name)
         normalized_attrs = dict(attrs)
+        operation_type = str(
+            normalized_attrs.get("witdem.operation.type") or OTEL_OPERATION_TYPES.get(operation_name) or ""
+        )
+        if operation_type:
+            normalized_attrs.setdefault("witdem.operation.type", operation_type)
+            normalized_attrs.setdefault("witdem.operation.family", OPERATION_FAMILIES.get(operation_type, "custom"))
+            normalized_attrs.setdefault(
+                "witdem.operation.interface",
+                "tool"
+                if operation_type == "tool"
+                else "model_api"
+                if operation_type in OPERATION_FAMILIES
+                else "unknown",
+            )
+            normalized_attrs.setdefault("witdem.operation.role", "application")
         normalized_attrs.update(
             {
                 "witdem.telemetry.dialect": "otel.genai",
@@ -128,7 +144,7 @@ class GenAIDialectNormalizer:
         name = span.name.casefold()
         if tool_name is not None or operation_name in {"execute_tool", "tool"} or "tool" in name:
             return "tool"
-        if operation_name in {"chat", "generate_content", "text_completion", "embeddings", "generate"}:
+        if operation_name in {"chat", "generate_content", "text_completion", "embeddings", "generate", "ocr"}:
             return "model"
         if agent_name is not None or operation_name in {"invoke_agent", "agent"} or "agent" in name:
             return "agent"

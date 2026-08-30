@@ -162,10 +162,13 @@ def test_names_agent_steps_from_observed_tool_children_and_terminal_model_step()
         ):
             pass
 
-    with tracer.trace("haystack.agent.step", tags={"haystack.agent.step": 1}) as final_step, tracer.trace(
-        "haystack.agent.step.llm",
-        tags={},
-        parent_span=final_step,
+    with (
+        tracer.trace("haystack.agent.step", tags={"haystack.agent.step": 1}) as final_step,
+        tracer.trace(
+            "haystack.agent.step.llm",
+            tags={},
+            parent_span=final_step,
+        ),
     ):
         pass
 

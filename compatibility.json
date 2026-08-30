@@ -40,12 +40,12 @@
   },
   "releases": [
     {
-      "witdem_analytics": ">=0.2.0,<0.3.0",
-      "witdem_sdk": ">=0.2.0,<0.3.0"
+      "witdem_analytics": ">=0.1.0,<0.2.0",
+      "witdem_sdk": ">=0.1.0,<0.3.0"
     },
     {
-      "witdem_analytics": ">=0.3.0,<0.4.0",
-      "witdem_sdk": ">=0.2.0,<0.4.0"
+      "witdem_analytics": ">=0.2.0,<0.3.0",
+      "witdem_sdk": ">=0.1.0,<0.3.0"
     }
   ],
   "tested_pairs": [
@@ -55,18 +55,18 @@
       "semantic_record_protocol": "1.0"
     },
     {
-      "witdem_analytics": "0.3.0",
+      "witdem_analytics": "0.1.0",
       "witdem_sdk": "0.2.0",
       "semantic_record_protocol": "1.0"
     },
     {
       "witdem_analytics": "0.2.0",
-      "witdem_sdk": "0.3.0",
+      "witdem_sdk": "0.1.0",
       "semantic_record_protocol": "1.0"
     },
     {
-      "witdem_analytics": "0.3.0",
-      "witdem_sdk": "0.3.0",
+      "witdem_analytics": "0.1.0",
+      "witdem_sdk": "0.1.0",
       "semantic_record_protocol": "1.0"
     }
   ]

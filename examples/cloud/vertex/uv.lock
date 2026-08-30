@@ -1145,7 +1145,7 @@ dev = [{ name = "pytest", specifier = ">=8.3,<9" }]
 
 [[package]]
 name = "witdem-sdk"
-version = "0.3.0"
+version = "0.1.0"
 source = { editable = "../../../witdem-sdk" }
 dependencies = [
     { name = "httpx" },

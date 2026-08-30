@@ -14,6 +14,8 @@ pipx installation or replace it with `npx -y witdem@latest` for Docker.
 | `witdem update --check [--refresh\|--offline]` | Verify releases and print guidance; never mutate |
 | `witdem down` | Stop only validated services and preserve data |
 | `witdem workflow compile [--check\|--force]` | Validate/materialize workflow YAML |
+| `witdem eval validate <campaign.jsonl>` | Validate an offline evaluation campaign without writes |
+| `witdem eval import <campaign.jsonl> [--db PATH\|--data-dir PATH]` | Import framework-neutral campaign results |
 | `witdem workflow rebuild` | Rebuild serving projections under maintenance lock |
 | `witdem dev` | Run foreground contributor mode |
 

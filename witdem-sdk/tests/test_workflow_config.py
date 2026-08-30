@@ -47,9 +47,7 @@ default_workflow: answer-flow
     return project
 
 
-def test_sdk_loads_workflows_and_emits_definition_as_nested_yaml_shape(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_sdk_loads_workflows_and_emits_definition_as_nested_yaml_shape(tmp_path: Path, monkeypatch) -> None:
     path = _write_config(tmp_path)
     config = load_project_config(path, required=True)
     sent: list[dict[str, object]] = []

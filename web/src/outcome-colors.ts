@@ -7,8 +7,6 @@ const toneColors = {
   neutral: "#536174",
 } as const;
 
-const supportingSuccess = "#8fcfab";
-
 const categoricalColors = [
   "#2f6fed",
   "#7357d9",
@@ -48,18 +46,5 @@ export function contractOutcomeColors(
     if (!conflictingTones.has(name)) colors[name] = toneColors[tone];
   }
 
-  // Runtime completion is itself a successful result. When the contract also
-  // declares a stronger product-level success, keep completion visually
-  // supportive and reserve the darker success color for that declared result.
-  const reported = new Set(Object.keys(outcomes).map((name) => name.toLowerCase()));
-  if (reported.has("completed")) {
-    const hasProductSuccess = [...declaredTones].some(
-      ([name, tone]) => name !== "completed"
-        && tone === "success"
-        && !conflictingTones.has(name)
-        && reported.has(name),
-    );
-    colors.completed = hasProductSuccess ? supportingSuccess : toneColors.success;
-  }
   return colors;
 }

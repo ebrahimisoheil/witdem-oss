@@ -22,7 +22,7 @@ def test_existing_version_tag_cannot_point_to_another_commit(monkeypatch) -> Non
     real_git = MODULE._git
 
     def fake_git(*arguments: str, check: bool = True) -> str:
-        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.3.0^{commit}"):
+        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.1.0^{commit}"):
             return "old-commit"
         if arguments == ("rev-parse", "HEAD"):
             return "new-commit"

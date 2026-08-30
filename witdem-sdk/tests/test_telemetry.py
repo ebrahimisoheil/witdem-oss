@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -119,6 +120,33 @@ def test_execution_model_and_tool_emit_canonical_attributes(monkeypatch: Any) ->
     assert model.attributes["gen_ai.usage.provisioned_unit_seconds"] == 2.5
     assert tool.attributes["gen_ai.tool.name"] == "search"
     assert tool.attributes["gen_ai.cost.usd"] == 0.0
+    assert any(item["key"] == "tokens.input" for item in json.loads(model.attributes["witdem.measurements"]))
+    assert any(item["key"] == "tool.calls" for item in json.loads(tool.attributes["witdem.measurements"]))
+
+
+def test_evaluation_campaign_and_case_context_add_identity(monkeypatch: Any) -> None:
+    client = witdem_sdk.Witdem.__new__(witdem_sdk.Witdem)
+    observed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        witdem_sdk,
+        "evaluation",
+        lambda name, **kwargs: observed.update({"name": name, **kwargs}),
+    )
+
+    with client.evaluation_campaign(
+        "campaign-1",
+        suite_id="quality",
+        dataset_id="contracts",
+        dataset_version="1",
+        candidate_version="candidate-a",
+    ), client.evaluation_case("case-1"):
+        client.evaluation("accuracy", score=0.9, attributes={"passed": True}, execution_id="run-1")
+
+    attributes = observed["attributes"]
+    assert attributes["witdem.evaluation.campaign_id"] == "campaign-1"
+    assert attributes["witdem.evaluation.case_id"] == "case-1"
+    assert attributes["witdem.evaluation.dataset_id"] == "contracts"
+    assert attributes["passed"] is True
 
 
 def test_anthropic_integration_captures_provider_tool_use_id() -> None:
