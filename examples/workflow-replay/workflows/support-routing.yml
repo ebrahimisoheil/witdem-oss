@@ -1,0 +1,45 @@
+version: 1
+id: support-routing
+name: Support routing
+description: A LangGraph workflow whose route changes per execution without changing its template.
+framework: langgraph
+match:
+  runtime_names: [langgraph/support-routing]
+
+stages:
+  - id: understand
+    name: Understand
+    nodes:
+      - id: classify
+        name: Classify request
+        kind: graph_node
+        match: {names: [classify]}
+
+  - id: resolve
+    name: Resolve
+    depends_on: [understand]
+    nodes:
+      - id: retrieve
+        name: Retrieve context
+        kind: graph_node
+        match: {names: [retrieve]}
+        depends_on:
+          - {node: classify, type: branch, route: self_service}
+
+      - id: answer
+        name: Answer customer
+        kind: graph_node
+        match: {names: [answer]}
+        depends_on: [retrieve]
+
+      - id: escalate
+        name: Escalate to human
+        kind: graph_node
+        match: {names: [escalate]}
+        depends_on:
+          - {node: classify, type: branch, route: human}
+
+outcomes:
+  - {id: resolved, name: Resolved, from: [answer]}
+  - {id: escalated, name: Escalated, from: [escalate]}
+

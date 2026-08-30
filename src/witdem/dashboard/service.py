@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from witdem.analytics.contracts import MetadataSnapshot
 from witdem.analytics.repository import AnalyticsRepository, create_backend
 from witdem.analytics.repository.state import FilterState
+from witdem.workflows import WorkflowDefinition, definition_from_record, load_registry, project_execution
 
 
 def filters_from_values(
@@ -150,17 +151,172 @@ def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] |
     summary["total_tokens"] = (
         summary.get("total_tokens") if summary.get("total_tokens") is not None else summary.get("token_usage")
     )
+    graph = repo.replay(execution_id).model_dump(mode="json")
+    semantic_records = [record.to_dict() for record in repo.semantic_replay_records(execution_id)]
+    workflow = _resolve_workflow(repo, summary, graph, semantic_records)
+    projection = (
+        project_execution(workflow, execution=summary, graph=graph) if workflow is not None else None
+    )
     return cast(
         dict[str, Any],
         jsonable_encoder(
             {
                 "summary": summary,
                 "outcomes": repo.execution_outcomes(execution_id),
-                "graph": repo.replay(execution_id).model_dump(mode="json"),
-                "semantic_records": [record.to_dict() for record in repo.semantic_replay_records(execution_id)],
+                "graph": graph,
+                "semantic_records": semantic_records,
+                "workflow_replay": projection,
+                "canonical_url": (
+                    f"/workflows/{workflow.id}/executions/{execution_id}" if workflow is not None else None
+                ),
             }
         ),
     )
+
+
+def _persisted_definitions(repo: AnalyticsRepository) -> dict[str, WorkflowDefinition]:
+    result: dict[str, WorkflowDefinition] = {}
+    for row in repo.workflow_templates():
+        definition = row.get("definition")
+        if isinstance(definition, dict):
+            try:
+                parsed = WorkflowDefinition.model_validate(definition)
+            except ValueError:
+                # Persisted templates may predate the dependency-first schema.
+                # Ignore only the unreadable revision; configured declarations
+                # and valid historical revisions remain available.
+                continue
+            result[parsed.id] = parsed
+    return result
+
+
+def _resolve_workflow(
+    repo: AnalyticsRepository,
+    summary: dict[str, Any],
+    graph: dict[str, Any],
+    semantic_records: list[dict[str, Any]],
+) -> WorkflowDefinition | None:
+    emitted = definition_from_record(semantic_records)
+    if emitted is not None:
+        return emitted
+    association = repo.execution_workflow(str(summary.get("execution_id") or ""))
+    definitions = {**_persisted_definitions(repo), **load_registry().definitions}
+    if association and str(association.get("workflow_id")) in definitions:
+        return definitions[str(association["workflow_id"])]
+    execution = dict(summary)
+    graph_execution = graph.get("execution")
+    if isinstance(graph_execution, dict):
+        execution["attributes"] = graph_execution.get("attributes", {})
+        execution["runtime_id"] = execution.get("runtime_id") or graph_execution.get("runtime_id")
+    from witdem.workflows import WorkflowRegistry
+
+    return WorkflowRegistry(definitions.values()).match(execution)
+
+
+def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:
+    definitions = {**_persisted_definitions(repo), **load_registry().definitions}
+    runs_by_workflow: dict[str, list[dict[str, Any]]] = {workflow_id: [] for workflow_id in definitions}
+    for row in repo.execution_rows(limit=None):
+        execution_id = str(row["execution_id"])
+        association = repo.execution_workflow(execution_id)
+        workflow_id = str(association.get("workflow_id")) if association else None
+        if workflow_id not in definitions:
+            detail = run_detail(repo, execution_id)
+            replay = detail.get("workflow_replay") if detail else None
+            workflow_id = str(replay["workflow"]["id"]) if replay else None
+        if workflow_id in runs_by_workflow:
+            runs_by_workflow[workflow_id].append(row)
+    return cast(
+        dict[str, Any],
+        jsonable_encoder(
+            {
+                "items": [
+                    {
+                        "version": definition.version,
+                        "id": definition.id,
+                        "name": definition.name,
+                        "description": definition.description,
+                        "framework": definition.framework,
+                        "template_hash": definition.template_hash,
+                        "stage_count": len(definition.stages),
+                        "node_count": len(definition.nodes),
+                        "execution_count": len(runs_by_workflow[definition.id]),
+                        "latest_execution": (
+                            runs_by_workflow[definition.id][0]
+                            if runs_by_workflow[definition.id]
+                            else None
+                        ),
+                    }
+                    for definition in definitions.values()
+                ]
+            }
+        ),
+    )
+
+
+def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, Any] | None:
+    definitions = {**_persisted_definitions(repo), **load_registry().definitions}
+    definition = definitions.get(workflow_id)
+    if definition is None:
+        return None
+    executions = []
+    for row in repo.execution_rows(limit=None):
+        execution_id = str(row["execution_id"])
+        association = repo.execution_workflow(execution_id)
+        detail = run_detail(repo, execution_id)
+        replay = detail.get("workflow_replay") if detail else None
+        associated = association and str(association.get("workflow_id")) == workflow_id
+        projected = replay and replay["workflow"]["id"] == workflow_id
+        if not associated and not projected:
+            continue
+        nodes = replay.get("nodes", []) if replay else []
+        active_nodes = [node for node in nodes if node.get("state") != "inactive"]
+        attempts = sum(int(node.get("attempts") or 0) for node in active_nodes)
+        models = sorted({str(model) for node in active_nodes for model in node.get("models", [])})
+        providers = sorted(
+            {str(provider) for node in active_nodes for provider in node.get("providers", [])}
+        )
+        executions.append(
+            {
+                **row,
+                "workflow_active_steps": len(active_nodes),
+                "workflow_total_steps": len(nodes) or len(definition.nodes),
+                "workflow_attempts": attempts,
+                "workflow_retry_attempts": sum(
+                    max(0, int(node.get("attempts") or 0) - 1) for node in active_nodes
+                ),
+                "workflow_recovered_steps": sum(
+                    1 for node in active_nodes if node.get("state") == "recovered"
+                ),
+                "workflow_failed_steps": sum(
+                    1 for node in active_nodes if node.get("state") == "failed"
+                ),
+                "workflow_models": models,
+                "workflow_providers": providers,
+            }
+        )
+    return cast(
+        dict[str, Any],
+        jsonable_encoder(
+            {
+                "workflow": {
+                    **definition.api_dict(),
+                    "template_hash": definition.template_hash,
+                },
+                "executions": executions,
+            }
+        ),
+    )
+
+
+def workflow_execution(repo: AnalyticsRepository, workflow_id: str, execution_id: str) -> dict[str, Any] | None:
+    detail = run_detail(repo, execution_id)
+    if detail is None:
+        return None
+    replay = detail.get("workflow_replay")
+    if not replay or replay["workflow"]["id"] != workflow_id:
+        return None
+    return detail
 
 
 def compare(repo: AnalyticsRepository, dimension: str, filters: FilterState) -> dict[str, Any]:

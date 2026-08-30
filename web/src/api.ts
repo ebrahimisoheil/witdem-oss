@@ -102,6 +102,7 @@ export type Overview = {
     known_cost: number | null;
     total_tokens: number | null;
     failures: number;
+    extra_attempts?: number;
   }>;
   runtime_breakdown: Record<string, number>;
   outcome_breakdown: Record<string, number>;
@@ -235,6 +236,7 @@ export type Meta = {
   filters: Record<string, string[]>;
 };
 export type DashboardFilters = {
+  workflow?: string;
   contract_hash?: string;
   provider?: string;
   model?: string;
@@ -244,6 +246,9 @@ export type DashboardFilters = {
 };
 export type Run = Record<string, unknown> & {
   execution_id: string;
+  started_at?: string;
+  ended_at?: string;
+  workflow?: string;
   display_name?: string;
   runtime_outcome?: string;
   status?: string;
@@ -254,6 +259,14 @@ export type Run = Record<string, unknown> & {
   model?: string;
   application_outcome?: string;
   product_goal_achieved?: boolean;
+  workflow_active_steps?: number;
+  workflow_total_steps?: number;
+  workflow_attempts?: number;
+  workflow_retry_attempts?: number;
+  workflow_recovered_steps?: number;
+  workflow_failed_steps?: number;
+  workflow_models?: string[];
+  workflow_providers?: string[];
   contract_hash?: string;
   contract_name?: string;
 };
@@ -273,6 +286,60 @@ export type RunDetail = {
     edges: Array<{ source: string; target: string; relation: string }>;
   };
   semantic_records: Array<Record<string, unknown>>;
+  workflow_replay?: WorkflowReplay | null;
+  canonical_url?: string | null;
+};
+
+export type WorkflowDefinitionSummary = {
+  version: number;
+  id: string;
+  name: string;
+  description?: string | null;
+  framework?: string | null;
+  template_hash: string;
+  stage_count: number;
+  node_count: number;
+  execution_count: number;
+  latest_execution?: Run | null;
+};
+
+export type DeclaredWorkflow = {
+  version: 1;
+  id: string;
+  name: string;
+  description?: string | null;
+  framework?: string | null;
+  template_hash: string;
+  stages: Array<{ id: string; name: string; description?: string | null; depends_on: string[]; nodes: string[] }>;
+  nodes: Array<{ id: string; name: string; description?: string | null; kind?: string | null; depends_on?: Array<{ node: string; type?: string | null; route?: string | null; label?: string | null }>; retry?: { via?: string | null; max_attempts?: number | null } | null }>;
+  transitions: Array<{ from: string; to: string; type: "next" | "branch" | "convergence" | "loop" | "fallback"; label?: string | null; route?: string | null }>;
+  outcomes: Array<{ id: string; name: string; from: string[] }>;
+};
+
+export type ProjectedWorkflowNode = DeclaredWorkflow["nodes"][number] & {
+  state: "inactive" | "completed" | "recovered" | "failed";
+  attempts: number;
+  duration_seconds: number | null;
+  known_cost: number | null;
+  total_tokens: number | null;
+  providers: string[];
+  models: string[];
+  emitted_route?: unknown;
+  observations: Array<Record<string, unknown>>;
+  model_calls: Array<Record<string, unknown>>;
+};
+
+export type WorkflowReplay = {
+  workflow: DeclaredWorkflow;
+  execution: Run;
+  stages: Array<DeclaredWorkflow["stages"][number] & { state: string; active_nodes: number; duration_seconds: number | null; known_cost: number | null; total_tokens: number | null }>;
+  nodes: ProjectedWorkflowNode[];
+  transitions: DeclaredWorkflow["transitions"];
+  outcomes: DeclaredWorkflow["outcomes"];
+  discrepancies: {
+    unexpected_operations: Array<{ id: string; name: string; kind: string }>;
+    unexpected_transitions: Array<{ from: string; to: string }>;
+  };
 };
 
 async function get<T>(path: string, attempt = 0): Promise<T> {
@@ -305,6 +372,12 @@ export const api = {
       withFilters("/api/v1/runs", { ...filters, page: String(page), page_size: String(pageSize) }),
     ),
   run: (id: string) => get<RunDetail>(`/api/v1/runs/${encodeURIComponent(id)}`),
+  workflowDefinitions: () =>
+    get<{ items: WorkflowDefinitionSummary[] }>("/api/v1/workflow-definitions"),
+  workflowDefinition: (id: string) =>
+    get<{ workflow: DeclaredWorkflow; executions: Run[] }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
+  workflowExecution: (workflowId: string, executionId: string) =>
+    get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
   compare: (dimension: string, filters: DashboardFilters = {}) =>
     get<{ dimension: string; items: ComparisonInsight[] }>(
       withFilters(`/api/v1/compare/${dimension}`, filters),

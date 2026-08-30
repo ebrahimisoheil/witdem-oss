@@ -228,6 +228,26 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         definitions = ", ".join(_definition(column) for column in columns)
         connection.execute(f'CREATE TABLE IF NOT EXISTS "{table}" ({definitions})')
     connection.execute(SERVING_DDL)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_templates (
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            name VARCHAR,
+            definition VARCHAR,
+            source VARCHAR,
+            registered_at TIMESTAMP,
+            PRIMARY KEY (workflow_id, template_hash)
+        );
+        CREATE TABLE IF NOT EXISTS execution_workflows (
+            execution_id VARCHAR PRIMARY KEY,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            match_source VARCHAR,
+            matched_at TIMESTAMP
+        );
+        """
+    )
     # Additive serving migrations keep existing local databases rebuildable.
     for column, sql_type in (
         ("providers", "VARCHAR"),
@@ -463,6 +483,7 @@ def upsert_graph(execution: Execution, operations: list[Operation], links: list[
                     _insert_one(connection, "executions", execution_row)
                     _insert_many(connection, "operations", operation_rows)
                     _insert_many(connection, "links", link_rows)
+                    _match_configured_workflow(connection, execution)
                     connection.commit()
                 except Exception:
                     connection.rollback()
@@ -507,6 +528,10 @@ def publish_transformed_bundle(
                         connection.execute(f'DELETE FROM "{table}" WHERE execution_id = ?', [execution_id])
                     for table in LIVE_TABLES:
                         _insert_many(connection, table, canonical_rows[table])
+                    _match_configured_workflow(connection, execution)
+                    for semantic in semantics:
+                        if isinstance(semantic, Event) and semantic.name == "workflow.definition":
+                            _register_definition_event(connection, execution_id, semantic.payload)
                     for table in (
                         "execution_facts",
                         "operation_facts",
@@ -629,5 +654,81 @@ def upsert_semantic(record: Event | Evaluation | Outcome) -> None:
                     f'INSERT OR REPLACE INTO "{table}" ({column_list}) VALUES ({placeholders})',
                     [row.get(column) for column in columns],
                 )
+                if isinstance(record, Event) and record.name == "workflow.definition":
+                    _register_definition_event(connection, record.execution_id, record.payload)
         finally:
             _release_connection()
+
+
+def _store_workflow_definition(
+    connection: duckdb.DuckDBPyConnection,
+    definition: Any,
+    *,
+    source: str,
+) -> None:
+    from witdem.workflows import WorkflowDefinition
+
+    validated = (
+        definition
+        if isinstance(definition, WorkflowDefinition)
+        else WorkflowDefinition.model_validate(definition)
+    )
+    connection.execute(
+        "INSERT OR REPLACE INTO workflow_templates "
+        "(workflow_id, template_hash, name, definition, source, registered_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            validated.id,
+            validated.template_hash,
+            validated.name,
+            json.dumps(validated.model_dump(mode="json", by_alias=True), sort_keys=True),
+            source,
+            utc_now(),
+        ],
+    )
+
+
+def _associate_workflow(
+    connection: duckdb.DuckDBPyConnection,
+    execution_id: str,
+    workflow_id: str,
+    template_hash: str,
+    source: str,
+) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO execution_workflows "
+        "(execution_id, workflow_id, template_hash, match_source, matched_at) VALUES (?, ?, ?, ?, ?)",
+        [execution_id, workflow_id, template_hash, source, utc_now()],
+    )
+
+
+def _match_configured_workflow(connection: duckdb.DuckDBPyConnection, execution: Execution) -> None:
+    from witdem.workflows import load_registry
+
+    registry = load_registry()
+    definition = registry.match(execution.model_dump(mode="json"))
+    if definition is None:
+        return
+    _store_workflow_definition(connection, definition, source="project_config")
+    explicit = bool(execution.attributes.get("witdem.workflow.id"))
+    _associate_workflow(
+        connection,
+        execution.execution_id,
+        definition.id,
+        definition.template_hash,
+        "sdk_explicit" if explicit else "configured_match",
+    )
+
+
+def _register_definition_event(
+    connection: duckdb.DuckDBPyConnection,
+    execution_id: str,
+    payload: Mapping[str, Any],
+) -> None:
+    definition = payload.get("definition")
+    if not isinstance(definition, Mapping):
+        return
+    from witdem.workflows import WorkflowDefinition
+
+    validated = WorkflowDefinition.model_validate(definition)
+    _store_workflow_definition(connection, validated, source="sdk")
+    _associate_workflow(connection, execution_id, validated.id, validated.template_hash, "sdk_definition")

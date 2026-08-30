@@ -1,19 +1,8 @@
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  Handle,
-  MarkerType,
-  Position,
-  ReactFlow,
-  type Edge,
-  type Node,
-  type NodeProps,
-} from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RunDetail } from "./api";
 import { formatNumber, money, seconds } from "./api";
+import { NativeGraph, type NativeGraphEdge as Edge, type NativeGraphNode } from "./native-graph";
 
 type Tone = "violet" | "blue" | "green" | "amber" | "red" | "slate";
 type Metric = { label: string; value: string };
@@ -41,12 +30,10 @@ type AgentNodeData = Record<string, unknown> & {
   memberNodeIds?: string[];
   memberTitles?: string[];
 };
-type AgentNode = Node<AgentNodeData, "agentNode">;
+type AgentNode = NativeGraphNode<AgentNodeData>;
 
 const NODE_WIDTH = 184;
 const NODE_HEIGHT = 96;
-const LONG_SPINE_THRESHOLD = 8;
-const TARGET_GROUP_SIZE = 4;
 
 const toneClasses: Record<Tone, { shell: string; accent: string; badge: string }> = {
   violet: {
@@ -100,14 +87,13 @@ const displayValue = (value: unknown) => {
   }
 };
 
-function AgentCard({ data, selected }: NodeProps<AgentNode>) {
+function AgentCard({ data, selected }: AgentNode) {
   const colors = toneClasses[data.tone];
   return (
     <div
       className={`witdem-agent-card relative h-24 w-[184px] cursor-pointer overflow-visible rounded-xl border transition duration-150 hover:-translate-y-0.5 hover:shadow-lg ${colors.shell} ${selected ? "ring-2 ring-violet-400 ring-offset-2" : ""}`}
       title={`Inspect ${data.title}`}
     >
-      <Handle type="target" position={Position.Left} className="!size-2 !border-2 !border-white !bg-slate-400" />
       <div className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${colors.accent}`} />
       <div className="flex h-full flex-col px-3 py-2.5 pl-4">
         <div className="flex min-w-0 items-center justify-between gap-2">
@@ -147,12 +133,10 @@ function AgentCard({ data, selected }: NodeProps<AgentNode>) {
           </div>
         ) : null}
       </div>
-      <Handle type="source" position={Position.Right} className="!size-2 !border-2 !border-white !bg-slate-400" />
     </div>
   );
 }
 
-const nodeTypes = { agentNode: AgentCard };
 
 const runtimeTone = (node: Record<string, unknown>, isRoot: boolean): Tone => {
   const status = String(node.status || "").toLowerCase();
@@ -342,104 +326,13 @@ const orderedRuntimeSpine = (runtime: { nodes: AgentNode[]; edges: Edge[] }) => 
   return ordered;
 };
 
-const groupTone = (members: AgentNode[]): Tone => {
-  const priority: Tone[] = ["red", "amber", "green", "blue", "violet", "slate"];
-  return priority.find((tone) => members.some((node) => node.data.tone === tone)) || "slate";
-};
-
 export const compactRuntimeGraph = (
   runtime: { nodes: AgentNode[]; edges: Edge[] },
-  expandedGroupIds: ReadonlySet<string> = new Set(),
+  _expandedGroupIds: ReadonlySet<string> = new Set(),
 ) => {
-  const spine = orderedRuntimeSpine(runtime);
-  if (spine.length <= LONG_SPINE_THRESHOLD) return runtime;
-
-  const root = spine[0];
-  const candidates = spine.slice(1);
-  const groupCount = Math.ceil(candidates.length / TARGET_GROUP_SIZE);
-  const minimumSize = Math.floor(candidates.length / groupCount);
-  const largerGroups = candidates.length % groupCount;
-  const groups: AgentNode[][] = [];
-  let offset = 0;
-  for (let index = 0; index < groupCount; index += 1) {
-    const size = minimumSize + (index < largerGroups ? 1 : 0);
-    groups.push(candidates.slice(offset, offset + size));
-    offset += size;
-  }
-
-  const collapsedMemberIds = new Set<string>();
-  const displaySpine: AgentNode[] = [root];
-  groups.forEach((members, groupIndex) => {
-    const first = members[0];
-    const last = members[members.length - 1];
-    const groupId = `runtime-phase-${first.id}-${last.id}`;
-    if (expandedGroupIds.has(groupId)) {
-      displaySpine.push(...members);
-      return;
-    }
-    members.forEach((member) => collapsedMemberIds.add(member.id));
-    const start = groups.slice(0, groupIndex).reduce((count, group) => count + group.length, 0) + 1;
-    const end = start + members.length - 1;
-    displaySpine.push({
-      id: groupId,
-      type: "agentNode",
-      position: { x: 0, y: 0 },
-      style: { width: NODE_WIDTH, height: NODE_HEIGHT },
-      data: {
-        lane: "runtime",
-        graphRole: "group",
-        eyebrow: "Workflow phase",
-        title: `Steps ${start}–${end}`,
-        subtitle: `${members[0].data.title} → ${members[members.length - 1].data.title}`,
-        badge: `${members.length} steps`,
-        tone: groupTone(members),
-        metrics: [],
-        details: [
-          { label: "Contained steps", value: formatNumber(members.length) },
-          { label: "First step", value: members[0].data.title },
-          { label: "Last step", value: members[members.length - 1].data.title },
-        ],
-        description: "A compact section of the observed execution path. Select it to reveal every recorded step.",
-        expandGroupId: groupId,
-        memberNodeIds: members.map((member) => member.id),
-        memberTitles: members.map((member) => member.data.title),
-      },
-    });
-  });
-
-  const spineIds = new Set(spine.map((node) => node.id));
-  const incoming = new Map<string, string[]>();
-  for (const edge of runtime.edges) {
-    incoming.set(edge.target, [...(incoming.get(edge.target) || []), edge.source]);
-  }
-  const hiddenIds = new Set(collapsedMemberIds);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const node of runtime.nodes) {
-      if (spineIds.has(node.id) || hiddenIds.has(node.id)) continue;
-      const parents = incoming.get(node.id) || [];
-      if (parents.some((parent) => hiddenIds.has(parent))) {
-        hiddenIds.add(node.id);
-        changed = true;
-      }
-    }
-  }
-
-  const visibleBranches = runtime.nodes.filter((node) => !spineIds.has(node.id) && !hiddenIds.has(node.id));
-  const visibleIds = new Set([...displaySpine, ...visibleBranches].map((node) => node.id));
-  const spineEdges: Edge[] = displaySpine.slice(1).map((node, index) => ({
-    id: `runtime-compact-edge-${index}-${displaySpine[index].id}-${node.id}`,
-    source: displaySpine[index].id,
-    target: node.id,
-    type: "smoothstep",
-    markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8", width: 16, height: 16 },
-    style: { stroke: "#94a3b8", strokeWidth: 1.5 },
-  }));
-  const branchEdges = runtime.edges.filter((edge) =>
-    visibleIds.has(edge.source) && visibleIds.has(edge.target) && !(spineIds.has(edge.source) && spineIds.has(edge.target)),
-  );
-  return { nodes: [...displaySpine, ...visibleBranches], edges: [...spineEdges, ...branchEdges] };
+  // Semantic grouping is declaration-owned. Runtime cardinality and screen
+  // space must never invent phases, so legacy replays remain ungrouped.
+  return runtime;
 };
 
 export const layoutImpactGraph = (
@@ -502,7 +395,7 @@ export const layoutImpactGraph = (
         source: runtimeSpine[runtimeSpine.length - 1].id,
         target: business.nodes[0].id,
         type: "smoothstep",
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#a78bfa", width: 16, height: 16 },
+        markerEnd: "arrow",
         style: { stroke: "#a78bfa", strokeWidth: 1.8, strokeDasharray: "6 4" },
       }]
     : [];
@@ -812,7 +705,7 @@ export const makeRuntimeGraph = (detail: RunDetail) => {
       ? human(edge.relation)
       : undefined,
     animated: ["repeat", "retry", "handoff", "retry attempt"].includes(String(edge.relation).toLowerCase()),
-    markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8", width: 16, height: 16 },
+    markerEnd: "arrow",
     style: { stroke: "#94a3b8", strokeWidth: 1.5 },
     labelStyle: { fill: "#64748b", fontSize: 10, fontWeight: 600 },
   }));
@@ -923,7 +816,7 @@ const makeBusinessGraph = (detail: RunDetail) => {
     source: nodes[index].id,
     target: node.id,
     type: "smoothstep",
-    markerEnd: { type: MarkerType.ArrowClosed, color: "#a78bfa", width: 16, height: 16 },
+    markerEnd: "arrow",
     style: { stroke: "#a78bfa", strokeWidth: 1.5, strokeDasharray: "6 4" },
   }));
   return { nodes, edges };
@@ -969,7 +862,7 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
     };
   }, [expanded, selectedNode]);
 
-  const inspectNode = (_event: React.MouseEvent, node: Node) => {
+  const inspectNode = (_event: React.MouseEvent, node: AgentNode) => {
     const agentNode = node as AgentNode;
     if (agentNode.data.expandGroupId) {
       setExpandedGroupIds((current) => new Set(current).add(String(agentNode.data.expandGroupId)));
@@ -1011,7 +904,6 @@ export function AdvancedWorkflowGraph({ detail }: { detail: RunDetail }) {
         <div className="h-[600px] overflow-hidden rounded-xl border border-slate-200 bg-[#fbfbf8]">
           <GraphCanvas
             graph={unifiedGraph}
-            backgroundId="execution-grid"
             onNodeClick={inspectNode}
             onPaneClick={() => setSelectedNode(null)}
           />
@@ -1089,7 +981,7 @@ function FullscreenGraph({
   expandedGroups: AgentNode[];
   onClose: () => void;
   onCollapseGroup: (groupId: string) => void;
-  onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onNodeClick: (event: React.MouseEvent, node: AgentNode) => void;
   onPaneClick: () => void;
 }) {
   return (
@@ -1119,24 +1011,7 @@ function FullscreenGraph({
         ) : null}
         <div className="relative z-0 min-h-0 flex-1 overflow-hidden bg-[#fbfbf8]">
           {graph.nodes.length ? (
-            <ReactFlow
-              nodes={graph.nodes}
-              edges={graph.edges}
-              nodeTypes={nodeTypes}
-              nodesDraggable={false}
-              nodesConnectable={false}
-              elementsSelectable
-              fitView
-              fitViewOptions={{ padding: 0.12, minZoom: 0.2, maxZoom: 1.05 }}
-              minZoom={0.18}
-              maxZoom={2}
-              proOptions={{ hideAttribution: true }}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-            >
-              <Background id="fullscreen-grid" variant={BackgroundVariant.Dots} gap={22} size={1} color="#d9dce2" />
-              <Controls showInteractive={false} position="bottom-right" />
-            </ReactFlow>
+            <NativeGraph graph={graph} renderNode={(node) => <AgentCard {...node} />} onNodeClick={onNodeClick} onPaneClick={onPaneClick} />
           ) : (
             <div className="grid h-full place-items-center text-sm text-slate-500">Laying out the complete execution map…</div>
           )}
@@ -1148,37 +1023,18 @@ function FullscreenGraph({
 
 function GraphCanvas({
   graph,
-  backgroundId,
   onNodeClick,
   onPaneClick,
 }: {
   graph: { nodes: AgentNode[]; edges: Edge[] };
-  backgroundId: string;
-  onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onNodeClick: (event: React.MouseEvent, node: AgentNode) => void;
   onPaneClick: () => void;
 }) {
   return (
     <section className="h-full min-h-0 overflow-hidden bg-[#fbfbf8]">
       {graph.nodes.length ? (
         <div className="h-full min-h-0">
-          <ReactFlow
-            nodes={graph.nodes}
-            edges={graph.edges}
-            nodeTypes={nodeTypes}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable
-            fitView
-            fitViewOptions={{ padding: 0.16, minZoom: 0.2, maxZoom: 1.1 }}
-            minZoom={0.18}
-            maxZoom={1.8}
-            proOptions={{ hideAttribution: true }}
-            onNodeClick={onNodeClick}
-            onPaneClick={onPaneClick}
-          >
-            <Background id={backgroundId} variant={BackgroundVariant.Dots} gap={20} size={1} color="#d9dce2" />
-            <Controls showInteractive={false} position="bottom-right" />
-          </ReactFlow>
+          <NativeGraph graph={graph} renderNode={(node) => <AgentCard {...node} />} onNodeClick={onNodeClick} onPaneClick={onPaneClick} />
         </div>
       ) : (
         <div className="grid h-full place-items-center text-sm text-slate-500">Laying out this lane…</div>

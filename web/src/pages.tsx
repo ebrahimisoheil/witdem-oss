@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api,
   type ContractDefinition,
@@ -21,6 +21,7 @@ import {
   EconomicsBarChart,
   Empty,
   ErrorPage,
+  ExecutionListCard,
   formatNumber,
   Kpi,
   LoadingPage,
@@ -39,7 +40,6 @@ import {
   GoalTradeoffChart,
   GoalRateColumns,
   StageAccumulation,
-  StatusBadge,
   useQuery,
   WorkflowBarChart,
   WorkflowGraph,
@@ -857,11 +857,18 @@ function AttentionPanel({ data }: { data: Overview }) {
 }
 
 export function RunsPage() {
-  const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
+  const [filterValues, setFilterValues] = useState<SharedFilterValues>(() => ({
+    ...EMPTY_FILTERS,
+    contractHash: routeParam("contract_hash"),
+    provider: routeParam("provider"),
+    model: routeParam("model"),
+    status: routeParam("status"),
+  }));
   const [page, setPage] = useState(1);
-  const filters = resolvedFilters(filterValues);
+  const workflow = routeParam("workflow");
+  const filters = { ...resolvedFilters(filterValues), workflow: workflow || undefined };
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["runs", filterValues, page], queryFn: () => api.runs(filters, page, 10) });
+  const q = useQuery({ queryKey: ["runs", workflow, filterValues, page], queryFn: () => api.runs(filters, page, 10) });
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -871,6 +878,7 @@ export function RunsPage() {
         title="Runs"
         description="Find a run by what it did, then open its complete telemetry and business story."
       />
+      {workflow ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
       <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => { setFilterValues(values); setPage(1); }} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
       <div className="mt-4 flex items-center justify-between text-sm">
@@ -890,81 +898,9 @@ function RunsTable({ rows, count }: { rows: Run[]; count: number }) {
       note="Newest first · select a run to inspect its complete path"
     >
       <div className="space-y-2">
-        {rows.map((run) => {
-          const runtime = String(run.runtime_outcome || run.status || "unknown");
-          const outcome = String(run.application_outcome || "Not reported").replaceAll("_", " ");
-          const goal =
-            run.product_goal_achieved === true
-              ? run.evidence_sufficient === false
-                ? "Achieved · attention"
-                : "Achieved"
-              : run.product_goal_achieved === false
-                ? "Not achieved"
-                : "Not reported";
-          const provider = String(run.provider || "Provider not observed");
-          const model = String(run.model || "Model not observed");
-          const measuredTokens = typeof run.total_tokens === "number";
-          const healthy = runtime.toLowerCase() === "completed" && run.product_goal_achieved === true;
-          return (
-            <Link
-              key={run.execution_id}
-              to="/runs/$executionId"
-              params={{ executionId: run.execution_id }}
-              className="group relative grid min-w-0 gap-4 overflow-hidden rounded-xl border border-[#e8e7e2] bg-white px-5 py-4 transition hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] xl:grid-cols-[minmax(360px,1fr)_200px_140px_80px_110px_110px] xl:items-center xl:gap-5"
-            >
-              <span
-                className={`absolute inset-y-0 left-0 w-1 ${healthy ? "bg-[#25a86b]" : run.product_goal_achieved === false ? "bg-[#df5a5a]" : "bg-[#f0a128]"}`}
-              />
-              <div className="min-w-0 pl-1">
-                <div className="truncate text-base font-semibold text-[#3f277f] group-hover:text-[#5c35c8]">
-                  {run.display_name || String(run.workflow || "Agent run")}
-                </div>
-                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#74746e]">
-                  <StatusBadge value={runtime} />
-                  <span className="max-w-[180px] truncate" title={provider}>{provider}</span>
-                  <span className="text-[#c2c1bb]">/</span>
-                  <span className="max-w-[300px] truncate font-medium text-[#55554f]" title={model}>{model}</span>
-                </div>
-              </div>
-              <div className="min-w-0 border-t border-[#efeee9] pt-3 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Business result</div>
-                <div className="mt-1 truncate text-sm font-semibold capitalize text-[#33332f]" title={outcome}>{outcome}</div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Product goal</div>
-                <div className="mt-1">
-                  <Badge
-                    color={
-                      goal === "Achieved"
-                        ? "green"
-                        : goal === "Not achieved"
-                          ? "red"
-                          : goal === "Achieved · attention"
-                            ? "yellow"
-                            : "gray"
-                    }
-                  >
-                    {goal}
-                  </Badge>
-                </div>
-              </div>
-              <RunMeasure label="Elapsed" value={seconds(run.duration_seconds)} />
-              <RunMeasure label="Cost" value={money(run.known_cost)} />
-              <RunMeasure label="Tokens" value={measuredTokens ? formatNumber(run.total_tokens) : "Not measured"} />
-            </Link>
-          );
-        })}
+        {rows.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/runs/${encodeURIComponent(run.execution_id)}`} />)}
       </div>
     </Panel>
-  );
-}
-
-function RunMeasure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold text-[#34342f]" title={value}>{value}</div>
-    </div>
   );
 }
 
@@ -974,8 +910,12 @@ export function RunPage() {
     queryKey: ["run", executionId],
     queryFn: () => api.run(executionId),
   });
+  useEffect(() => {
+    if (q.data?.canonical_url) window.location.replace(q.data.canonical_url);
+  }, [q.data?.canonical_url]);
   if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
+  if (q.data?.canonical_url) return <LoadingPage />;
   const d = q.data!,
     s = d.summary;
   const definitionRecord = d.semantic_records.find(

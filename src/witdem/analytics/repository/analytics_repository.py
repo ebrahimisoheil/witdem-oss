@@ -2228,6 +2228,35 @@ class AnalyticsRepository:
         graph, events, semantic_map = self._graph_inputs(execution_id)
         return derive_replay_graph(graph, events=events, semantic_stage_map=semantic_map)
 
+    def workflow_templates(self) -> list[dict[str, Any]]:
+        """Return the latest persisted version of every declared workflow."""
+
+        if "workflow_templates" not in self._tables:
+            return []
+        rows = self._query(
+            """
+            SELECT workflow_id, template_hash, name, definition, source, registered_at
+            FROM workflow_templates
+            QUALIFY row_number() OVER (
+                PARTITION BY workflow_id ORDER BY registered_at DESC, template_hash DESC
+            ) = 1
+            ORDER BY name, workflow_id
+            """
+        )
+        for row in rows:
+            row["definition"] = _json(row.get("definition"))
+        return rows
+
+    def execution_workflow(self, execution_id: str) -> dict[str, Any] | None:
+        if "execution_workflows" not in self._tables:
+            return None
+        rows = self._query(
+            "SELECT execution_id, workflow_id, template_hash, match_source, matched_at "
+            "FROM execution_workflows WHERE execution_id = ? LIMIT 1",
+            [execution_id],
+        )
+        return rows[0] if rows else None
+
     def execution_outcomes(self, execution_id: str) -> dict[str, Any]:
         """Return explicit runtime/application outcomes for one replay."""
 

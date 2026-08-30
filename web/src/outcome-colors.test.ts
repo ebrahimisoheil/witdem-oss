@@ -54,4 +54,21 @@ describe("contractOutcomeColors", () => {
 
     expect(contractOutcomeColors({ done: 2 }, contracts).done).toBe("#2f6fed");
   });
+
+  it("uses strong green when completed is the only successful result", () => {
+    expect(contractOutcomeColors({ completed: 3, failed: 1 }, []).completed).toBe("#16864b");
+  });
+
+  it("uses supporting green for completed beside a declared product success", () => {
+    const contracts: ContractDefinition[] = [{
+      contract_hash: "approval",
+      run_count: 2,
+      result: { values: { accepted: { tone: "success" } } },
+    }];
+
+    expect(contractOutcomeColors({ completed: 1, accepted: 1 }, contracts)).toMatchObject({
+      completed: "#8fcfab",
+      accepted: "#16864b",
+    });
+  });
 });

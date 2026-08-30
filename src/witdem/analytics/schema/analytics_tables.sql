@@ -71,3 +71,21 @@ CREATE TABLE IF NOT EXISTS outcomes (
     timestamp TIMESTAMP,
     attributes VARCHAR
 );
+
+CREATE TABLE IF NOT EXISTS workflow_templates (
+    workflow_id VARCHAR,
+    template_hash VARCHAR,
+    name VARCHAR,
+    definition VARCHAR,
+    source VARCHAR,
+    registered_at TIMESTAMP,
+    PRIMARY KEY (workflow_id, template_hash)
+);
+
+CREATE TABLE IF NOT EXISTS execution_workflows (
+    execution_id VARCHAR PRIMARY KEY,
+    workflow_id VARCHAR,
+    template_hash VARCHAR,
+    match_source VARCHAR,
+    matched_at TIMESTAMP
+);

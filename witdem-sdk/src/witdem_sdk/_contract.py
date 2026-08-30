@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     ValidationError,
     field_validator,
@@ -599,6 +600,14 @@ class WitdemProjectConfig(BaseModel):
     telemetry: TelemetrySpec = Field(default_factory=TelemetrySpec)
     contracts: dict[str, DescriptiveContractSpec | ContractSpec] = Field(default_factory=dict)
     default_contract: str | None = None
+    workflows: list[dict[str, str]] = Field(default_factory=list)
+    default_workflow: str | None = None
+
+    _workflow_definitions: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+    @property
+    def workflow_definitions(self) -> dict[str, Any]:
+        return dict(self._workflow_definitions)
 
     @model_validator(mode="before")
     @classmethod
@@ -606,6 +615,12 @@ class WitdemProjectConfig(BaseModel):
         if not isinstance(value, Mapping):
             return value
         raw = dict(value)
+        workflows = raw.get("workflows")
+        if isinstance(workflows, Mapping):
+            raw["workflows"] = [
+                {"id": str(name), **dict(item)} if isinstance(item, Mapping) else {"id": str(name), "definition": item}
+                for name, item in workflows.items()
+            ]
         contracts = raw.get("contracts")
         if isinstance(contracts, list):
             catalog: dict[str, Any] = {}
@@ -794,9 +809,10 @@ def discover_config(start: Path | None = None) -> Path | None:
         return Path(explicit).expanduser().resolve()
     current = (start or Path.cwd()).resolve()
     for directory in (current, *current.parents):
-        candidate = directory / _DEFAULT_RELATIVE_PATH
-        if candidate.is_file():
-            return candidate
+        for relative in (Path("witdem.yml"), Path("witdem.yaml"), _DEFAULT_RELATIVE_PATH):
+            candidate = directory / relative
+            if candidate.is_file():
+                return candidate
     return None
 
 
@@ -808,7 +824,13 @@ def load_project_config(path: str | Path | None = None, *, required: bool = Fals
         return None
     try:
         raw = yaml.safe_load(resolved.read_text(encoding="utf-8"))
-        return WitdemProjectConfig.model_validate(raw)
+        config = WitdemProjectConfig.model_validate(raw)
+        from witdem_sdk._workflow import load_workflow_definitions
+
+        config._workflow_definitions = load_workflow_definitions(raw or {}, resolved)
+        if config.default_workflow and config.default_workflow not in config._workflow_definitions:
+            raise ValueError(f"default_workflow {config.default_workflow!r} is not registered")
+        return config
     except OSError as exc:
         raise WitdemSDKError(f"cannot read Witdem configuration at {resolved}: {exc}") from exc
     except yaml.YAMLError as exc:
@@ -824,6 +846,8 @@ def load_project_config(path: str | Path | None = None, *, required: bool = Fals
         raise WitdemSDKError(
             f"invalid Witdem configuration at {resolved}:\n" + "\n".join(problems)
         ) from exc
+    except ValueError as exc:
+        raise WitdemSDKError(f"invalid Witdem workflow configuration at {resolved}: {exc}") from exc
 
 
 def _plain(value: Any) -> Any:

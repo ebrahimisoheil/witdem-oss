@@ -16,7 +16,16 @@ def test_initialize_analytics_store_creates_empty_canonical_tables(tmp_path: Pat
         counts = {table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] for table in tables}
     finally:
         connection.close()
-    assert tables == {"executions", "operations", "links", "events", "evaluations", "outcomes"}
+    assert tables == {
+        "executions",
+        "operations",
+        "links",
+        "events",
+        "evaluations",
+        "outcomes",
+        "workflow_templates",
+        "execution_workflows",
+    }
     assert counts == {table: 0 for table in tables}
 
 

@@ -76,7 +76,14 @@ If a tutorial is skipped, check its `.env.example` for a missing credential. An 
 
 [`examples/product-factory`](../examples/product-factory) is the controlled multi-runtime workload. It exercises LangChain, LangGraph, Haystack, OpenAI Agents, and Anthropic Messages across OpenAI, Anthropic, DeepSeek, and Mistral profiles, while keeping runtime health separate from business results and goal success.
 
+All runtimes project onto the same `company-qualification` workflow declared in `.witdem/workflows/company-qualification.yaml`. Runtime switches create comparable executions; they do not change the business DAG.
+
 ```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  -f examples/product-factory/compose.yaml \
+  up -d --build
 cd examples/product-factory
 uv sync --all-extras
 uv run product-factory run --case clear-qualification --runtime haystack --live --confirm-live

@@ -107,6 +107,27 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
         with service.repository(database_path) as repo:
             return service.workflows(repo, filters)
 
+    @app.get("/api/v1/workflow-definitions")
+    def workflow_definitions() -> dict[str, Any]:
+        with service.repository(database_path) as repo:
+            return service.workflow_catalog(repo)
+
+    @app.get("/api/v1/workflow-definitions/{workflow_id}")
+    def workflow_definition(workflow_id: str) -> dict[str, Any]:
+        with service.repository(database_path) as repo:
+            result = service.workflow_detail(repo, workflow_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="workflow definition not found")
+        return result
+
+    @app.get("/api/v1/workflow-definitions/{workflow_id}/executions/{execution_id}")
+    def workflow_execution(workflow_id: str, execution_id: str) -> dict[str, Any]:
+        with service.repository(database_path) as repo:
+            result = service.workflow_execution(repo, workflow_id, execution_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="execution is not associated with this workflow")
+        return result
+
     @app.get("/api/v1/issues")
     def issues(filters: Annotated[FilterState, Depends(_filter_state)]) -> dict[str, Any]:
         with service.repository(database_path) as repo:

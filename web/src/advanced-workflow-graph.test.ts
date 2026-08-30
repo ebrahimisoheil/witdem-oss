@@ -172,7 +172,7 @@ describe("runtime sibling layout", () => {
     ]);
   });
 
-  it("compresses a long execution spine into expandable neutral phases", () => {
+  it("does not invent phases from a long observed execution spine", () => {
     const nodes = Array.from({ length: 10 }, (_, index) => ({
       id: `runtime-step-${index}`,
       type: "agentNode",
@@ -194,26 +194,9 @@ describe("runtime sibling layout", () => {
     }));
 
     const compact = compactRuntimeGraph({ nodes, edges } as never);
-    const groups = compact.nodes.filter((node) => node.data.graphRole === "group");
-
-    expect(compact.nodes.map((node) => node.data.title)).toEqual([
-      "Contract review",
-      "Steps 1–3",
-      "Steps 4–6",
-      "Steps 7–9",
-    ]);
-    expect(groups.every((node) => node.data.expandGroupId)).toBe(true);
-
-    const firstGroupId = String(groups[0].data.expandGroupId);
-    const expanded = compactRuntimeGraph({ nodes, edges } as never, new Set([firstGroupId]));
-    expect(expanded.nodes.map((node) => node.data.title)).toEqual([
-      "Contract review",
-      "Observed step 1",
-      "Observed step 2",
-      "Observed step 3",
-      "Steps 4–6",
-      "Steps 7–9",
-    ]);
+    expect(compact.nodes).toHaveLength(10);
+    expect(compact.nodes.some((node) => node.data.graphRole === "group")).toBe(false);
+    expect(compact.edges).toEqual(edges);
   });
 
   it("keeps recorded nested iterations as clickable retry nodes below their owner", () => {

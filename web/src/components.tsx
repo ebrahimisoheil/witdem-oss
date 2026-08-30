@@ -12,7 +12,7 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import { lazy, Suspense, useState } from "react";
-import type { ComparisonInsight, Overview, Performance, RunDetail, WorkflowStage } from "./api";
+import type { ComparisonInsight, Overview, Performance, ProjectedWorkflowNode, Run, RunDetail, WorkflowStage } from "./api";
 import { formatNumber, money, percent, seconds } from "./api";
 import witdemMark from "./assets/witdem-mark-purple.png";
 
@@ -66,11 +66,11 @@ const modelFamily = (name: string) =>
 
 const nav = [
   ["/", "Overview"],
+  ["/workflows", "Workflows"],
   ["/system-health", "System health"],
   ["/goal-performance", "Goal performance"],
-  ["/runs", "Runs"],
+  ["/runs", "All executions"],
   ["/compare", "Compare"],
-  ["/workflows", "Workflows"],
   ["/issues", "Issues"],
 ] as const;
 export function Shell() {
@@ -120,26 +120,28 @@ export function PageHeader({
   title,
   description,
   action,
+  compact = false,
 }: {
   eyebrow?: string;
   title: string;
   description: string;
   action?: React.ReactNode;
+  compact?: boolean;
 }) {
   const queryClient = useQueryClient();
   const isFetching = useIsFetching() > 0;
   return (
-    <header className="mb-7 flex items-start justify-between gap-6">
+    <header className={`${compact ? "mb-4" : "mb-7"} flex items-start justify-between gap-6`}>
       <div>
         {eyebrow && (
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[.12em] text-[#8062df]">
+          <div className={`${compact ? "mb-1" : "mb-2"} text-xs font-semibold uppercase tracking-[.12em] text-[#8062df]`}>
             {eyebrow}
           </div>
         )}
-        <h1 className="text-[30px] font-semibold leading-tight tracking-[-.03em]">
+        <h1 className={`${compact ? "text-[26px]" : "text-[30px]"} font-semibold leading-tight tracking-[-.03em]`}>
           {title}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6d6d68]">
+        <p className={`${compact ? "mt-1 leading-5" : "mt-2 leading-6"} max-w-2xl text-sm text-[#6d6d68]`}>
           {description}
         </p>
       </div>
@@ -177,6 +179,32 @@ export function Panel({
       {children}
     </section>
   );
+}
+
+export function formatDateTime(value?: string | null) {
+  if (!value) return "Time not reported";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Time not reported";
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(parsed);
+}
+
+export function ExecutionListCard({ run, href }: { run: Run; href: string }) {
+  const runtime = String(run.runtime_outcome || run.status || "unknown");
+  const outcome = String(run.application_outcome || "Not reported").replaceAll("_", " ");
+  const goal = run.product_goal_achieved === true ? run.evidence_sufficient === false ? "Achieved · attention" : "Achieved" : run.product_goal_achieved === false ? "Not achieved" : "Not reported";
+  const provider = String(run.provider || "Provider not observed");
+  const model = String(run.model || "Model not observed");
+  const measuredTokens = typeof run.total_tokens === "number";
+  const healthy = runtime.toLowerCase() === "completed" && run.product_goal_achieved === true;
+  return <a href={href} className="group relative grid min-w-0 gap-3 overflow-hidden rounded-xl border border-[#e8e7e2] bg-white px-5 py-4 transition hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] xl:grid-cols-[minmax(220px,1fr)_150px_110px_70px_110px_110px] xl:items-center">
+    <span className={`absolute inset-y-0 left-0 w-1 ${healthy ? "bg-[#25a86b]" : run.product_goal_achieved === false ? "bg-[#df5a5a]" : "bg-[#f0a128]"}`} />
+    <div className="min-w-0 pl-1"><div className="truncate text-base font-semibold text-[#3f277f] group-hover:text-[#5c35c8]">{run.display_name || String(run.workflow || "Agent run")}</div><div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#74746e]"><StatusBadge value={runtime} /><span>{formatDateTime(run.started_at)}</span><span className="text-[#c2c1bb]">·</span><span className="max-w-[180px] truncate" title={provider}>{provider}</span><span className="text-[#c2c1bb]">/</span><span className="max-w-[300px] truncate font-medium text-[#55554f]" title={model}>{model}</span></div></div>
+    <div className="min-w-0 border-t border-[#efeee9] pt-3 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Business result</div><div className="mt-1 truncate text-sm font-semibold capitalize text-[#33332f]" title={outcome}>{outcome}</div></div>
+    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Product goal</div><div className="mt-1"><Badge color={goal === "Achieved" ? "green" : goal === "Not achieved" ? "red" : goal === "Achieved · attention" ? "yellow" : "gray"}>{goal}</Badge></div></div>
+    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Elapsed</div><div className="mt-1 truncate text-sm font-semibold text-[#34342f]">{seconds(run.duration_seconds)}</div></div>
+    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Cost</div><div className="mt-1 truncate text-sm font-semibold text-[#34342f]">{money(run.known_cost)}</div></div>
+    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Tokens</div><div className="mt-1 truncate text-sm font-semibold text-[#34342f]">{measuredTokens ? formatNumber(run.total_tokens) : "Not measured"}</div></div>
+  </a>;
 }
 export function Kpi({
   label,
@@ -365,6 +393,7 @@ export function RuntimeDonutChart({
 }) {
   const entries = Object.entries(data).filter(([, value]) => value > 0);
   const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  const compact = height < 200;
   if (!total) return <Empty>No runtime states were reported.</Empty>;
   return (
     <ReactEChartsCore
@@ -372,20 +401,21 @@ export function RuntimeDonutChart({
       style={{ height, width: "100%" }}
       option={{
         tooltip: { trigger: "item", formatter: "{b}<br/>{c} runs · {d}%" },
-        legend: { type: "scroll", orient: "vertical", right: 8, top: "center", itemWidth: 10, itemHeight: 10 },
+        legend: { type: "scroll", orient: "vertical", right: 4, top: "center", itemWidth: compact ? 7 : 10, itemHeight: compact ? 7 : 10, textStyle: { fontSize: compact ? 9 : 11 }, width: compact ? "42%" : undefined },
         graphic: [
-          { type: "text", left: "31%", top: "42%", style: { text: formatNumber(total), textAlign: "center", fill: "#292925", fontSize: 24, fontWeight: 700 } },
-          { type: "text", left: "31%", top: "55%", style: { text: "runs", textAlign: "center", fill: "#7a7a74", fontSize: 11 } },
+          { type: "text", left: compact ? "27%" : "31%", top: "42%", style: { text: formatNumber(total), textAlign: "center", fill: "#292925", fontSize: compact ? 18 : 24, fontWeight: 700 } },
+          { type: "text", left: compact ? "27%" : "31%", top: "57%", style: { text: "runs", textAlign: "center", fill: "#7a7a74", fontSize: compact ? 8 : 11 } },
         ],
         series: [{
           type: "pie",
           radius: ["50%", "72%"],
-          center: ["34%", "50%"],
+          center: [compact ? "28%" : "34%", "50%"],
           minShowLabelAngle: 5,
           label: { show: false },
           data: entries.map(([name, value]) => ({
             name: name.replaceAll("_", " "),
             value,
+            label: name === entries[0]?.[0] ? { show: true, position: "center", formatter: `{value|${formatNumber(total)}}\n{caption|runs}`, rich: { value: { color: "#292925", fontSize: compact ? 17 : 22, fontWeight: 700, lineHeight: compact ? 19 : 25 }, caption: { color: "#7a7a74", fontSize: compact ? 8 : 10, lineHeight: 12 } } } : { show: false },
             itemStyle: { color: colors[name.toLowerCase()] || "#7a8290", borderColor: "#fff", borderWidth: 2 },
           })),
         }],
@@ -1076,6 +1106,121 @@ export function GoalTrendChart({ items }: { items: Overview["goal_trend"] }) {
       ) : <Empty>No reported goal history in this view.</Empty>}
     </div>
   );
+}
+
+export function RatioDonutChart({
+  value,
+  achievedLabel,
+  remainderLabel,
+  detail,
+  height = 190,
+}: {
+  value: number;
+  achievedLabel: string;
+  remainderLabel: string;
+  detail: string;
+  height?: number;
+}) {
+  const clamped = Math.max(0, Math.min(1, value));
+  return <ReactEChartsCore echarts={echarts} style={{ height, width: "100%" }} option={{
+    tooltip: { trigger: "item", formatter: (point: { name: string; percent: number }) => `<b>${point.name}</b><br/>${formatNumber(point.percent)}%<br/>${detail}` },
+    legend: { orient: "vertical", right: 2, top: "center", itemWidth: height < 160 ? 7 : 10, itemHeight: height < 160 ? 7 : 10, textStyle: { fontSize: height < 160 ? 9 : 11 }, selectedMode: true },
+    title: { text: clamped ? percent(clamped) : "—", subtext: achievedLabel, left: height < 160 ? "27%" : "31%", top: "35%", textAlign: "center", textStyle: { color: "#342f39", fontSize: height < 160 ? 17 : 22, fontWeight: 700 }, subtextStyle: { color: "#817b83", fontSize: height < 160 ? 8 : 10 } },
+    series: [{ type: "pie", radius: ["49%", "70%"], center: [height < 160 ? "28%" : "31%", "50%"], label: { show: false }, data: [
+      { name: achievedLabel, value: clamped, label: { show: true, position: "center", formatter: clamped ? percent(clamped) : "—", color: "#342f39", fontSize: height < 160 ? 17 : 22, fontWeight: 700 }, itemStyle: { color: "#7153b5", borderColor: "#fff", borderWidth: 2 } },
+      { name: remainderLabel, value: 1 - clamped, itemStyle: { color: "#e8e5eb", borderColor: "#fff", borderWidth: 2 } },
+    ] }],
+  }} />;
+}
+
+export function ExecutionTrendChart({ runs, height = 210 }: { runs: Run[]; height?: number }) {
+  const ordered = [...runs].filter((run) => typeof run.duration_seconds === "number").sort((left, right) => String(left.started_at || "").localeCompare(String(right.started_at || "")));
+  if (!ordered.length) return <Empty>No latency measurements were reported.</Empty>;
+  return <ReactEChartsCore echarts={echarts} style={{ height, width: "100%" }} option={{
+    color: ["#7153b5"],
+    tooltip: { trigger: "axis", formatter: (points: Array<{ data: { run: Run; value: number } }>) => { const run = points[0]?.data.run; return run ? `<b>${formatDateTime(run.started_at)}</b><br/>Elapsed: ${seconds(run.duration_seconds)}<br/>Retries: ${formatNumber(Number(run.workflow_retry_attempts || 0))}<br/>${String(run.application_outcome || run.runtime_outcome || "Not reported").replaceAll("_", " ")}` : ""; } },
+    legend: { top: 0, data: ["Elapsed"], itemWidth: 10, itemHeight: 7, textStyle: { fontSize: 9 } },
+    grid: { left: 52, right: 12, top: 28, bottom: 34 },
+    xAxis: { type: "category", name: "Execution order", nameLocation: "middle", nameGap: 24, data: ordered.map((_run, index) => `Run ${index + 1}`), nameTextStyle: { fontSize: 9 }, axisLabel: { hideOverlap: true, fontSize: 9 } },
+    yAxis: { type: "value", axisLabel: { formatter: (value: number) => seconds(value), fontSize: 9 }, splitLine: { lineStyle: { color: "#ecece7" } } },
+    series: [{ name: "Elapsed", type: "line", smooth: true, symbolSize: 8, emphasis: { focus: "series" }, data: ordered.map((run) => ({ value: run.duration_seconds, run })) }],
+  }} />;
+}
+
+export function RetryPressureChart({ runs, height = 210 }: { runs: Run[]; height?: number }) {
+  const shown = runs.filter((run) => typeof run.duration_seconds === "number");
+  if (!shown.length) return <Empty>No execution measurements were reported.</Empty>;
+  const groups = ["No retries", "Retried"];
+  return <ReactEChartsCore echarts={echarts} style={{ height, width: "100%" }} option={{
+    color: ["#8068b7", "#d58b24"],
+    tooltip: { trigger: "item", formatter: (point: { data: { run: Run } }) => { const run = point.data.run; return `<b>${formatDateTime(run.started_at)}</b><br/>Elapsed: ${seconds(run.duration_seconds)}<br/>Retries: ${formatNumber(Number(run.workflow_retry_attempts || 0))}<br/>Goal: ${run.product_goal_achieved === true ? "achieved" : run.product_goal_achieved === false ? "not achieved" : "not reported"}`; } },
+    legend: { top: 0, data: groups, selectedMode: true, itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
+    grid: { left: 36, right: 10, top: 28, bottom: 34 },
+    xAxis: { type: "value", name: "Elapsed", nameLocation: "middle", nameGap: 24, nameTextStyle: { fontSize: 9 }, axisLabel: { formatter: (value: number) => seconds(value), fontSize: 9 }, splitLine: { lineStyle: { color: "#ecece7" } } },
+    yAxis: { type: "value", minInterval: 1, axisLabel: { fontSize: 9 }, splitLine: { lineStyle: { color: "#ecece7" } } },
+    series: groups.map((name, index) => ({ name, type: "scatter", symbolSize: (value: number[]) => 11 + Math.min(8, value[1] * 2), emphasis: { focus: "series", scale: 1.4 }, data: shown.filter((run) => (Number(run.workflow_retry_attempts || 0) > 0) === Boolean(index)).map((run) => ({ value: [run.duration_seconds, Number(run.workflow_retry_attempts || 0)], run })) })),
+  }} />;
+}
+
+export function AttributionHealthChart({ items, dimension, onSelect, height = 260, completedIsSupporting = false }: { items: Performance[]; dimension: "model" | "provider"; onSelect?: (item: Performance) => void; height?: number; completedIsSupporting?: boolean }) {
+  const [metric, setMetric] = useState<"reliability" | "cost" | "tokens">("reliability");
+  const shown = [...items].sort((a, b) => b.runs - a.runs).slice(0, 10).reverse();
+  const hasMetric = metric === "reliability" ? shown.length > 0 : metric === "cost" ? shown.some((item) => item.measured_cost != null) : shown.some((item) => item.total_tokens != null);
+  return <div>
+    <div className="mb-2 flex justify-end gap-1">{(["reliability", "cost", "tokens"] as const).map((choice) => <button key={choice} type="button" onClick={() => setMetric(choice)} className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${metric === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{choice === "reliability" ? "Outcomes" : choice[0].toUpperCase() + choice.slice(1)}</button>)}</div>
+    {!shown.length ? <Empty>No {dimension} calls were attributed to this workflow.</Empty> : !hasMetric ? <Empty>{metric === "cost" ? "Cost" : "Token"} telemetry is not measured for these {dimension}s.</Empty> : <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { item?: Performance } }) => point.data?.item && onSelect(point.data.item) } : undefined} style={{ height, width: "100%" }} option={{
+      color: metric === "reliability" ? [completedIsSupporting ? "#8fcfab" : "#16864b", "#d58b24", "#dc5a5a"] : ["#7153b5"],
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: Performance }; seriesName: string; value: number }>) => { const item = points[0]?.data.item; if (!item) return ""; return `<b>${item.label}</b><br/>${formatNumber(item.runs)} runs<br/>Completed: ${formatNumber(item.completed)}<br/>Recovered: ${formatNumber(item.recovered)}<br/>Failed: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measured_cost)}<br/>Tokens: ${formatNumber(item.total_tokens)}`; } },
+      legend: { top: 0, selectedMode: true, itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
+      grid: { left: 150, right: 14, top: 34, bottom: 22 },
+      xAxis: { type: "value", splitNumber: 3, minInterval: metric === "reliability" ? 1 : undefined, axisLabel: { formatter: (value: number) => metric === "cost" ? money(value) : formatNumber(value), fontSize: 8, hideOverlap: true, margin: 6 }, splitLine: { lineStyle: { color: "#ecece7" } } },
+      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 136, overflow: "truncate", fontSize: 9, margin: 8 } },
+      series: metric === "reliability" ? [
+        { name: "Completed", type: "bar", stack: "outcome", data: shown.map((item) => ({ value: Math.max(0, item.completed - item.recovered), item })) },
+        { name: "Recovered", type: "bar", stack: "outcome", data: shown.map((item) => ({ value: item.recovered, item })) },
+        { name: "Failed", type: "bar", stack: "outcome", data: shown.map((item) => ({ value: item.failed, item })) },
+      ] : [{ name: metric === "cost" ? "Measured cost" : "Tokens", type: "bar", data: shown.map((item) => ({ value: metric === "cost" ? item.measured_cost : item.total_tokens, item })), itemStyle: { borderRadius: [0, 4, 4, 0] } }],
+    }} />}
+  </div>;
+}
+
+export function StageDiagnosticsChart({ items, height = 310 }: { items: Overview["stages"]; height?: number }) {
+  const [metric, setMetric] = useState<"time" | "failures" | "retries" | "cost" | "tokens">("time");
+  const value = (item: Overview["stages"][number]) => metric === "time" ? item.time_seconds : metric === "failures" ? item.failures : metric === "retries" ? Number(item.extra_attempts || 0) : metric === "cost" ? item.known_cost : item.total_tokens;
+  const measured = items.filter((item) => value(item) != null);
+  const shown = [...measured].sort((a, b) => Number(value(b) || 0) - Number(value(a) || 0)).slice(0, 10).reverse();
+  return <div>
+    <div className="mb-2 flex flex-wrap justify-end gap-1">{(["time", "failures", "retries", "cost", "tokens"] as const).map((choice) => <button key={choice} type="button" onClick={() => setMetric(choice)} className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${metric === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{choice === "time" ? "Elapsed" : choice[0].toUpperCase() + choice.slice(1)}</button>)}</div>
+    {!shown.length ? <Empty>{metric === "cost" ? "Cost" : metric === "tokens" ? "Token" : metric} telemetry is not reported by step.</Empty> : <ReactEChartsCore echarts={echarts} style={{ height: Math.max(height, shown.length * 20), width: "100%" }} option={{
+      color: [metric === "failures" ? "#dc5a5a" : metric === "retries" ? "#d58b24" : "#7153b5"],
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: Overview["stages"][number] } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.label}</b><br/>Elapsed: ${seconds(item.time_seconds)}<br/>Failures: ${formatNumber(item.failures)}<br/>Extra attempts: ${formatNumber(item.extra_attempts)}<br/>Cost: ${money(item.known_cost)}<br/>Tokens: ${formatNumber(item.total_tokens)}` : ""; } },
+      legend: { top: 0, data: [metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1)], itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
+      grid: { left: 128, right: 18, top: 28, bottom: 22 },
+      xAxis: { type: "value", splitNumber: 4, minInterval: metric === "failures" || metric === "retries" ? 1 : undefined, axisLabel: { fontSize: 8, hideOverlap: true, margin: 5, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
+      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 116, overflow: "truncate", fontSize: 8 } },
+      series: [{ name: metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1), type: "bar", data: shown.map((item) => ({ value: value(item), item })), barMaxWidth: 16, itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }],
+    }} />}
+  </div>;
+}
+
+export function ExecutionStepDiagnostics({ nodes, onSelect, height = 360, completedIsSupporting = false }: { nodes: ProjectedWorkflowNode[]; onSelect?: (node: ProjectedWorkflowNode) => void; height?: number; completedIsSupporting?: boolean }) {
+  const [metric, setMetric] = useState<"time" | "attempts" | "cost" | "tokens">("time");
+  const value = (node: ProjectedWorkflowNode) => metric === "time" ? node.duration_seconds : metric === "attempts" ? node.attempts : metric === "cost" ? node.known_cost : node.total_tokens;
+  const executed = nodes.filter((node) => node.state !== "inactive" && value(node) != null);
+  const shown = [...executed].sort((a, b) => Number(value(b) || 0) - Number(value(a) || 0)).slice(0, 12).reverse();
+  const states = ["Completed", "Recovered", "Failed"];
+  return <div>
+    <div className="mb-2 flex justify-end gap-1">{(["time", "attempts", "cost", "tokens"] as const).map((choice) => <button key={choice} type="button" onClick={() => setMetric(choice)} className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${metric === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{choice === "time" ? "Elapsed" : choice[0].toUpperCase() + choice.slice(1)}</button>)}</div>
+    {!shown.length ? <Empty>{metric === "cost" ? "Cost" : metric === "tokens" ? "Token" : metric} telemetry is not reported for executed steps.</Empty> : <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { node?: ProjectedWorkflowNode } }) => point.data?.node && onSelect(point.data.node) } : undefined} style={{ height: Math.max(height, shown.length * 18), width: "100%" }} option={{
+      color: [completedIsSupporting ? "#8fcfab" : "#16864b", "#d58b24", "#dc5a5a"],
+      tooltip: { trigger: "item", formatter: (point: { data: { node: ProjectedWorkflowNode } }) => { const node = point.data.node; return `<b>${node.name}</b><br/>State: ${node.state}<br/>Elapsed: ${seconds(node.duration_seconds)}<br/>Attempts: ${formatNumber(node.attempts)}<br/>Provider: ${node.providers.join(", ") || "Not observed"}<br/>Model: ${node.models.join(", ") || "No model call"}<br/>Cost: ${money(node.known_cost)}<br/>Tokens: ${formatNumber(node.total_tokens)}<br/><span style="color:#7153b5">Select to inspect evidence</span>`; } },
+      legend: { top: 0, data: states, selectedMode: true, itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
+      grid: { left: 156, right: 20, top: 28, bottom: 24 },
+      xAxis: { type: "value", splitNumber: 4, minInterval: metric === "attempts" ? 1 : undefined, axisLabel: { fontSize: 8, hideOverlap: true, margin: 5, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
+      yAxis: { type: "category", data: shown.map((node) => node.name), axisLabel: { width: 144, overflow: "truncate", fontSize: 8 } },
+      series: states.map((state) => ({ name: state, type: "bar", stack: "step", barMaxWidth: 16, emphasis: { focus: "series" }, data: shown.map((node) => ({ value: node.state === state.toLowerCase() ? value(node) : 0, node })) })),
+    }} />}
+  </div>;
 }
 
 export function WorkflowGraph({ detail }: { detail: RunDetail }) {

@@ -37,6 +37,7 @@ from witdem_sdk._transport import DeliveryStatus
 from witdem_sdk._transport import flush as flush_records
 
 _EXECUTION_ID_KEY = "witdem.execution_id"
+_WORKFLOW_ID_KEY = "witdem.workflow.id"
 _CONFIGURED_PROVIDER_IDS: set[int] = set()
 _CONFIGURED_EXPORTER_CONFIGS: set[tuple[int, str, tuple[tuple[str, str], ...]]] = set()
 _PROVIDER_EXPORTER_CONFIG: dict[int, tuple[str, tuple[tuple[str, str], ...]]] = {}
@@ -48,6 +49,9 @@ class _ExecutionIdSpanProcessor(SpanProcessor):
         execution_id = baggage.get_baggage(_EXECUTION_ID_KEY, parent_context)
         if isinstance(execution_id, str):
             span.set_attribute(_EXECUTION_ID_KEY, execution_id)
+        workflow_id = baggage.get_baggage(_WORKFLOW_ID_KEY, parent_context)
+        if isinstance(workflow_id, str):
+            span.set_attribute(_WORKFLOW_ID_KEY, workflow_id)
 
     def on_end(self, span: ReadableSpan) -> None:
         return None
@@ -222,6 +226,7 @@ class Witdem:
         name: str | None = None,
         *,
         execution_id: str | None = None,
+        workflow: str | None = None,
         attributes: Mapping[str, Any] | None = None,
     ) -> Iterator[str]:
         """Create one correlated execution for traces and SDK records."""
@@ -236,7 +241,22 @@ class Witdem:
                 )
             resolved_id = f"{active_context.trace_id:032x}"
         resolved_id = resolved_id or uuid4().hex
+        definition = None
+        project_config = getattr(self, "project_config", None)
+        if project_config is not None:
+            workflow_id = workflow or project_config.default_workflow
+            if workflow_id is None and len(project_config.workflow_definitions) == 1:
+                workflow_id = next(iter(project_config.workflow_definitions))
+            if workflow_id is not None:
+                definition = project_config.workflow_definitions.get(workflow_id)
+                if definition is None:
+                    raise ValueError(f"witdem_sdk: unknown workflow {workflow_id!r}")
+        elif workflow is not None:
+            raise ValueError("witdem_sdk: workflow= requires a project configuration")
+        workflow_id = definition.id if definition is not None else None
         context = baggage.set_baggage(_EXECUTION_ID_KEY, resolved_id)
+        if workflow_id:
+            context = baggage.set_baggage(_WORKFLOW_ID_KEY, workflow_id, context=context)
         token = otel_context.attach(context)
         try:
             with self._tracer.start_as_current_span(resolved_name, kind=SpanKind.INTERNAL) as span:
@@ -245,10 +265,32 @@ class Witdem:
                 span.set_attribute("witdem.runtime.kind", "workflow")
                 span.set_attribute("witdem.runtime.name", self.runtime)
                 span.set_attribute("witdem.runtime", self.runtime)
+                if definition is not None:
+                    span.set_attribute(_WORKFLOW_ID_KEY, definition.id)
+                    span.set_attribute("witdem.workflow.template_hash", definition.template_hash)
                 _set_attributes(span, attributes)
                 from witdem_sdk import event, outcome
 
-                event("execution.started", {"service": self.service_name})
+                if definition is not None:
+                    event(
+                        "workflow.definition",
+                        {
+                            "workflow_id": definition.id,
+                            "template_hash": definition.template_hash,
+                            "definition": definition.model_dump(mode="json"),
+                        },
+                    )
+                event(
+                    "execution.started",
+                    {
+                        "service": self.service_name,
+                        **(
+                            {"workflow_id": definition.id, "template_hash": definition.template_hash}
+                            if definition is not None
+                            else {}
+                        ),
+                    },
+                )
                 try:
                     yield resolved_id
                 except BaseException as exc:
