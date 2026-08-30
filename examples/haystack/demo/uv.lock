@@ -1363,7 +1363,6 @@ dev = [
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.2,<3" },
     { name = "types-pyyaml", specifier = ">=6.0,<7" },
 ]
-docs = [{ name = "mkdocs-material", specifier = ">=9.6,<10" }]
 
 [[package]]
 name = "witdem-sdk"

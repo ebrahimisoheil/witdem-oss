@@ -112,7 +112,7 @@ jobs:
           version: "0.12.5"
           python-version: "3.12"
       - run: uv sync --project "${{ matrix.project }}" --locked
-      - run: uv run --project "${{ matrix.project }}" --locked pytest -q
+      - run: uv run --project "${{ matrix.project }}" --locked pytest -q "${{ matrix.project }}/tests"
 
   distribution:
     runs-on: ubuntu-latest
