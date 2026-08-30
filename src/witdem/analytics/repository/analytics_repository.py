@@ -2306,7 +2306,8 @@ class AnalyticsRepository:
             return []
         rows = self._query(
             "SELECT workflow_id, COUNT(*) AS execution_count, "
-            "arg_max(projection, projected_at) AS latest_projection "
+            "arg_max(projection, COALESCE(json_extract_string(projection, '$.execution.started_at'), "
+            "CAST(projected_at AS VARCHAR))) AS latest_projection "
             "FROM workflow_execution_projections GROUP BY workflow_id"
         )
         for row in rows:

@@ -35,8 +35,8 @@ The wrapper supports synchronous and async functions, owns processor registratio
 
 Runnable examples:
 
-- [`examples/openai/basic_agent`](../../examples/openai/basic_agent): one agent and tool
-- [`examples/openai/multi_agent`](../../examples/openai/multi_agent): native handoff
+- [`examples/openai/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/basic_agent): one agent and tool
+- [`examples/openai/multi_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/multi_agent): native handoff
 
 ## Limitations
 

@@ -42,8 +42,8 @@ function WorkflowListCard({ workflow }: { workflow: WorkflowDefinitionSummary })
   const goal = latest?.product_goal_achieved === true
     ? latest.evidence_sufficient === false ? "Achieved · attention" : "Achieved"
     : latest?.product_goal_achieved === false ? "Not achieved" : "Not reported";
-  const provider = String(latest?.provider || "Provider not observed");
-  const model = String(latest?.model || "Model not observed");
+  const provider = latest?.workflow_providers?.join(", ") || String(latest?.provider || "Provider not observed");
+  const model = latest?.workflow_models?.join(", ") || String(latest?.model || "Model not observed");
   const healthy = runtime.toLowerCase() === "completed" && latest?.product_goal_achieved === true;
   const definitionHash = workflow.template_hash.slice(0, 8);
   const adapterVersion = latest?.adapter_version ? `SDK v${latest.adapter_version}` : "SDK version not observed";
@@ -97,11 +97,8 @@ export function WorkflowDefinitionPage() {
   const { workflowId } = useParams({ from: "/workflows/$workflowId" });
   const q = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
   const workflowFilter = String(q.data?.executions[0]?.workflow || q.data?.workflow.name || "");
-  const contractHash = String(q.data?.executions[0]?.contract_hash || "");
-  const analytics = useQuery({ queryKey: ["workflow-analytics", workflowId, workflowFilter, contractHash], queryFn: () => api.overview({ workflow: workflowFilter, contract_hash: contractHash || undefined }), enabled: Boolean(workflowFilter) });
-  if (q.isLoading || analytics.isLoading) return <LoadingPage />;
+  if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
-  if (analytics.error) return <ErrorPage error={analytics.error} />;
   const workflow = q.data!.workflow;
   const executions = q.data!.executions;
   const recentExecutions = [...executions].sort((left, right) => String(right.started_at || "").localeCompare(String(left.started_at || ""))).slice(0, 5);
@@ -111,7 +108,7 @@ export function WorkflowDefinitionPage() {
     <Panel title="Declared structure" note="The YAML topology stays stable while telemetry activates the path taken by each runtime.">
       <DeclaredOverview replay={{ workflow, execution: { execution_id: "template" }, stages: workflow.stages.map((stage) => ({ ...stage, state: "inactive", active_nodes: 0, duration_seconds: null, known_cost: null, total_tokens: null })), nodes: [], transitions: workflow.transitions, outcomes: workflow.outcomes, discrepancies: { unexpected_operations: [], unexpected_transitions: [] } }} />
     </Panel>
-    <WorkflowAtAGlance executions={executions} stats={stats} overview={analytics.data!} workflowFilter={workflowFilter} />
+    <WorkflowAtAGlance executions={executions} stats={stats} overview={q.data!.analytics} workflowFilter={workflowFilter} />
     <Panel className="mt-4" title="Recent executions" note="The five newest runs matched to this workflow.">
       <div className="space-y-2">{recentExecutions.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(run.execution_id)}`} />)}</div>
       {!executions.length ? <Empty>No executions have matched this workflow yet.</Empty> : null}
@@ -298,9 +295,9 @@ function WorkflowExecutionAnalysis({ executions, stats, overview, workflowFilter
   </Panel>;
 }
 
-function WorkflowAtAGlance({ executions, stats, overview, workflowFilter }: { executions: Run[]; stats: ReturnType<typeof summarizeWorkflowRuns>; overview: Awaited<ReturnType<typeof api.overview>>; workflowFilter: string }) {
+function WorkflowAtAGlance({ executions, stats, overview, workflowFilter }: { executions: Run[]; stats: ReturnType<typeof summarizeWorkflowRuns>; overview: Pick<Awaited<ReturnType<typeof api.overview>>, "models" | "providers" | "stages">; workflowFilter: string }) {
   const outcomes = executions.reduce<Record<string, number>>((result, run) => { const key = String(run.application_outcome || run.runtime_outcome || run.status || "Not reported"); result[key] = (result[key] || 0) + 1; return result; }, {});
-  const outcomeColors = contractOutcomeColors(outcomes, overview.contracts);
+  const outcomeColors = contractOutcomeColors(outcomes, []);
   const hasProductSuccess = executions.some((run) => run.product_goal_achieved === true)
     || Object.entries(outcomeColors).some(([name, color]) => name !== "completed" && color === "#16864b" && Boolean(outcomes[name]));
   const runHref = (filter: { model?: string; provider?: string }) => `/runs?${new URLSearchParams({ workflow: workflowFilter, ...filter }).toString()}`;

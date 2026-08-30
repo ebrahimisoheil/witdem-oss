@@ -50,7 +50,7 @@ contracts:
       achieved: $.witdem.artifact_valid
 ```
 
-The complete checked-in example is [`examples/langchain/runnable_pipeline`](../../examples/langchain/runnable_pipeline).
+The complete checked-in example is [`examples/langchain/runnable_pipeline`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/langchain/runnable_pipeline).
 
 ## Existing application integration
 

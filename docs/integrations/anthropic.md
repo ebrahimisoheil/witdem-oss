@@ -36,8 +36,8 @@ The proxy preserves the client API, supports sync and async `messages.create`, a
 
 Runnable examples:
 
-- [`examples/anthropic/basic_agent`](../../examples/anthropic/basic_agent)
-- [`examples/anthropic/tool_loop`](../../examples/anthropic/tool_loop)
+- [`examples/anthropic/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/basic_agent)
+- [`examples/anthropic/tool_loop`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/tool_loop)
 
 ## Claude Agent SDK
 

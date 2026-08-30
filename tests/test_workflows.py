@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from witdem.analytics.core import Execution, Operation
 from witdem.dashboard.app import create_dashboard_app
-from witdem.dashboard.service import materialize_workflow_projections
+from witdem.dashboard.service import _workflow_projection_analytics, materialize_workflow_projections
 from witdem.ingest import live_db
 from witdem.workflows import (
     WorkflowDefinition,
@@ -149,6 +149,24 @@ def test_project_execution_keeps_template_stable_and_embeds_model_calls() -> Non
     assert projected["respond"]["total_tokens"] == 42
     assert all(node["kind"] != "model" for node in replay["nodes"])
     assert replay["discrepancies"]["unexpected_operations"][0]["name"] == "framework.checkpoint"
+
+    analytics = _workflow_projection_analytics([replay])
+    assert analytics["models"] == [
+        {
+            "label": "gpt-5",
+            "runs": 1,
+            "completed": 1,
+            "failed": 0,
+            "recovered": 1,
+            "measured_cost": 0.01,
+            "time_per_positive_run": None,
+            "total_tokens": 42.0,
+            "failure_rate": 0.0,
+            "cost_coverage": 1.0,
+        }
+    ]
+    assert analytics["providers"][0]["label"] == "openai"
+    assert next(row for row in analytics["stages"] if row["label"] == "Respond")["total_tokens"] == 42.0
 
 
 def test_project_execution_matches_framework_native_component_identity() -> None:

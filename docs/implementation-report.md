@@ -16,6 +16,9 @@ visual design were intentionally preserved.
   enforces the release thresholds.
 - ECharts is route-split into a lazy chunk. The initial JavaScript payload fell
   from approximately 1.30 MB (421.5 KB gzip) to 702.6 KB (218.4 KB gzip).
+- Workflow-level model, provider, and step charts now aggregate the matched
+  materialized projections directly. They no longer depend on an optional
+  application-supplied workflow-name telemetry field.
 
 ## Installation-path acceptance
 
@@ -26,6 +29,23 @@ Both release-candidate launchers were exercised with isolated ports and data:
 - Packed-NPM NPX/Docker start, status, ingestion, ELT, dashboard query, logs,
   shutdown, restart, persistence, and container-cleanup checks passed.
 - No developer data directory or shared Docker volume was used by either gate.
+- The native gate exposed and verified a same-port immediate-restart edge case;
+  availability checks now mirror the server's address-reuse behavior.
+
+## Documentation and distribution
+
+- The Material for MkDocs site builds in strict mode and is configured for
+  `https://docs.witdem.com/` with a custom-domain file.
+- Documentation CI validates every pull request and main-branch change.
+  GitHub Pages deployment is deliberately manual through `workflow_dispatch`.
+- Repository-only links were converted to canonical GitHub links, while all
+  nine YAML contract files remain downloadable from the documentation site.
+- The platform source distribution was reduced from approximately 13 MB to
+  664 KB by restricting it to the actual package, README, license, and build
+  metadata. Both its source archive and wheel install successfully in clean
+  environments.
+- Every isolated example lockfile is current, and CI now runs all twelve
+  standalone example suites in addition to Product Factory.
 
 ## External live contract-review acceptance
 
@@ -65,6 +85,9 @@ isolated acceptance stack is running.
 - Dashboard: 24 tests and production build passed.
 - NPM launcher: five tests and syntax checks passed.
 - GitHub Actions workflow YAML and repository whitespace checks passed.
+- Python and NPM dependency audits reported no known vulnerabilities. The
+  vulnerable `cryptography 46.0.7` constraint was replaced with patched
+  `cryptography 50.0.1` and its signature-verification tests passed.
 
 Release publication intentionally requires the
 `WITDEM_RELEASE_SIGNING_KEY` CI secret. The release workflow fails closed if

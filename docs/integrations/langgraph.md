@@ -95,7 +95,7 @@ Witdem can coexist with other LangGraph/LangChain callbacks. You do not need to 
 
 ## Real-world proof
 
-The repository includes a minimal runnable at [`examples/langgraph/state_graph`](../../examples/langgraph/state_graph). The external Chinook support benchmark also exercises a native `StateGraph` with conditional tool routing, OpenAI model calls, a physical tool call, token usage, measured cost, and a YAML-defined support outcome.
+The repository includes a minimal runnable at [`examples/langgraph/state_graph`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/langgraph/state_graph). The external Chinook support benchmark also exercises a native `StateGraph` with conditional tool routing, OpenAI model calls, a physical tool call, token usage, measured cost, and a YAML-defined support outcome.
 
 An `open_deep_research` example is not currently checked into this repository, so the documentation does not claim it as validated.
 

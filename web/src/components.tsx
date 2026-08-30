@@ -218,8 +218,8 @@ export function ExecutionListCard({ run, href }: { run: Run; href: string }) {
   const runtime = String(run.runtime_outcome || run.status || "unknown");
   const outcome = String(run.application_outcome || "Not reported").replaceAll("_", " ");
   const goal = run.product_goal_achieved === true ? run.evidence_sufficient === false ? "Achieved · attention" : "Achieved" : run.product_goal_achieved === false ? "Not achieved" : "Not reported";
-  const provider = String(run.provider || "Provider not observed");
-  const model = String(run.model || "Model not observed");
+  const provider = run.workflow_providers?.join(", ") || String(run.provider || "Provider not observed");
+  const model = run.workflow_models?.join(", ") || String(run.model || "Model not observed");
   const measuredTokens = typeof run.total_tokens === "number";
   const healthy = runtime.toLowerCase() === "completed" && run.product_goal_achieved === true;
   return <a href={href} className="group relative grid min-w-0 gap-3 overflow-hidden rounded-xl border border-[#e8e7e2] bg-white px-5 py-4 transition hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] xl:grid-cols-[minmax(220px,1fr)_150px_110px_70px_110px_110px] xl:items-center">

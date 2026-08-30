@@ -311,6 +311,8 @@ export type WorkflowDefinitionSummary = {
   latest_execution?: Run | null;
 };
 
+export type WorkflowProjectionAnalytics = Pick<Overview, "models" | "providers" | "stages">;
+
 export type DeclaredWorkflow = {
   version: 1;
   id: string;
@@ -383,7 +385,7 @@ export const api = {
   workflowDefinitions: () =>
     get<{ items: WorkflowDefinitionSummary[] }>("/api/v1/workflow-definitions"),
   workflowDefinition: (id: string) =>
-    get<{ workflow: DeclaredWorkflow; executions: Run[] }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
+    get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
   workflowExecution: (workflowId: string, executionId: string) =>
     get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
   compare: (dimension: string, filters: DashboardFilters = {}) =>

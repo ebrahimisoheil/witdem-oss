@@ -72,6 +72,57 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run mypy src
 
+  examples:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - examples/anthropic/basic_agent
+          - examples/anthropic/tool_loop
+          - examples/cloud/azure
+          - examples/cloud/bedrock
+          - examples/cloud/vertex
+          - examples/haystack/demo
+          - examples/haystack/pipeline
+          - examples/langchain/runnable_pipeline
+          - examples/langgraph/state_graph
+          - examples/ollama/basic
+          - examples/openai/basic_agent
+          - examples/openai/multi_agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+          python-version: "3.12"
+      - run: uv sync --project "${{ matrix.project }}" --locked
+      - run: uv run --project "${{ matrix.project }}" --locked pytest -q
+
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+          python-version: "3.12"
+      - run: uv build
+      - name: Verify the source distribution boundary
+        run: |
+          sdist=$(find dist -name '*.tar.gz' -print -quit)
+          test -n "$sdist"
+          test "$(stat --format=%s "$sdist")" -lt 3000000
+          ! tar --list --file "$sdist" | grep -E '/(docs|examples|tests|web|witdem-sdk)/'
+      - name: Install artifacts in clean environments
+        run: |
+          uv venv /tmp/witdem-wheel
+          uv pip install --python /tmp/witdem-wheel/bin/python dist/*.whl
+          /tmp/witdem-wheel/bin/witdem version
+          uv venv /tmp/witdem-sdist
+          uv pip install --python /tmp/witdem-sdist/bin/python dist/*.tar.gz
+          /tmp/witdem-sdist/bin/witdem version
+
   sdk-extras:
     runs-on: ubuntu-latest
     strategy:

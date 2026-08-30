@@ -15,28 +15,28 @@ sdk_enriched.py Witdem SDK integration
 pyproject.toml  isolated dependencies
 ```
 
-For business-contract design rather than framework setup, use the [YAML contract tutorial](contract-tutorial.md). Its nine [complete contract files](contracts/) cover boolean goals, classification, numeric thresholds, multiple assurance checks, escalation, research approval loops, RAG grounding, flexible chat outcomes, and diagnostic metrics. Every file is compiled by the SDK test suite.
+For business-contract design rather than framework setup, use the [YAML contract tutorial](contract-tutorial.md). Its nine complete contract files cover boolean goals, classification, numeric thresholds, multiple assurance checks, escalation, research approval loops, RAG grounding, flexible chat outcomes, and diagnostic metrics. Every file is compiled by the SDK test suite.
 
 ## Framework tutorials
 
 | Path | Demonstrates | Guide |
 | --- | --- | --- |
-| [`examples/haystack/pipeline`](../examples/haystack/pipeline) | Haystack 3 async fan-out/fan-in and OpenAI generator | [Haystack](integrations/haystack.md) |
-| [`examples/langgraph/state_graph`](../examples/langgraph/state_graph) | Compiled state graph | [LangGraph](integrations/langgraph.md) |
-| [`examples/langchain/runnable_pipeline`](../examples/langchain/runnable_pipeline) | Runnable pipeline with OpenAI | [LangChain](integrations/langchain.md) |
-| [`examples/openai/basic_agent`](../examples/openai/basic_agent) | OpenAI agent and tool | [OpenAI Agents](integrations/openai-agents.md) |
-| [`examples/openai/multi_agent`](../examples/openai/multi_agent) | OpenAI Agents handoff | [OpenAI Agents](integrations/openai-agents.md) |
-| [`examples/anthropic/basic_agent`](../examples/anthropic/basic_agent) | Anthropic Messages | [Anthropic](integrations/anthropic.md) |
-| [`examples/anthropic/tool_loop`](../examples/anthropic/tool_loop) | Anthropic multi-turn tool-use IDs | [Anthropic](integrations/anthropic.md) |
+| [`examples/haystack/pipeline`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/haystack/pipeline) | Haystack 3 async fan-out/fan-in and OpenAI generator | [Haystack](integrations/haystack.md) |
+| [`examples/langgraph/state_graph`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/langgraph/state_graph) | Compiled state graph | [LangGraph](integrations/langgraph.md) |
+| [`examples/langchain/runnable_pipeline`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/langchain/runnable_pipeline) | Runnable pipeline with OpenAI | [LangChain](integrations/langchain.md) |
+| [`examples/openai/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/basic_agent) | OpenAI agent and tool | [OpenAI Agents](integrations/openai-agents.md) |
+| [`examples/openai/multi_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/multi_agent) | OpenAI Agents handoff | [OpenAI Agents](integrations/openai-agents.md) |
+| [`examples/anthropic/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/basic_agent) | Anthropic Messages | [Anthropic](integrations/anthropic.md) |
+| [`examples/anthropic/tool_loop`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/tool_loop) | Anthropic multi-turn tool-use IDs | [Anthropic](integrations/anthropic.md) |
 
 ## Provider tutorials
 
 | Path | Integration path | Guide |
 | --- | --- | --- |
-| [`examples/cloud/azure`](../examples/cloud/azure) | GenAI OTLP or generic wrapper | [Azure OpenAI](providers/azure-openai.md) |
-| [`examples/cloud/bedrock`](../examples/cloud/bedrock) | GenAI OTLP or generic wrapper | [Amazon Bedrock](providers/bedrock.md) |
-| [`examples/cloud/vertex`](../examples/cloud/vertex) | GenAI OTLP or generic wrapper | [Vertex AI](providers/vertex-ai.md) |
-| [`examples/ollama/basic`](../examples/ollama/basic) | GenAI OTLP or generic wrapper | [Ollama](providers/ollama.md) |
+| [`examples/cloud/azure`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/cloud/azure) | GenAI OTLP or generic wrapper | [Azure OpenAI](providers/azure-openai.md) |
+| [`examples/cloud/bedrock`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/cloud/bedrock) | GenAI OTLP or generic wrapper | [Amazon Bedrock](providers/bedrock.md) |
+| [`examples/cloud/vertex`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/cloud/vertex) | GenAI OTLP or generic wrapper | [Vertex AI](providers/vertex-ai.md) |
+| [`examples/ollama/basic`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/ollama/basic) | GenAI OTLP or generic wrapper | [Ollama](providers/ollama.md) |
 
 DeepSeek and Mistral are live-validated in Product Factory rather than separate tutorials. See their [provider guides](providers.md).
 
@@ -74,7 +74,7 @@ If a tutorial is skipped, check its `.env.example` for a missing credential. An 
 
 ## Product Factory
 
-[`examples/product-factory`](../examples/product-factory) is the controlled multi-runtime workload. It exercises LangChain, LangGraph, Haystack, OpenAI Agents, and Anthropic Messages across OpenAI, Anthropic, DeepSeek, and Mistral profiles, while keeping runtime health separate from business results and goal success.
+[`examples/product-factory`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/product-factory) is the controlled multi-runtime workload. It exercises LangChain, LangGraph, Haystack, OpenAI Agents, and Anthropic Messages across OpenAI, Anthropic, DeepSeek, and Mistral profiles, while keeping runtime health separate from business results and goal success.
 
 All runtimes project onto the same `company-qualification` workflow declared in `.witdem/workflows/company-qualification.yaml`. Runtime switches create comparable executions; they do not change the business DAG.
 

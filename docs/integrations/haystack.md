@@ -13,7 +13,7 @@ Witdem uses Haystack's native OpenTelemetry tracer to observe the components tha
 - A running Witdem receiver at `WITDEM_ENDPOINT`
 - Provider credentials only when the chosen Haystack components require them
 
-Instrumenting Haystack 2 raises an explicit compatibility error. The exact range is also published in [`compatibility.json`](../../compatibility.json).
+Instrumenting Haystack 2 raises an explicit compatibility error. The exact range is also published in [`compatibility.json`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/compatibility.json).
 
 ## Installation
 
@@ -102,7 +102,7 @@ If your pipeline returns extra wrapper keys that are not part of the business re
 
 ## Real-world execution shapes
 
-The deterministic compatibility suite in [`examples/haystack/compatibility/runner.py`](../../examples/haystack/compatibility/runner.py) exercises Haystack 3 forms based on official documentation:
+The deterministic compatibility suite in [`examples/haystack/compatibility/runner.py`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/examples/haystack/compatibility/runner.py) exercises Haystack 3 forms based on official documentation:
 
 - retrieval-augmented linear pipelines;
 - `ConditionalRouter` branches;
@@ -115,7 +115,7 @@ The suite records source URLs and substitutes local deterministic generators whe
 
 ## Parallel and asynchronous proof
 
-[`examples/haystack/pipeline`](../../examples/haystack/pipeline) starts keyword and semantic retrievers concurrently, joins them, and optionally calls OpenAI:
+[`examples/haystack/pipeline`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/haystack/pipeline) starts keyword and semantic retrievers concurrently, joins them, and optionally calls OpenAI:
 
 ```bash
 cd examples/haystack/pipeline

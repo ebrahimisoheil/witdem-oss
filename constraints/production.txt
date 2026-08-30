@@ -6,7 +6,7 @@ cffi==2.1.1 ; platform_python_implementation != 'PyPy'
 charset-normalizer==3.5.1
 click==8.4.2
 colorama==0.4.6 ; sys_platform == 'win32'
-cryptography==46.0.7
+cryptography==50.0.1
 duckdb==1.5.5
 duckdb-cli==1.5.4
 duckle==0.5.11

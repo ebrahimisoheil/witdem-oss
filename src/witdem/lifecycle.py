@@ -60,6 +60,11 @@ def _wait(url: str, timeout: float = 30.0) -> None:
 def _port_available(host: str, port: int) -> bool:
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family) as handle:
+        # Native services enable address reuse. Mirror that bind behavior so a
+        # clean stop followed by an immediate restart is not rejected solely
+        # because the prior listener still has connections in TIME_WAIT.
+        if os.name != "nt":
+            handle.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             handle.bind((host, port))
         except OSError:

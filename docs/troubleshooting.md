@@ -100,7 +100,7 @@ and per-application SDK commands printed by the checker.
 
 Cost requires provider-reported money or all of: provider, model, token usage, and a matching catalog entry.
 
-Inspect the run for provider, model, input/output tokens, and cost-unavailable reason. Compare the model string with [`src/witdem/pricing/catalog.yaml`](../src/witdem/pricing/catalog.yaml). Configure `WITDEM_PRICING_FILE` for other models or negotiated rates.
+Inspect the run for provider, model, input/output tokens, and cost-unavailable reason. Compare the model string with [`src/witdem/pricing/catalog.yaml`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/src/witdem/pricing/catalog.yaml). Configure `WITDEM_PRICING_FILE` for other models or negotiated rates.
 
 Azure deployment names, Bedrock models, Vertex models, and Ollama models are not priced by the bundled catalog in this release.
 

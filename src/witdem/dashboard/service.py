@@ -6,6 +6,7 @@ stable analytics repository into frontend-oriented JSON contracts.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -282,15 +283,8 @@ def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:
                         "execution_count": int(
                             (projection_catalog.get(definition.id) or {}).get("execution_count") or 0
                         ),
-                        "latest_execution": (
-                            (projection_catalog.get(definition.id) or {})
-                            .get("latest_projection", {})
-                            .get("execution")
-                            if isinstance(
-                                (projection_catalog.get(definition.id) or {}).get("latest_projection"),
-                                dict,
-                            )
-                            else None
+                        "latest_execution": _workflow_execution_summary(
+                            (projection_catalog.get(definition.id) or {}).get("latest_projection")
                         ),
                     }
                     for definition in definitions.values()
@@ -300,12 +294,28 @@ def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:
     )
 
 
+def _workflow_execution_summary(replay: Any) -> dict[str, Any] | None:
+    if not isinstance(replay, dict):
+        return None
+    row = dict(replay.get("execution") or {})
+    nodes = replay.get("nodes", [])
+    active_nodes = [node for node in nodes if isinstance(node, dict) and node.get("state") != "inactive"]
+    row["workflow_models"] = sorted(
+        {str(model) for node in active_nodes for model in node.get("models", [])}
+    )
+    row["workflow_providers"] = sorted(
+        {str(provider) for node in active_nodes for provider in node.get("providers", [])}
+    )
+    return row
+
+
 def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, Any] | None:
     definitions = {**_persisted_definitions(repo), **load_registry().definitions}
     definition = definitions.get(workflow_id)
     if definition is None:
         return None
     executions = []
+    replays: list[dict[str, Any]] = []
     catalog_row = next(
         (row for row in repo.workflow_projection_catalog() if str(row["workflow_id"]) == workflow_id),
         None,
@@ -314,6 +324,7 @@ def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, An
         replay = projected_row.get("projection")
         if not isinstance(replay, dict) or replay.get("workflow", {}).get("id") != workflow_id:
             continue
+        replays.append(replay)
         row = dict(replay.get("execution") or {})
         nodes = replay.get("nodes", []) if replay else []
         active_nodes = [node for node in nodes if node.get("state") != "inactive"]
@@ -350,10 +361,129 @@ def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, An
                     "template_hash": definition.template_hash,
                 },
                 "executions": executions,
+                "analytics": _workflow_projection_analytics(replays),
                 "execution_count": int((catalog_row or {}).get("execution_count") or len(executions)),
             }
         ),
     )
+
+
+def _sum_optional(values: Iterator[Any]) -> float | None:
+    known = [float(value) for value in values if value is not None]
+    return sum(known) if known else None
+
+
+def _workflow_projection_analytics(replays: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate workflow-specific charts from materialized replay projections.
+
+    Workflow matching is intentionally independent of an application's optional
+    ``workflow`` telemetry attribute.  Using the matched projections here keeps
+    the workflow page accurate for YAML-only and historical integrations.
+    """
+
+    attribution: dict[str, dict[str, dict[str, Any]]] = {
+        "models": defaultdict(lambda: {"runs": set(), "calls": []}),
+        "providers": defaultdict(lambda: {"runs": set(), "calls": []}),
+    }
+    stages: dict[str, dict[str, Any]] = {}
+    for replay in replays:
+        execution = dict(replay.get("execution") or {})
+        execution_id = str(execution.get("execution_id") or "")
+        nodes = [dict(node) for node in replay.get("nodes", []) if isinstance(node, dict)]
+        failed = str(execution.get("runtime_outcome") or execution.get("status") or "").casefold() in {
+            "error",
+            "failed",
+        } or any(node.get("state") == "failed" for node in nodes)
+        recovered = not failed and any(node.get("state") == "recovered" for node in nodes)
+
+        seen: dict[str, set[str]] = {"models": set(), "providers": set()}
+        for node in nodes:
+            if node.get("state") == "inactive":
+                continue
+            stage = stages.setdefault(
+                str(node.get("name") or node.get("id") or "Unknown step"),
+                {
+                    "calls": 0,
+                    "executions": set(),
+                    "time_seconds": 0.0,
+                    "known_costs": [],
+                    "total_tokens": 0.0,
+                    "token_measured": False,
+                    "failures": 0,
+                    "extra_attempts": 0,
+                },
+            )
+            stage["calls"] += int(node.get("attempts") or 0)
+            stage["executions"].add(execution_id)
+            stage["time_seconds"] += float(node.get("duration_seconds") or 0)
+            if node.get("known_cost") is not None:
+                stage["known_costs"].append(float(node["known_cost"]))
+            if node.get("total_tokens") is not None:
+                stage["total_tokens"] += float(node["total_tokens"])
+                stage["token_measured"] = True
+            stage["failures"] += int(node.get("state") == "failed")
+            stage["extra_attempts"] += max(0, int(node.get("attempts") or 0) - 1)
+
+            for call in node.get("model_calls", []):
+                if not isinstance(call, dict):
+                    continue
+                for dimension, field in (("models", "model"), ("providers", "provider")):
+                    label = call.get(field)
+                    if not label:
+                        continue
+                    key = str(label)
+                    attribution[dimension][key]["calls"].append(call)
+                    seen[dimension].add(key)
+        for dimension, labels in seen.items():
+            for label in labels:
+                attribution[dimension][label]["runs"].add(execution_id)
+                attribution[dimension][label].setdefault("states", []).append((failed, recovered))
+
+    def performance(dimension: str) -> list[dict[str, Any]]:
+        result = []
+        for label, bucket in attribution[dimension].items():
+            calls = bucket["calls"]
+            states = bucket.get("states", [])
+            costs = [call.get("known_cost") for call in calls]
+            tokens = [call.get("total_tokens") for call in calls]
+            runs = len(bucket["runs"])
+            failures = sum(int(failed) for failed, _ in states)
+            recovered = sum(int(recovered) for _, recovered in states)
+            result.append(
+                {
+                    "label": label,
+                    "runs": runs,
+                    "completed": runs - failures,
+                    "failed": failures,
+                    "recovered": recovered,
+                    "measured_cost": _sum_optional(iter(costs)),
+                    "time_per_positive_run": None,
+                    "total_tokens": _sum_optional(iter(tokens)),
+                    "failure_rate": failures / runs if runs else 0.0,
+                    "cost_coverage": sum(value is not None for value in costs) / len(costs) if costs else 0.0,
+                }
+            )
+        return sorted(result, key=lambda item: (-int(item["runs"]), str(item["label"])))
+
+    stage_rows = []
+    for label, stage in stages.items():
+        executions = len(stage["executions"])
+        total_time = float(stage["time_seconds"])
+        stage_rows.append(
+            {
+                "label": label,
+                "calls": stage["calls"],
+                "executions": executions,
+                "usual_seconds": total_time / executions if executions else None,
+                "time_seconds": total_time,
+                "known_cost": sum(stage["known_costs"]) if stage["known_costs"] else None,
+                "total_tokens": stage["total_tokens"] if stage["token_measured"] else None,
+                "failures": stage["failures"],
+                "extra_attempts": stage["extra_attempts"],
+            }
+        )
+    stage_rows.sort(key=lambda item: (-float(item["time_seconds"]), str(item["label"])))
+    return {"models": performance("models"), "providers": performance("providers"), "stages": stage_rows}
 
 
 def workflow_execution(repo: AnalyticsRepository, workflow_id: str, execution_id: str) -> dict[str, Any] | None:
