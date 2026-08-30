@@ -25,6 +25,3 @@ web/tailwind.config.d.ts
 
 # Locally generated live-matrix reports
 examples/product-factory/reports/
-
-# MkDocs output
-site/

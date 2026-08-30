@@ -212,6 +212,7 @@ to Witdem itself.
 - [Concepts: tracing and business meaning](docs/concepts.md)
 - [Tutorial: defining a YAML contract](docs/contract-tutorial.md)
 - [YAML configuration](docs/configuration.md)
+- [Workflow definitions, compilation, and replay](docs/workflow-replay.md)
 - [Haystack](docs/integrations/haystack.md)
 - [LangGraph](docs/integrations/langgraph.md)
 - [LangChain](docs/integrations/langchain.md)
@@ -226,6 +227,8 @@ to Witdem itself.
 - [Operations](docs/operations.md)
 - [CLI reference](docs/cli-reference.md)
 - [Upgrade and compatibility](docs/upgrade.md)
+- [Architecture and data flow](docs/architecture.md)
+- [Release notes](docs/changelog.md)
 - [Performance and lifecycle implementation report](docs/implementation-report.md)
 - [Development and contributing](docs/development.md)
 

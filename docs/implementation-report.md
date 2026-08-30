@@ -34,12 +34,12 @@ Both release-candidate launchers were exercised with isolated ports and data:
 
 ## Documentation and distribution
 
-- The Material for MkDocs site builds in strict mode and is configured for
-  `https://docs.witdem.com/` with a custom-domain file.
-- Documentation CI validates every pull request and main-branch change.
-  GitHub Pages deployment is deliberately manual through `workflow_dispatch`.
+- End-user documentation covers installation, first execution, configuration,
+  SDK usage, YAML contracts, workflow replay, dashboard behavior, lifecycle
+  operations, upgrades, troubleshooting, integrations, providers, examples,
+  architecture, pricing, development, CLI usage, and release changes.
 - Repository-only links were converted to canonical GitHub links, while all
-  nine YAML contract files remain downloadable from the documentation site.
+  nine complete YAML contract examples remain checked in beside the tutorial.
 - The platform source distribution was reduced from approximately 13 MB to
   664 KB by restricting it to the actual package, README, license, and build
   metadata. Both its source archive and wheel install successfully in clean

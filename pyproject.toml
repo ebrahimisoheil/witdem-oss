@@ -44,10 +44,6 @@ dev = [
   "tomli>=2.2,<3; python_version < '3.11'",
   "types-PyYAML>=6.0,<7",
 ]
-docs = [
-  "mkdocs-material>=9.6,<10",
-]
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/witdem"]
 
