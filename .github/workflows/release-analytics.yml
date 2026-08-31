@@ -9,6 +9,11 @@ on:
         description: "Existing immutable analytics release tag to recover"
         required: true
         type: string
+      resume_publication:
+        description: "Resume after Python and container publication"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -23,10 +28,12 @@ env:
   PIP_VERSION: "26.2.1"
   BUILD_VERSION: "1.5.0"
   TWINE_VERSION: "7.0.0"
+  NPM_DIST_TAG: "stable-0-1"
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   preflight:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.resume_publication != true }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -239,7 +246,7 @@ jobs:
           test -z "$(docker ps -q --filter label=com.docker.compose.project=witdem-release-smoke)"
       - name: Publish npm launcher
         working-directory: npm
-        run: npm publish --access public
+        run: npm publish --access public --tag "$NPM_DIST_TAG"
 
   publish-release-manifest:
     needs: [preflight, publish-python, publish-container-and-npm]
@@ -273,3 +280,108 @@ jobs:
           gh release view "${{ needs.preflight.outputs.release_tag }}" >/dev/null 2>&1 || \
             gh release create "${{ needs.preflight.outputs.release_tag }}" --generate-notes
           gh release upload "${{ needs.preflight.outputs.release_tag }}" witdem-release.json --clobber
+
+  resume-publication:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.resume_publication == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an existing immutable analytics tag
+        run: |
+          case "$RELEASE_TAG" in
+            analytics-v*) ;;
+            *) echo "Recovery requires an analytics-v* tag, found: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          git ls-remote --exit-code \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null
+      - name: Check out audited recovery controller
+        uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 0
+      - name: Check out immutable release source
+        uses: actions/checkout@v4
+        with:
+          path: release-source
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - id: resumed-release
+        name: Verify release identity and partial publication state
+        run: |
+          cd release-source
+          python scripts/release/verify.py \
+            --component platform \
+            --tag "$RELEASE_TAG" \
+            --require-clean
+          version=$(python -c 'import json; print(json.load(open("release.json"))["platform_version"])')
+          sdk_version=$(python -c 'import json; print(json.load(open("release.json"))["sdk_version"])')
+          controller_version=$(python -c 'import json; print(json.load(open("../controller/release.json"))["platform_version"])')
+          test "$version" = "$controller_version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=$sdk_version" >> "$GITHUB_OUTPUT"
+          python scripts/release/check_pypi.py witdem-analytics "$version" --must-exist
+          python scripts/release/check_pypi.py witdem-sdk "$sdk_version" --must-exist
+          docker manifest inspect \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/witdem-analytics:${version}" >/dev/null
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global "npm@${NPM_VERSION}"
+      - name: Revalidate the tagged npm launcher
+        working-directory: release-source/npm
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npm test
+          npm pack --silent
+      - name: Publish npm without changing latest
+        working-directory: release-source/npm
+        env:
+          VERSION: ${{ steps.resumed-release.outputs.version }}
+        run: |
+          latest_before=$(npm view witdem dist-tags.latest)
+          if npm view "witdem@${VERSION}" version >/dev/null 2>&1; then
+            test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
+            test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
+          else
+            npm publish --access public --tag "$NPM_DIST_TAG"
+          fi
+          test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
+          test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
+          latest_after=$(npm view witdem dist-tags.latest)
+          test "$latest_after" = "$latest_before"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      - name: Verify every public artifact
+        working-directory: controller
+        env:
+          VERSION: ${{ steps.resumed-release.outputs.version }}
+          SDK_VERSION: ${{ steps.resumed-release.outputs.sdk_version }}
+        run: |
+          python scripts/release/check_pypi.py witdem-analytics "$VERSION" --must-exist
+          python scripts/release/check_pypi.py witdem-sdk "$SDK_VERSION" --must-exist
+          test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
+          test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
+          docker manifest inspect \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/witdem-analytics:${VERSION}" >/dev/null
+      - name: Build signed release manifest
+        working-directory: controller
+        env:
+          WITDEM_RELEASE_SIGNING_KEY: ${{ secrets.WITDEM_RELEASE_SIGNING_KEY }}
+        run: |
+          uv sync --locked --no-dev
+          uv run python scripts/release/build_manifest.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --output witdem-release.json
+      - name: Publish manifest and GitHub release
+        working-directory: controller
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+          gh release upload "$RELEASE_TAG" witdem-release.json --clobber
+          gh release view "$RELEASE_TAG" --json tagName,assets
