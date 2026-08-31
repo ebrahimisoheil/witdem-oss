@@ -38,7 +38,7 @@ def build_manifest(*, repository: str, signing_key: str) -> dict[str, Any]:
         "projector_version": str(release["workflow_projector_version"]),
         "minimum_compatible_versions": {"platform": "0.1.0", "sdk": "0.1.0"},
         "published_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "release_notes_url": f"https://github.com/{repository}/releases/tag/v{platform}",
+        "release_notes_url": f"https://github.com/{repository}/releases/tag/analytics-v{platform}",
         "artifacts": {
             "wheel": f"https://pypi.org/project/witdem-analytics/{platform}/",
             "npm": f"https://www.npmjs.com/package/witdem/v/{platform}",
