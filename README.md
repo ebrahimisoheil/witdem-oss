@@ -11,7 +11,7 @@ Tracing tells you what executed. Witdem connects those executions to application
 [![Tests](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml/badge.svg)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![SDK on PyPI](https://img.shields.io/pypi/v/witdem-sdk?label=witdem-sdk)](https://pypi.org/project/witdem-sdk/)
 [![Analytics on PyPI](https://img.shields.io/pypi/v/witdem-analytics?label=witdem-analytics)](https://pypi.org/project/witdem-analytics/)
-[![npm](https://img.shields.io/npm/v/witdem?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
+[![npm](https://img.shields.io/npm/v/witdem/stable-0-1?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -39,7 +39,7 @@ Choose one backend launcher. Applications use `witdem-sdk` with either path.
 Docker-managed (requires Docker Compose):
 
 ```bash
-npx -y witdem@latest up
+npx -y witdem@stable-0-1 up
 ```
 
 Native Python (requires Python and [pipx](https://pipx.pypa.io/)):
@@ -54,16 +54,16 @@ Both start the receiver, ELT worker, and dashboard, wait for health, open
 lifecycle vocabulary is the same:
 
 ```bash
-npx -y witdem@latest status       # Docker path
+npx -y witdem@stable-0-1 status   # Docker path
 witdem status                     # pipx path
-npx -y witdem@latest logs receiver
+npx -y witdem@stable-0-1 logs receiver
 witdem down
 ```
 
 Check releases and compatibility without changing packages or data:
 
 ```bash
-npx -y witdem@latest update --check
+npx -y witdem@stable-0-1 update --check
 witdem update --check
 ```
 
@@ -198,7 +198,7 @@ Docker-free path. The npm package never runs a `postinstall` script.
 | ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
-npx -y witdem@latest status
+npx -y witdem@stable-0-1 status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
