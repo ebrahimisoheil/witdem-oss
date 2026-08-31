@@ -28,7 +28,7 @@ RELEASE_MANIFEST_SCHEMA_VERSION = 1
 RELEASE_MANIFEST_URL = "https://github.com/ebrahimisoheil/witdem-oss/releases/latest/download/witdem-release.json"
 # Release engineering replaces this key before the first signed publication.
 # Tests and private channels may supply WITDEM_RELEASE_PUBLIC_KEY.
-RELEASE_PUBLIC_KEY = "uhFX8JHG8gdmHzYy8oJ/zH9pX3PglkYELBCggmv89Pk="
+RELEASE_PUBLIC_KEY = "8uXVkoHMv+UcBgBKiIMBFmiiGEDoyRGgTMTuUwpIFCA="
 UPDATE_CACHE_SECONDS = 24 * 60 * 60
 
 
