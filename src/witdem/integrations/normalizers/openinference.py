@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from witdem.analytics.operations import OPENINFERENCE_OPERATION_TYPES, OPERATION_FAMILIES
 from witdem.integrations.models.normalized_operation import NormalizedOperation
 from witdem.integrations.models.normalized_span import NormalizedSpan
 
@@ -19,6 +20,8 @@ _KINDS = {
     "GUARDRAIL": "component",
     "EMBEDDING": "model",
     "RERANKER": "component",
+    "EVALUATOR": "component",
+    "PROMPT": "component",
 }
 
 
@@ -73,9 +76,46 @@ class OpenInferenceNormalizer:
                 usage[target] = value
         if "total_tokens" not in usage and {"input_tokens", "output_tokens"} <= usage.keys():
             usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+        operation_type = OPENINFERENCE_OPERATION_TYPES.get(oi_kind)
+        if operation_type == "retrieval":
+            documents = attrs.get("retrieval.documents")
+            document_count = _number(attrs.get("witdem.observed.documents_output"))
+            if isinstance(documents, list) or document_count is not None:
+                usage["queries"] = 1
+                usage["documents_output"] = len(documents) if isinstance(documents, list) else document_count or 0
+        elif operation_type == "reranking":
+            input_documents = attrs.get("reranker.input_documents")
+            output_documents = attrs.get("reranker.output_documents")
+            input_count = _number(attrs.get("witdem.observed.candidates_input"))
+            output_count = _number(attrs.get("witdem.observed.candidates_output"))
+            if isinstance(input_documents, list) or input_count is not None:
+                usage["candidates_input"] = (
+                    len(input_documents) if isinstance(input_documents, list) else input_count or 0
+                )
+            if isinstance(output_documents, list) or output_count is not None:
+                usage["candidates_output"] = (
+                    len(output_documents) if isinstance(output_documents, list) else output_count or 0
+                )
+        elif operation_type == "embedding":
+            embeddings = attrs.get("embedding.embeddings")
+            embedding_count = _number(attrs.get("witdem.observed.vectors_output"))
+            if isinstance(embeddings, list) or embedding_count is not None:
+                count = len(embeddings) if isinstance(embeddings, list) else embedding_count or 0
+                usage["items_input"] = count
+                usage["vectors_output"] = count
         kind = _KINDS.get(oi_kind, "operation")
         name = str(tool_name or _first(attrs, "retriever.name", "agent.name") or span.name)
         normalized_attrs = dict(attrs)
+        if operation_type:
+            normalized_attrs.setdefault("witdem.operation.type", operation_type)
+            normalized_attrs.setdefault("witdem.operation.family", OPERATION_FAMILIES.get(operation_type, "custom"))
+            normalized_attrs.setdefault(
+                "witdem.operation.interface",
+                "tool" if operation_type == "tool" else "datastore" if operation_type == "retrieval" else "model_api",
+            )
+            normalized_attrs.setdefault(
+                "witdem.operation.role", "evaluator" if operation_type == "evaluation" else "application"
+            )
         normalized_attrs.update(
             {
                 "witdem.telemetry.dialect": "openinference",

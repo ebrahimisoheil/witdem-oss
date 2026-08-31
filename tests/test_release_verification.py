@@ -22,7 +22,7 @@ def test_existing_version_tag_cannot_point_to_another_commit(monkeypatch) -> Non
     real_git = MODULE._git
 
     def fake_git(*arguments: str, check: bool = True) -> str:
-        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.3.0^{commit}"):
+        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.1.0^{commit}"):
             return "old-commit"
         if arguments == ("rev-parse", "HEAD"):
             return "new-commit"
@@ -52,3 +52,18 @@ def test_tag_ref_suffix_must_match_manifest(monkeypatch) -> None:  # type: ignor
 
     errors = MODULE.validate("platform", None, require_clean=False)
     assert any("release tag" in error for error in errors)
+
+
+def test_release_commit_whitespace_errors_are_rejected(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    real_git = MODULE._git
+
+    def fake_git(*arguments: str, check: bool = True) -> str:
+        if arguments == ("status", "--porcelain"):
+            return ""
+        if arguments == ("show", "--check", "--oneline", "--no-renames", "HEAD"):
+            raise RuntimeError("example.yml:4: new blank line at EOF")
+        return real_git(*arguments, check=check)
+
+    monkeypatch.setattr(MODULE, "_git", fake_git)
+    errors = MODULE.validate("platform", None, require_clean=True)
+    assert any("release commit contains whitespace errors" in error for error in errors)

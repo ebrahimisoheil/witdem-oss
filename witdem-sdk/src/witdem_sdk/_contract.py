@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     ValidationError,
     field_validator,
@@ -43,24 +44,28 @@ def _validate_expression(expression: Any, location: str) -> None:
             isinstance(expression, str)
             and expression.startswith("$")
             and expression != "$"
-            and (
-                not expression.startswith("$.")
-                or expression.endswith(".")
-                or ".." in expression
-            )
+            and (not expression.startswith("$.") or expression.endswith(".") or ".." in expression)
         ):
-            raise ValueError(
-                f"{location}: invalid path {expression!r}; use '$' or a path such as '$.answer'"
-            )
+            raise ValueError(f"{location}: invalid path {expression!r}; use '$' or a path such as '$.answer'")
         return
     if len(expression) != 1:
-        raise ValueError(
-            f"{location}: an expression mapping must contain exactly one operator"
-        )
+        raise ValueError(f"{location}: an expression mapping must contain exactly one operator")
     operator, operand = next(iter(expression.items()))
     known = {
-        "all", "any", "not", "exists", "non_empty", "length", "sum",
-        "fraction_true", "less_than_or_equal", "equals", "contains", "matches", "choose", "coalesce",
+        "all",
+        "any",
+        "not",
+        "exists",
+        "non_empty",
+        "length",
+        "sum",
+        "fraction_true",
+        "less_than_or_equal",
+        "equals",
+        "contains",
+        "matches",
+        "choose",
+        "coalesce",
     }
     if operator not in known:
         suggestion = {
@@ -88,9 +93,7 @@ def _validate_expression(expression: Any, location: str) -> None:
         return
     if operator == "choose":
         if not isinstance(operand, Mapping) or set(operand) != {"when", "then", "else"}:
-            raise ValueError(
-                f"{location}.choose: expected exactly 'when', 'then', and 'else'"
-            )
+            raise ValueError(f"{location}.choose: expected exactly 'when', 'then', and 'else'")
         for key in ("when", "then", "else"):
             _validate_expression(operand[key], f"{location}.choose.{key}")
         return
@@ -160,15 +163,9 @@ class ProductGoalSpec(BaseModel):
     @model_validator(mode="after")
     def validate_goal_evaluation(self) -> ProductGoalSpec:
         if self.achieved is None and self.hard_requirements is None and self.semantic_outcome is None:
-            raise ValueError(
-                "define achieved or at least one of hard_requirements and semantic_outcome"
-            )
-        if self.achieved is not None and (
-            self.hard_requirements is not None or self.semantic_outcome is not None
-        ):
-            raise ValueError(
-                "achieved cannot be combined with hard_requirements or semantic_outcome"
-            )
+            raise ValueError("define achieved or at least one of hard_requirements and semantic_outcome")
+        if self.achieved is not None and (self.hard_requirements is not None or self.semantic_outcome is not None):
+            raise ValueError("achieved cannot be combined with hard_requirements or semantic_outcome")
         return self
 
 
@@ -317,13 +314,15 @@ def _dbt_contract_to_internal(value: Mapping[str, Any]) -> dict[str, Any]:
     decision = raw.get("decision")
     goal = raw.get("product_goal")
     metrics = raw.get("metrics")
-    is_dbt_style = bool(dbt_keys & set(raw)) or (
-        isinstance(result, Mapping) and bool({"required_fields", "validity_field"} & set(result))
-    ) or (
-        isinstance(decision, Mapping)
-        and bool({"expected_field", "observed_field", "correctness_field"} & set(decision))
-    ) or isinstance(metrics, list) and any(
-        isinstance(item, Mapping) and "field" in item for item in metrics
+    is_dbt_style = (
+        bool(dbt_keys & set(raw))
+        or (isinstance(result, Mapping) and bool({"required_fields", "validity_field"} & set(result)))
+        or (
+            isinstance(decision, Mapping)
+            and bool({"expected_field", "observed_field", "correctness_field"} & set(decision))
+        )
+        or isinstance(metrics, list)
+        and any(isinstance(item, Mapping) and "field" in item for item in metrics)
     )
     if not is_dbt_style:
         return raw
@@ -385,16 +384,12 @@ def _dbt_contract_to_internal(value: Mapping[str, Any]) -> dict[str, Any]:
             "description": goal.get("description"),
             "subject": _field(goal["subject_field"]) if goal.get("subject_field") else None,
             "achieved": (
-                _field(goal["achieved_field"])
-                if goal.get("achieved_field") is not None
-                else _automatic_goal()
+                _field(goal["achieved_field"]) if goal.get("achieved_field") is not None else _automatic_goal()
             ),
             "evidence_sufficient": _field(goal.get("evidence_sufficient_field", True)),
             "required_path_observed": _field(goal.get("required_path_field", True)),
             "closest_blocker": (
-                _field(goal["blocker_field"])
-                if goal.get("blocker_field") is not None
-                else _automatic_blocker()
+                _field(goal["blocker_field"]) if goal.get("blocker_field") is not None else _automatic_blocker()
             ),
         }
         if goal.get("threshold_field") is not None:
@@ -477,9 +472,7 @@ class ContractSpec(BaseModel):
         if self.product_goal.achieved is not None:
             expressions.append(("product_goal.achieved", self.product_goal.achieved))
         if self.product_goal.hard_requirements is not None:
-            expressions.append(
-                ("product_goal.hard_requirements", self.product_goal.hard_requirements)
-            )
+            expressions.append(("product_goal.hard_requirements", self.product_goal.hard_requirements))
         if self.product_goal.semantic_outcome is not None:
             expressions.append(
                 (
@@ -502,10 +495,7 @@ class ContractSpec(BaseModel):
                 value = getattr(evaluation, field_name)
                 if value is not None:
                     expressions.append((f"evaluations[{index}].{field_name}", value))
-        expressions.extend(
-            (f"metrics[{index}].value", metric.value)
-            for index, metric in enumerate(self.metrics)
-        )
+        expressions.extend((f"metrics[{index}].value", metric.value) for index, metric in enumerate(self.metrics))
         for path, expression in expressions:
             _validate_expression(expression, path)
         return self
@@ -599,6 +589,14 @@ class WitdemProjectConfig(BaseModel):
     telemetry: TelemetrySpec = Field(default_factory=TelemetrySpec)
     contracts: dict[str, DescriptiveContractSpec | ContractSpec] = Field(default_factory=dict)
     default_contract: str | None = None
+    workflows: list[dict[str, str]] = Field(default_factory=list)
+    default_workflow: str | None = None
+
+    _workflow_definitions: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+    @property
+    def workflow_definitions(self) -> dict[str, Any]:
+        return dict(self._workflow_definitions)
 
     @model_validator(mode="before")
     @classmethod
@@ -606,6 +604,12 @@ class WitdemProjectConfig(BaseModel):
         if not isinstance(value, Mapping):
             return value
         raw = dict(value)
+        workflows = raw.get("workflows")
+        if isinstance(workflows, Mapping):
+            raw["workflows"] = [
+                {"id": str(name), **dict(item)} if isinstance(item, Mapping) else {"id": str(name), "definition": item}
+                for name, item in workflows.items()
+            ]
         contracts = raw.get("contracts")
         if isinstance(contracts, list):
             catalog: dict[str, Any] = {}
@@ -639,19 +643,14 @@ class WitdemProjectConfig(BaseModel):
             raw = dict(item)
             explicit_mode = raw.get("mode")
             if explicit_mode not in {None, "reported", "expression"}:
-                raise ValueError(
-                    f"contracts.{contract_name}.mode must be 'reported' or 'expression'"
-                )
+                raise ValueError(f"contracts.{contract_name}.mode must be 'reported' or 'expression'")
             result = raw.get("result")
             decision = raw.get("decision")
             metrics = raw.get("metrics")
             expression_shape = (
                 bool({"artifact", "application_outcome", "status", "status_field", "goal"} & set(raw))
                 or isinstance(metrics, list)
-                or (
-                    isinstance(result, Mapping)
-                    and bool({"required_fields", "validity_field"} & set(result))
-                )
+                or (isinstance(result, Mapping) and bool({"required_fields", "validity_field"} & set(result)))
                 or (
                     isinstance(decision, Mapping)
                     and bool({"expected_field", "observed_field", "correctness_field"} & set(decision))
@@ -718,22 +717,11 @@ def contract_definition(
             "result": spec.result.model_dump(mode="json"),
             "decision": spec.decision.model_dump(mode="json") if spec.decision else None,
             "product_goal": spec.product_goal.model_dump(mode="json"),
-            "evaluations": [
-                {"key": key, **item.model_dump(mode="json")}
-                for key, item in spec.evaluations.items()
-            ],
-            "metrics": [
-                {"key": key, **item.model_dump(mode="json")}
-                for key, item in spec.metrics.items()
-            ],
-            "dimensions": [
-                {"key": key, **item.model_dump(mode="json")}
-                for key, item in spec.dimensions.items()
-            ],
+            "evaluations": [{"key": key, **item.model_dump(mode="json")} for key, item in spec.evaluations.items()],
+            "metrics": [{"key": key, **item.model_dump(mode="json")} for key, item in spec.metrics.items()],
+            "dimensions": [{"key": key, **item.model_dump(mode="json")} for key, item in spec.dimensions.items()],
         }
-        payload = json.dumps(
-            descriptive_definition, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-        )
+        payload = json.dumps(descriptive_definition, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         return sha256(payload.encode("utf-8")).hexdigest(), descriptive_definition
 
     definition: dict[str, Any] = {
@@ -760,9 +748,7 @@ def contract_definition(
                     "semantic_outcome_name": spec.product_goal.semantic_outcome.name,
                     "semantic_outcome_description": spec.product_goal.semantic_outcome.description,
                     "semantic_threshold": spec.product_goal.semantic_outcome.threshold,
-                    "semantic_assurance_threshold": (
-                        spec.product_goal.semantic_outcome.assurance_threshold
-                    ),
+                    "semantic_assurance_threshold": (spec.product_goal.semantic_outcome.assurance_threshold),
                 }
                 if spec.product_goal.semantic_outcome is not None
                 else None
@@ -778,10 +764,7 @@ def contract_definition(
             }
             for item in spec.evaluations
         ],
-        "metrics": [
-            {"name": item.name, "description": item.description, "unit": item.unit}
-            for item in spec.metrics
-        ],
+        "metrics": [{"name": item.name, "description": item.description, "unit": item.unit} for item in spec.metrics],
         "dimensions": sorted(spec.attributes),
     }
     payload = json.dumps(definition, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -794,9 +777,10 @@ def discover_config(start: Path | None = None) -> Path | None:
         return Path(explicit).expanduser().resolve()
     current = (start or Path.cwd()).resolve()
     for directory in (current, *current.parents):
-        candidate = directory / _DEFAULT_RELATIVE_PATH
-        if candidate.is_file():
-            return candidate
+        for relative in (Path("witdem.yml"), Path("witdem.yaml"), _DEFAULT_RELATIVE_PATH):
+            candidate = directory / relative
+            if candidate.is_file():
+                return candidate
     return None
 
 
@@ -808,7 +792,13 @@ def load_project_config(path: str | Path | None = None, *, required: bool = Fals
         return None
     try:
         raw = yaml.safe_load(resolved.read_text(encoding="utf-8"))
-        return WitdemProjectConfig.model_validate(raw)
+        config = WitdemProjectConfig.model_validate(raw)
+        from witdem_sdk._workflow import load_workflow_definitions
+
+        config._workflow_definitions = load_workflow_definitions(raw or {}, resolved)
+        if config.default_workflow and config.default_workflow not in config._workflow_definitions:
+            raise ValueError(f"default_workflow {config.default_workflow!r} is not registered")
+        return config
     except OSError as exc:
         raise WitdemSDKError(f"cannot read Witdem configuration at {resolved}: {exc}") from exc
     except yaml.YAMLError as exc:
@@ -821,9 +811,9 @@ def load_project_config(path: str | Path | None = None, *, required: bool = Fals
             if message.startswith("Value error, "):
                 message = message.removeprefix("Value error, ")
             problems.append(f"  - {location or 'document'}: {message}")
-        raise WitdemSDKError(
-            f"invalid Witdem configuration at {resolved}:\n" + "\n".join(problems)
-        ) from exc
+        raise WitdemSDKError(f"invalid Witdem configuration at {resolved}:\n" + "\n".join(problems)) from exc
+    except ValueError as exc:
+        raise WitdemSDKError(f"invalid Witdem workflow configuration at {resolved}: {exc}") from exc
 
 
 def _plain(value: Any) -> Any:
@@ -868,11 +858,7 @@ def _message_content(message: Any) -> Any:
         return None
     content = message.get("content")
     if isinstance(content, list):
-        text = [
-            str(item.get("text"))
-            for item in content
-            if isinstance(item, Mapping) and item.get("text") is not None
-        ]
+        text = [str(item.get("text")) for item in content if isinstance(item, Mapping) and item.get("text") is not None]
         return "\n".join(text) if text else None
     return content
 
@@ -1000,11 +986,7 @@ def evaluate(expression: Any, context: Mapping[str, Any]) -> Any:
             return False
     if set(expression) == {"matches"}:
         values = evaluate(expression["matches"], context)
-        if (
-            not isinstance(values, list)
-            or len(values) != 2
-            or not all(isinstance(value, str) for value in values)
-        ):
+        if not isinstance(values, list) or len(values) != 2 or not all(isinstance(value, str) for value in values):
             return False
         try:
             return re.search(values[1], values[0], flags=re.IGNORECASE) is not None
@@ -1028,21 +1010,16 @@ def evaluate(expression: Any, context: Mapping[str, Any]) -> Any:
     return {str(key): evaluate(value, context) for key, value in expression.items()}
 
 
-def evaluate_contract(
-    name: str, spec: DescriptiveContractSpec | ContractSpec, result: Any
-) -> ContractResult:
+def evaluate_contract(name: str, spec: DescriptiveContractSpec | ContractSpec, result: Any) -> ContractResult:
     if isinstance(spec, DescriptiveContractSpec):
         raise WitdemSDKError(
-            "metadata-only contracts require Witdem.report(...); "
-            "Witdem.complete(...) requires an expression contract"
+            "metadata-only contracts require Witdem.report(...); Witdem.complete(...) requires an expression contract"
         )
     context = result_context(result)
     application_status = str(evaluate(spec.application_outcome.status, context) or "unknown")
     artifact_valid = bool(evaluate(spec.artifact.valid, context))
     context.setdefault("witdem", {})
-    context["witdem"].update(
-        {"artifact_valid": artifact_valid, "application_status": application_status}
-    )
+    context["witdem"].update({"artifact_valid": artifact_valid, "application_status": application_status})
     expected_status = evaluate(spec.decision.expected, context)
     observed_status = evaluate(spec.decision.observed, context)
     context["witdem"].update({"expected_status": expected_status, "observed_status": observed_status})
@@ -1088,21 +1065,13 @@ def evaluate_contract(
                 "semantic_outcome_passed": semantic_passed,
             }
         )
-    configured_evidence_sufficient = bool(
-        evaluate(spec.product_goal.evidence_sufficient, context)
-    )
+    configured_evidence_sufficient = bool(evaluate(spec.product_goal.evidence_sufficient, context))
     semantic_assured = (
-        semantic_score is None
-        or semantic_assurance_threshold is None
-        or semantic_score >= semantic_assurance_threshold
+        semantic_score is None or semantic_assurance_threshold is None or semantic_score >= semantic_assurance_threshold
     )
     evidence_sufficient = configured_evidence_sufficient and semantic_assured
     assurance_status = (
-        "not_achieved"
-        if not product_goal_achieved
-        else "assured"
-        if evidence_sufficient
-        else "needs_attention"
+        "not_achieved" if not product_goal_achieved else "assured" if evidence_sufficient else "needs_attention"
     )
     closest_blocker = evaluate(spec.product_goal.closest_blocker, context)
     if closest_blocker == "none" and spec.product_goal.achieved is None:

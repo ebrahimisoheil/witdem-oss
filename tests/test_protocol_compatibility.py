@@ -33,6 +33,5 @@ def test_published_compatibility_metadata_matches_server_protocol() -> None:
     assert metadata["python"] == ">=3.10,<3.14"
     assert metadata["tested_pairs"]
     assert all(
-        pair["semantic_record_protocol"] == SEMANTIC_RECORD_PROTOCOL_VERSION
-        for pair in metadata["tested_pairs"]
+        pair["semantic_record_protocol"] == SEMANTIC_RECORD_PROTOCOL_VERSION for pair in metadata["tested_pairs"]
     )

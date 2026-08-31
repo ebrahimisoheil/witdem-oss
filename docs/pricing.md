@@ -75,7 +75,7 @@ For prepaid or provisioned capacity, use an allocation meter such as `provisione
 
 ## Automated refresh
 
-[`sources.yaml`](../src/witdem/pricing/sources.yaml) maps Witdem's canonical provider/model IDs to LiteLLM's public pricing registry and records the official provider pricing page reviewers must check. The updater copies every cost and multiplier dimension, not only text-token rates.
+[`sources.yaml`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/src/witdem/pricing/sources.yaml) maps Witdem's canonical provider/model IDs to LiteLLM's public pricing registry and records the official provider pricing page reviewers must check. The updater copies every cost and multiplier dimension, not only text-token rates.
 
 Refresh locally:
 

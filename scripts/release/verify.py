@@ -131,6 +131,14 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         release["corpus_schema_version"],
         errors,
     )
+    workflow_source = (ROOT / "src" / "witdem" / "workflows.py").read_text(encoding="utf-8")
+    for field, constant in (
+        ("workflow_compiler_version", "WORKFLOW_COMPILER_VERSION"),
+        ("workflow_projector_version", "WORKFLOW_PROJECTOR_VERSION"),
+    ):
+        expected = f'{constant} = "{release[field]}"'
+        if expected not in workflow_source:
+            errors.append(f"{field} does not match {constant}")
     _expect("supported Python", analytics["requires-python"], ">=3.10,<3.14", errors)
     _expect("SDK supported Python", sdk["requires-python"], ">=3.10,<3.14", errors)
     _expect(
@@ -177,8 +185,13 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         )
     if observed_tag and not existing_tag_commit:
         errors.append(f"release tag {expected_tag} is not available in the checkout")
-    if require_clean and _git("status", "--porcelain"):
-        errors.append("release worktree is not clean")
+    if require_clean:
+        if _git("status", "--porcelain"):
+            errors.append("release worktree is not clean")
+        try:
+            _git("show", "--check", "--oneline", "--no-renames", "HEAD")
+        except RuntimeError as error:
+            errors.append(f"release commit contains whitespace errors: {error}")
     return errors
 
 

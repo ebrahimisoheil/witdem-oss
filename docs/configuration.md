@@ -1,4 +1,6 @@
-# Configuring `.witdem/witdem.yaml`
+# Configuring `witdem.yml`
+
+New projects should use one project-root `witdem.yml`. It can register separate workflow definition files for workflow-centric replay; see [Workflow-centric replay](workflow-replay.md). The earlier `.witdem/witdem.yaml` location remains discoverable for compatibility.
 
 Technical instrumentation tells Witdem what ran. The YAML contract tells Witdem what the returned value means to your application.
 
@@ -30,6 +32,8 @@ The file is strict: unknown fields and invalid types fail validation rather than
 | `telemetry.endpoint` | No | string | Receiver base URL; `WITDEM_ENDPOINT` takes precedence |
 | `telemetry.mode` | No | string | `auto`, `existing`, or `disabled` |
 | `telemetry.capture_content` | No | boolean | Defaults to `false` |
+| `workflows` | No | list or mapping | Workflow IDs and paths to separate dependency-first YAML definitions |
+| `default_workflow` | No | string | Workflow used when more than one definition is registered |
 | `contracts` | No | list or mapping | Named business contracts |
 | `default_contract` | No | string | Contract used when more than one exists; the first list entry becomes the default |
 

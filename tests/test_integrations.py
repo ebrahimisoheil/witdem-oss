@@ -183,9 +183,9 @@ def test_shared_mapping_preserves_provider_reported_cost_provenance() -> None:
             },
         )
     )
-    operation = graph_from_spans(
-        [span], execution_id="execution", runtime="provider", telemetry_path="sdk"
-    ).operations[0]
+    operation = graph_from_spans([span], execution_id="execution", runtime="provider", telemetry_path="sdk").operations[
+        0
+    ]
     assert operation.attributes["cost_usd"] == pytest.approx(0.0123)
     assert operation.attributes["cost_source"] == "provider_reported"
 
@@ -202,13 +202,9 @@ def test_shared_mapping_preserves_the_root_execution_name() -> None:
         )
     )
 
-    graph = graph_from_spans(
-        [span], execution_id="chinook-run", runtime="langgraph", telemetry_path="otel"
-    )
+    graph = graph_from_spans([span], execution_id="chinook-run", runtime="langgraph", telemetry_path="otel")
 
-    assert graph.execution.attributes["witdem.execution.name"] == (
-        "Chinook support · LangGraph · acct-e1"
-    )
+    assert graph.execution.attributes["witdem.execution.name"] == ("Chinook support · LangGraph · acct-e1")
 
 
 def test_shared_mapping_prices_dated_gpt_4o_mini_response_model() -> None:

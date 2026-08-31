@@ -26,11 +26,11 @@ OPENAI_MODEL=gpt-4o-mini
 WITDEM_ENDPOINT=http://localhost:4318
 ```
 
-See the [full integration guide](../integrations/openai-agents.md) and [multi-agent handoff example](../../examples/openai/multi_agent).
+See the [full integration guide](../integrations/openai-agents.md) and [multi-agent handoff example](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/multi_agent).
 
 ## Cost
 
-The bundled catalog includes the exact OpenAI models listed in [`catalog.yaml`](../../src/witdem/pricing/catalog.yaml), including GPT-4o, GPT-4.1, o3/o4-mini, GPT-5.3 Codex, and GPT-5.4–5.6 families. Other model names remain unmeasured unless the provider reports money or you supply a custom pricing catalog. See [Pricing catalog](../pricing.md) for tier, long-context, regional, search, and media pricing behavior.
+The bundled catalog includes the exact OpenAI models listed in [`catalog.yaml`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/src/witdem/pricing/catalog.yaml), including GPT-4o, GPT-4.1, o3/o4-mini, GPT-5.3 Codex, and GPT-5.4–5.6 families. Other model names remain unmeasured unless the provider reports money or you supply a custom pricing catalog. See [Pricing catalog](../pricing.md) for tier, long-context, regional, search, and media pricing behavior.
 
 ## Limitations
 

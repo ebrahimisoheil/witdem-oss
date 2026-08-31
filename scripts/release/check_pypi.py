@@ -26,8 +26,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("project")
     parser.add_argument("version")
+    parser.add_argument("--must-exist", action="store_true")
     args = parser.parse_args()
-    if version_exists(args.project, args.version):
+    exists = version_exists(args.project, args.version)
+    if args.must_exist:
+        if not exists:
+            print(
+                f"Required release is unavailable: {args.project} {args.version} is not on PyPI.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"Required PyPI version is available: {args.project} {args.version}")
+        return 0
+    if exists:
         print(
             f"Refusing version reuse: {args.project} {args.version} already exists on PyPI.",
             file=sys.stderr,

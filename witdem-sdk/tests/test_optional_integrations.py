@@ -54,6 +54,7 @@ def test_anthropic_sync_and_async_proxy_preserve_results_and_usage() -> None:
             yield _operation
 
         if create() is None:
+
             async def async_create(**kwargs: Any) -> Any:
                 return response
 
@@ -139,6 +140,7 @@ def test_claude_agent_observer_emits_aggregate_model_usage_and_real_tool_id() ->
         SimpleNamespace(model=model, event=lambda name, value: events.append((name, value))),
         model="claude-sonnet-4-6",
     )
+
     class ToolUseBlock:
         id = "toolu_real"
         name = "get_invoices"
@@ -225,9 +227,7 @@ def test_langchain_callbacks_extract_native_gemini_usage(monkeypatch: pytest.Mon
         model="gemini-3.7-flash",
     )
 
-    handler.on_chat_model_start(
-        {"kwargs": {"model": "gemini-3.7-flash"}}, [], run_id="gemini-model"
-    )
+    handler.on_chat_model_start({"kwargs": {"model": "gemini-3.7-flash"}}, [], run_id="gemini-model")
     native_usage = SimpleNamespace(
         prompt_token_count=11,
         candidates_token_count=7,

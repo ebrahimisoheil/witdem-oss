@@ -1,7 +1,10 @@
 {
-  "platform_version": "0.3.0",
-  "sdk_version": "0.3.0",
+  "platform_version": "0.1.0",
+  "sdk_version": "0.1.0",
   "semantic_record_protocol": "1.0",
   "dashboard_api_version": "1.0.0",
-  "corpus_schema_version": "1.0"
+  "corpus_schema_version": "1.0",
+  "workflow_schema_version": "1",
+  "workflow_compiler_version": "1",
+  "workflow_projector_version": "2"
 }

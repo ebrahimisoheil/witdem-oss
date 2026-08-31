@@ -6,6 +6,21 @@ on:
     branches: [main]
 
 jobs:
+  diff-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject whitespace errors in the commit and proposed diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git show --check --oneline --no-renames HEAD
+          if test -n "$BASE_SHA" && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --check "$BASE_SHA...HEAD"
+          fi
+
   npm-launcher:
     runs-on: ubuntu-latest
     defaults:
@@ -18,14 +33,14 @@ jobs:
           node-version: "22.16.0"
           cache: npm
           cache-dependency-path: npm/package-lock.json
-      - run: npm install --global npm@11.4.1
+      - run: npm install --global npm@11.19.1
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test
       - run: npm pack --dry-run
       - name: Validate the packaged Compose definition
         env:
-          WITDEM_IMAGE: ghcr.io/ebrahimisoheil/witdem-analytics:0.3.0
+          WITDEM_IMAGE: ghcr.io/ebrahimisoheil/witdem-analytics:0.1.0
           WITDEM_RECEIVER_PORT: "4318"
           WITDEM_DASHBOARD_PORT: "8501"
         run: docker compose --file compose.yaml config --quiet
@@ -71,6 +86,57 @@ jobs:
       - run: uv run pytest -q
       - run: uv run ruff check src tests
       - run: uv run mypy src
+
+  examples:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - examples/anthropic/basic_agent
+          - examples/anthropic/tool_loop
+          - examples/cloud/azure
+          - examples/cloud/bedrock
+          - examples/cloud/vertex
+          - examples/haystack/demo
+          - examples/haystack/pipeline
+          - examples/langchain/runnable_pipeline
+          - examples/langgraph/state_graph
+          - examples/ollama/basic
+          - examples/openai/basic_agent
+          - examples/openai/multi_agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+          python-version: "3.12"
+      - run: uv sync --project "${{ matrix.project }}" --locked
+      - run: uv run --project "${{ matrix.project }}" --locked pytest -q "${{ matrix.project }}/tests"
+
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+          python-version: "3.12"
+      - run: uv build
+      - name: Verify the source distribution boundary
+        run: |
+          sdist=$(find dist -name '*.tar.gz' -print -quit)
+          test -n "$sdist"
+          test "$(stat --format=%s "$sdist")" -lt 3000000
+          ! tar --list --file "$sdist" | grep -E '/(docs|examples|tests|web|witdem-sdk)/'
+      - name: Install artifacts in clean environments
+        run: |
+          uv venv /tmp/witdem-wheel
+          uv pip install --python /tmp/witdem-wheel/bin/python dist/*.whl
+          /tmp/witdem-wheel/bin/witdem version
+          uv venv /tmp/witdem-sdist
+          uv pip install --python /tmp/witdem-sdist/bin/python dist/*.tar.gz
+          /tmp/witdem-sdist/bin/witdem version
 
   sdk-extras:
     runs-on: ubuntu-latest
@@ -121,7 +187,7 @@ jobs:
           node-version: "22.16.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm install --global npm@11.4.1
+      - run: npm install --global npm@11.19.1
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run typecheck

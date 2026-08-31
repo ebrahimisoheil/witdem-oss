@@ -1,61 +1,118 @@
-# Operations and deployment
+# Operations
 
-## Local lifecycle
+## Installation paths
 
-The package-index release is pending. From a source checkout:
-
-```bash
-uv sync
-uv run witdem dev --open
-uv run witdem doctor
-uv run witdem inspect
-uv run witdem elt status
-```
-
-CLI flags override environment variables, which override defaults. Primary variables are `WITDEM_ENDPOINT`, `WITDEM_HOST`, `WITDEM_PORT`, `WITDEM_DASHBOARD_HOST`, `WITDEM_DASHBOARD_PORT`, `WITDEM_DATA_DIR`, `WITDEM_DB_PATH`, `WITDEM_PRICING_FILE`, and `WITDEM_API_KEY`.
-
-## Docker
+NPX manages a version-matched Docker Compose stack:
 
 ```bash
-docker compose up -d
-docker compose ps
-docker compose logs -f witdem elt-worker dashboard
+npx -y witdem@latest up
 ```
 
-The stack runs the receiver, continuous Duckle worker, and dashboard over the named `witdem-analytics-live-data` volume.
-
-Stop services without deleting the corpus:
+pipx installs the analytics platform into an isolated Python environment and
+runs the receiver, ELT worker, and dashboard natively:
 
 ```bash
-docker compose down
+pipx install witdem-analytics
+witdem up
 ```
 
-Removing the named volume deletes the local corpus and is intentionally not part of normal shutdown instructions.
+`witdem-sdk` remains a dependency of each instrumented application. Installing
+the backend with pipx does not install or modify application environments.
+
+## Lifecycle
+
+The command vocabulary is the same on both launchers:
+
+```bash
+witdem up [--open|--no-open]
+witdem open
+witdem status [--json]
+witdem logs [--follow] [receiver|worker|dashboard]
+witdem doctor
+witdem version
+witdem update --check [--refresh|--offline]
+witdem down
+witdem workflow compile [--check|--force]
+witdem workflow rebuild
+```
+
+Prefix commands with `npx -y witdem@latest` instead of `witdem` for the Docker
+path. `down` stops services and never deletes data. `dev` is a foreground mode
+for contributors.
+
+## Ports and isolated installations
+
+Defaults are receiver `4318` and dashboard `8501`. Both paths support:
+
+```bash
+witdem up --receiver-port 14318 --dashboard-port 18501 --data-dir /srv/witdem/team-a
+```
+
+For NPX, `--data-dir` creates a bind-mounted installation and derives an
+isolated Compose project name; `--project-name` can set it explicitly. For
+pipx, the same option controls database, compiled manifests, run metadata,
+logs, cache, and corpus paths.
+
+## Data and process metadata
+
+Without `--data-dir`, pipx uses the operating system's standard application
+data directory for `witdem`. It stores:
+
+```text
+live.duckdb                 serving database
+corpus/                     immutable accepted records
+compiled/workflows/         disposable workflow manifests
+run/services.json           validated PID, command, start token, ports, version
+logs/{receiver,worker,dashboard}.log
+cache/release-manifest.json last verified update manifest
+```
+
+NPX stores the same application data inside its persistent Compose volume.
+`witdem status` validates both process identity and endpoint health; stale PID
+files are never trusted merely because a PID exists.
+
+## Backup and recovery
+
+Stop services before a filesystem-level backup, then copy the entire data
+directory or Docker volume. Preserve `corpus/`; databases, compiled manifests,
+and workflow projections can be rebuilt.
+
+```bash
+witdem down
+witdem workflow compile --force
+witdem workflow rebuild
+witdem up
+```
+
+`workflow rebuild` holds the maintenance lock, reprocesses committed corpus
+batches, and replaces rebuildable projections without changing immutable
+records. A corrupt compiled manifest is recovered automatically from YAML at
+startup.
 
 ## ELT and retention
 
 ```bash
-uv run witdem elt run
-uv run witdem elt worker
-uv run witdem elt status
-uv run witdem prune --older-than 30d
-uv run witdem prune --older-than 30d --yes
+witdem elt status
+witdem elt run
+witdem prune --older-than 30d        # preview
+witdem prune --older-than 30d --yes  # permanent corpus retention action
 ```
 
-The first prune command is a preview. The `--yes` form permanently removes expired corpus data. Inspect the preview before confirmation.
+Retention is the only command above that deletes corpus data, and requires an
+explicit target and confirmation.
 
-## Pricing catalog
+## Updates and offline operation
 
-The bundled versioned catalog is [`src/witdem/pricing/catalog.yaml`](../src/witdem/pricing/catalog.yaml). It is refreshed through a scheduled, reviewable pull request; see [Pricing catalog](pricing.md). Point `WITDEM_PRICING_FILE` at another compatible catalog for models or negotiated rates not bundled with this release. An invalid override fails receiver readiness rather than silently disabling pricing.
+`update --check` detects and prints exact NPX, pipx, and SDK commands. It never
+updates packages, containers, or data. Successful signed checks are cached for
+24 hours. Use `--refresh` to bypass the cache, `--offline` to use only a
+verified cache, or `WITDEM_UPDATE_CHECK=0` to disable automatic discovery.
+
+See [Upgrade and compatibility](upgrade.md).
 
 ## Security
 
-Default Compose ports bind to `127.0.0.1`. Set `WITDEM_API_KEY` to require bearer authentication on OTLP and SDK ingestion. Never expose the Uvicorn services directly to the public internet.
-
-For remote use, configure the `remote` Compose profile with separate ingestion/dashboard hostnames, Caddy TLS, ingestion bearer authentication, and dashboard Basic Auth:
-
-```bash
-docker compose --profile remote up -d
-```
-
-Only Caddy should expose public ports in that profile. See `.env.example` for the required variables.
+Default ports bind to `127.0.0.1`. Set `WITDEM_API_KEY` to require bearer
+authentication on OTLP and SDK ingestion. Do not expose Uvicorn directly to
+the public internet. The source-only remote Compose profile and proxy setup
+are documented for operators in the repository's deployment configuration.

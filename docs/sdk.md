@@ -34,7 +34,7 @@ Supported tones are `success`, `warning`, `failure`, and `neutral`. They select 
 Install the optional dependency with the SDK:
 
 ```bash
-python -m pip install "witdem-sdk[langgraph]==0.3.0"
+python -m pip install "witdem-sdk[langgraph]"
 ```
 
 The `langgraph` extra supports LangGraph `>=0.2,<2`, including the current 1.x line.
@@ -155,14 +155,14 @@ The existing low-level callbacks, client proxies, trace processors, and registra
 ## Integrations
 
 ```bash
-python -m pip install "witdem-sdk[anthropic]==0.3.0"
-python -m pip install "witdem-sdk[openai]==0.3.0"
-python -m pip install "witdem-sdk[langchain]==0.3.0"
-python -m pip install "witdem-sdk[langgraph]==0.3.0"
-python -m pip install "witdem-sdk[haystack]==0.3.0"
-python -m pip install "witdem-sdk[smolagents]==0.3.0"
-python -m pip install "witdem-sdk[litellm]==0.3.0"
-python -m pip install "witdem-sdk[openrouter]==0.3.0"
+python -m pip install "witdem-sdk[anthropic]"
+python -m pip install "witdem-sdk[openai]"
+python -m pip install "witdem-sdk[langchain]"
+python -m pip install "witdem-sdk[langgraph]"
+python -m pip install "witdem-sdk[haystack]"
+python -m pip install "witdem-sdk[smolagents]"
+python -m pip install "witdem-sdk[litellm]"
+python -m pip install "witdem-sdk[openrouter]"
 ```
 
 Supported input evidence includes generic OpenTelemetry, OTel GenAI attributes, OpenInference, LangChain, LangGraph, OpenAI Agents, Anthropic Messages/Claude Agent telemetry, Haystack, and explicit SDK integration callbacks.

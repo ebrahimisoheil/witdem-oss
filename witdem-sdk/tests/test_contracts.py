@@ -43,6 +43,18 @@ contracts:
     return target
 
 
+def test_sdk_help_is_available_without_the_analytics_package(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "usage: witdem-sdk" in help_text
+    assert "init" in help_text
+    assert "validate" in help_text
+    assert "run" in help_text
+
+
 def test_contract_evaluates_complete_business_meaning(tmp_path: Path) -> None:
     config = load_project_config(_write_config(tmp_path), required=True)
     assert config is not None
@@ -264,26 +276,20 @@ contracts:
     assert config is not None
     spec = config.contracts["answer"]
 
-    assured = evaluate_contract(
-        "answer", spec, {"result": "London is cloudy at 15 degrees Celsius.", "safe": True}
-    )
+    assured = evaluate_contract("answer", spec, {"result": "London is cloudy at 15 degrees Celsius.", "safe": True})
     assert assured.product_goal_achieved is True
     assert assured.attributes["assurance_status"] == "assured"
     assert assured.attributes["decision_evidence_sufficient"] is True
     assert assured.attributes["semantic_score"] == 1.0
 
-    attention = evaluate_contract(
-        "answer", spec, {"result": "London is cloudy.", "safe": True}
-    )
+    attention = evaluate_contract("answer", spec, {"result": "London is cloudy.", "safe": True})
     assert attention.product_goal_achieved is True
     assert attention.attributes["assurance_status"] == "needs_attention"
     assert attention.attributes["decision_evidence_sufficient"] is False
     assert attention.attributes["semantic_score"] == pytest.approx(2 / 3)
     assert attention.attributes["closest_blocker"] == "semantic confidence below assurance target"
 
-    failed = evaluate_contract(
-        "answer", spec, {"result": "London is cloudy at 15°C.", "safe": False}
-    )
+    failed = evaluate_contract("answer", spec, {"result": "London is cloudy at 15°C.", "safe": False})
     assert failed.product_goal_achieved is False
     assert failed.attributes["assurance_status"] == "not_achieved"
     assert failed.attributes["hard_requirements_passed"] is False
@@ -302,9 +308,7 @@ contracts:
         contract="answer",
     )
     semantic_record = next(
-        record
-        for record in records
-        if record[0] == "evaluation" and record[1] == ("Weather meaning confidence",)
+        record for record in records if record[0] == "evaluation" and record[1] == ("Weather meaning confidence",)
     )
     assert semantic_record[2]["score"] == 1.0
     assert semantic_record[2]["label"] == "assured"
@@ -495,9 +499,7 @@ contracts:
     }
     assert definition["dimensions"][0]["key"] == "question_type"
     assert any(
-        kind == "evaluation"
-        and args == ("Reference answer coverage",)
-        and kwargs["score"] == 0.92
+        kind == "evaluation" and args == ("Reference answer coverage",) and kwargs["score"] == 0.92
         for kind, args, kwargs in records
     )
     assert records[-1][0] == "outcome"

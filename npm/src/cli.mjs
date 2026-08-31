@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -21,12 +22,21 @@ Usage:
   witdem status [options]   Show service and endpoint health
   witdem logs [options]     Follow service logs
   witdem doctor [options]   Check local prerequisites
+  witdem version            Show the package version
+  witdem update --check     Check and print upgrade guidance
   witdem down [options]     Stop services; collected data is preserved
+  witdem workflow compile   Compile configured workflow YAML
+  witdem workflow rebuild   Rebuild materialized workflow projections
 
 Options:
   --dashboard-port <port>   Dashboard port (default: 8501)
   --receiver-port <port>    OTLP/SDK receiver port (default: 4318)
   --image <reference>       Override the pinned container image
+  --data-dir <path>         Use an explicit persistent host directory
+  --project-name <name>     Isolate this Compose installation
+  --follow                  Continue streaming logs
+  --json                    Emit machine-readable output when supported
+  --open                    Open the browser after "up" (default)
   --no-open                 Do not open the browser after "up"
   -h, --help                Show this help
   -v, --version             Show the package version
@@ -50,7 +60,16 @@ export function parseArgs(argv) {
     dashboardPort: process.env.WITDEM_DASHBOARD_PORT || "8501",
     receiverPort: process.env.WITDEM_RECEIVER_PORT || "4318",
     image: process.env.WITDEM_IMAGE || DEFAULT_IMAGE,
+    dataDir: process.env.WITDEM_DATA_DIR || null,
+    projectName: process.env.WITDEM_PROJECT_NAME || "witdem",
     open: true,
+    follow: false,
+    json: false,
+    check: false,
+    refresh: false,
+    offline: false,
+    force: false,
+    positionals: [],
   };
   const args = [...argv];
   if (args[0] && !args[0].startsWith("-")) options.command = args.shift();
@@ -61,9 +80,30 @@ export function parseArgs(argv) {
     else if (flag === "--image") {
       options.image = args.shift();
       if (!options.image) throw new Error("--image requires a container reference");
-    } else if (flag === "--no-open") options.open = false;
+    } else if (flag === "--data-dir") {
+      const value = args.shift();
+      if (!value) throw new Error("--data-dir requires a path");
+      options.dataDir = path.resolve(value);
+      if (options.projectName === "witdem") {
+        const suffix = createHash("sha256").update(options.dataDir).digest("hex").slice(0, 10);
+        options.projectName = `witdem-${suffix}`;
+      }
+    } else if (flag === "--project-name") {
+      options.projectName = args.shift();
+      if (!options.projectName || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(options.projectName)) {
+        throw new Error("--project-name requires a Compose-safe name");
+      }
+    } else if (flag === "--open") options.open = true;
+    else if (flag === "--no-open") options.open = false;
+    else if (flag === "--follow") options.follow = true;
+    else if (flag === "--json") options.json = true;
+    else if (flag === "--check") options.check = true;
+    else if (flag === "--refresh") options.refresh = true;
+    else if (flag === "--offline") options.offline = true;
+    else if (flag === "--force") options.force = true;
     else if (flag === "-h" || flag === "--help") options.command = "help";
     else if (flag === "-v" || flag === "--version") options.command = "version";
+    else if (flag && !flag.startsWith("-")) options.positionals.push(flag);
     else throw new Error(`unknown option: ${flag}`);
   }
   options.dashboardPort = port(options.dashboardPort, "dashboard port");
@@ -77,11 +117,14 @@ export function composeEnvironment(options, base = process.env) {
     WITDEM_IMAGE: options.image,
     WITDEM_DASHBOARD_PORT: options.dashboardPort,
     WITDEM_RECEIVER_PORT: options.receiverPort,
+    WITDEM_DATA_TYPE: options.dataDir ? "bind" : "volume",
+    WITDEM_DATA_SOURCE: options.dataDir || "witdem-data",
+    WITDEM_UPDATE_CHECK: base.WITDEM_UPDATE_CHECK || "1",
   };
 }
 
-export function composeArgs(args) {
-  return ["compose", "--project-name", "witdem", "--file", composeFile, ...args];
+export function composeArgs(args, options = { projectName: "witdem" }) {
+  return ["compose", "--project-name", options.projectName, "--file", composeFile, ...args];
 }
 
 function run(command, args, { env = process.env, capture = false } = {}) {
@@ -100,7 +143,7 @@ function run(command, args, { env = process.env, capture = false } = {}) {
 }
 
 function docker(options, args, config = {}) {
-  return run("docker", composeArgs(args), {
+  return run("docker", composeArgs(args, options), {
     env: composeEnvironment(options),
     ...config,
   });
@@ -161,9 +204,12 @@ async function up(options) {
     docker(options, ["ps"]);
     console.error("\nRecent service logs:");
     docker(options, ["logs", "--tail", "80"]);
+    docker(options, ["down", "--remove-orphans"]);
     throw error;
   }
-  console.log(`\nWitdem is ready.\nDashboard: ${endpoint.dashboard}\nReceiver:  ${endpoint.receiver}`);
+  const result = { status: "ready", dashboard: endpoint.dashboard, receiver: endpoint.receiver };
+  if (options.json) console.log(JSON.stringify(result, null, 2));
+  else console.log(`\nWitdem is ready.\nDashboard: ${endpoint.dashboard}\nReceiver:  ${endpoint.receiver}`);
   if (options.open) openBrowser(endpoint.dashboard);
 }
 
@@ -174,10 +220,25 @@ function dev(options) {
 
 async function status(options) {
   requireDocker();
-  docker(options, ["ps"]);
   const endpoint = urls(options);
-  console.log(`Receiver:  ${(await healthy(`${endpoint.receiver}/readiness`)) ? "healthy" : "not ready"}`);
-  console.log(`Dashboard: ${(await healthy(`${endpoint.dashboard}/health`)) ? "healthy" : "not ready"}`);
+  const result = {
+    receiver: { healthy: await healthy(`${endpoint.receiver}/readiness`) },
+    dashboard: { healthy: await healthy(`${endpoint.dashboard}/health`) },
+  };
+  if (options.json) console.log(JSON.stringify({ version: VERSION, services: result }, null, 2));
+  else {
+    docker(options, ["ps"]);
+    console.log(`Receiver:  ${result.receiver.healthy ? "healthy" : "not ready"}`);
+    console.log(`Dashboard: ${result.dashboard.healthy ? "healthy" : "not ready"}`);
+  }
+  if (!result.receiver.healthy || !result.dashboard.healthy) {
+    throw new Error("one or more Witdem services are unhealthy");
+  }
+}
+
+function maintenance(options, command, args = []) {
+  requireDocker();
+  return docker(options, ["run", "--rm", "receiver", "witdem", command, ...args]);
 }
 
 async function doctor(options) {
@@ -205,15 +266,41 @@ export async function main(argv) {
   if (options.command === "down") {
     requireDocker();
     docker(options, ["down", "--remove-orphans"]);
-    return console.log("Witdem stopped. Collected data is preserved in the witdem-data volume.");
+    return console.log(`Witdem stopped. Collected data is preserved in ${options.dataDir || `${options.projectName}_witdem-data`}.`);
   }
   if (options.command === "logs") {
     requireDocker();
-    return docker(options, ["logs", "--follow"]);
+    const service = options.positionals[0];
+    if (service && !["receiver", "worker", "dashboard"].includes(service)) {
+      throw new Error(`unknown service: ${service}`);
+    }
+    return docker(options, ["logs", options.follow ? "--follow" : "--tail", options.follow ? undefined : "200", service].filter(Boolean));
   }
   if (options.command === "open") {
     openBrowser(urls(options).dashboard);
     return;
+  }
+  if (options.command === "update") {
+    if (!options.check) throw new Error("update is detection-only; use 'witdem update --check'");
+    const flags = ["--check", "--data-dir", "/app/data"];
+    if (options.refresh) flags.push("--refresh");
+    if (options.offline) flags.push("--offline");
+    if (options.json) flags.push("--json");
+    return maintenance(options, "update", flags);
+  }
+  if (options.command === "workflow") {
+    const action = options.positionals[0];
+    if (action === "compile") {
+      return maintenance(options, "workflow", [
+        "compile",
+        "--data-dir",
+        "/app/data",
+        ...(options.check ? ["--check"] : []),
+        ...(options.force ? ["--force"] : []),
+      ]);
+    }
+    if (action === "rebuild") return maintenance(options, "workflow", ["rebuild", "--data-dir", "/app/data"]);
+    throw new Error("workflow requires 'compile' or 'rebuild'");
   }
   throw new Error(`unknown command: ${options.command}`);
 }

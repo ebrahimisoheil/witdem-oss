@@ -32,7 +32,29 @@ _CONTENT_KEYS = frozenset(
         "tool.result",
         "input",
         "output",
+        "retrieval.documents",
+        "reranker.input_documents",
+        "reranker.output_documents",
+        "embedding.embeddings",
+        "embedding.text",
+        "embedding.vector",
+        "document.content",
+        "image.url",
+        "audio.url",
+        "audio.transcript",
+        "video.url",
     }
+)
+
+_CONTENT_PREFIXES = (
+    "gen_ai.input.messages.",
+    "gen_ai.output.messages.",
+    "llm.input_messages.",
+    "llm.output_messages.",
+    "retrieval.documents.",
+    "reranker.input_documents.",
+    "reranker.output_documents.",
+    "embedding.embeddings.",
 )
 
 
@@ -79,7 +101,21 @@ def _attributes(value: Any, *, include_content: bool) -> dict[str, Any]:
     source = _mapping(value)
     if include_content:
         return dict(source)
-    return {str(key): item for key, item in source.items() if str(key) not in _CONTENT_KEYS}
+    safe = {
+        str(key): item
+        for key, item in source.items()
+        if str(key) not in _CONTENT_KEYS and not str(key).startswith(_CONTENT_PREFIXES)
+    }
+    for source_key, target in {
+        "retrieval.documents": "witdem.observed.documents_output",
+        "reranker.input_documents": "witdem.observed.candidates_input",
+        "reranker.output_documents": "witdem.observed.candidates_output",
+        "embedding.embeddings": "witdem.observed.vectors_output",
+    }.items():
+        observed = source.get(source_key)
+        if isinstance(observed, Sequence) and not isinstance(observed, (str, bytes, bytearray)):
+            safe[target] = len(observed)
+    return safe
 
 
 def _events(value: Any, *, include_content: bool) -> list[dict[str, Any]]:
@@ -174,3 +210,35 @@ def normalize_otel_spans(
     spans: Sequence[Mapping[str, Any] | Any], *, include_content: bool = False
 ) -> list[NormalizedSpan]:
     return OTelEnvelopeNormalizer(include_content=include_content).normalize_many(spans)
+
+
+def sanitize_otel_span(span: Mapping[str, Any], *, include_content: bool = False) -> dict[str, Any]:
+    """Return the corpus-safe OTel envelope without changing its structure."""
+
+    row = dict(span)
+    row["attributes"] = _attributes(row.get("attributes"), include_content=include_content)
+    safe_events = []
+    for event in row.get("events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        safe_events.append(
+            {
+                **dict(event),
+                "attributes": _attributes(event.get("attributes"), include_content=include_content),
+            }
+        )
+    row["events"] = safe_events
+    safe_links = []
+    for link in row.get("links") or []:
+        if not isinstance(link, Mapping):
+            continue
+        safe_links.append(
+            {
+                **dict(link),
+                "attributes": _attributes(link.get("attributes"), include_content=include_content),
+            }
+        )
+    if "links" in row:
+        row["links"] = safe_links
+    row["resource"] = _attributes(row.get("resource"), include_content=include_content)
+    return row

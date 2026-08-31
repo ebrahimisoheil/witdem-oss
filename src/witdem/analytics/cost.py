@@ -364,23 +364,29 @@ def estimate_chat_cost_details(
     if input_tokens is None or output_tokens is None:
         return CostEstimate(None, "missing_usage", {}, "standard", None)
     dimensions = context or {}
-    tier = _context_value(
-        dimensions,
-        "gen_ai.request.service_tier",
-        "service_tier",
-        "inference_tier",
-        "tier",
-    ) or "standard"
+    tier = (
+        _context_value(
+            dimensions,
+            "gen_ai.request.service_tier",
+            "service_tier",
+            "inference_tier",
+            "tier",
+        )
+        or "standard"
+    )
     tier = {"default": "standard", "auto": "standard"}.get(tier, tier)
     tier = {"batches": "batch"}.get(tier, tier)
     if tier not in {"standard", "batch", "flex", "priority"}:
         return CostEstimate(None, "unsupported_pricing_tier", {}, tier, None)
     region = _context_value(dimensions, "cloud.region", "gen_ai.request.region", "region")
-    cache_duration_seconds = _usage_number(
-        dimensions,
-        "gen_ai.request.cache_duration_seconds",
-        "cache_duration_seconds",
-    ) or 0.0
+    cache_duration_seconds = (
+        _usage_number(
+            dimensions,
+            "gen_ai.request.cache_duration_seconds",
+            "cache_duration_seconds",
+        )
+        or 0.0
+    )
     rates = {
         "input_tokens": _rate(entry, "input_cost_per_token", tier=tier, input_tokens=input_tokens),
         "output_tokens": _rate(entry, "output_cost_per_token", tier=tier, input_tokens=input_tokens),
@@ -392,9 +398,7 @@ def estimate_chat_cost_details(
             input_tokens=input_tokens,
             cache_duration_seconds=cache_duration_seconds,
         ),
-        "reasoning_tokens": _rate(
-            entry, "output_cost_per_reasoning_token", tier=tier, input_tokens=input_tokens
-        ),
+        "reasoning_tokens": _rate(entry, "output_cost_per_reasoning_token", tier=tier, input_tokens=input_tokens),
         "audio_input_tokens": _rate(entry, "input_cost_per_audio_token", tier=tier, input_tokens=input_tokens),
         "audio_output_tokens": _rate(entry, "output_cost_per_audio_token", tier=tier, input_tokens=input_tokens),
         "image_input_tokens": _rate(entry, "input_cost_per_image_token", tier=tier, input_tokens=input_tokens),
@@ -493,9 +497,7 @@ def estimate_chat_cost_details(
             components["regional_uplift"] = sum(components.values()) * (float(multiplier) - 1.0)
         endpoint_multiplier = entry.pricing.get("regional_endpoint_uplift_multiplier")
         if isinstance(endpoint_multiplier, (int, float)) and not isinstance(endpoint_multiplier, bool):
-            components["regional_endpoint_uplift"] = sum(components.values()) * (
-                float(endpoint_multiplier) - 1.0
-            )
+            components["regional_endpoint_uplift"] = sum(components.values()) * (float(endpoint_multiplier) - 1.0)
     return CostEstimate(round(sum(components.values()), 15), None, components, tier, region)
 
 

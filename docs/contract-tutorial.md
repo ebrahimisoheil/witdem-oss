@@ -98,6 +98,24 @@ Validate it from the application directory:
 witdem-sdk validate
 ```
 
+## Add a workflow replay when the task is multi-step
+
+The contract above defines the application result, product goal, and assurance
+checks. It does not invent a workflow graph from runtime spans. For a multi-step
+application, register an authored workflow definition in the project-root
+`witdem.yml`; otherwise the execution remains valid telemetry but is labelled
+**No YAML replay** in the execution list.
+
+Workflow nodes may also declare vendor-neutral operation types such as
+`embedding`, `retrieval`, `reranking`, `ocr`, `text_generation`, or `tool`.
+This matters because the generic SDK operation defaults to an untyped
+`component`, which is coordination evidence displayed as **Workflow step**, not
+semantic AI-operation health.
+
+Continue with [Workflow-centric replay](workflow-replay.md#configuration) for
+the DAG setup and [Declare semantic operations, not framework wrappers](workflow-replay.md#declare-semantic-operations-not-framework-wrappers)
+for operation declarations and SDK defaults.
+
 This contract produces three meaningful states:
 
 | Returned value | Goal | Assurance | Why |

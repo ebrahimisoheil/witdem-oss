@@ -1,0 +1,126 @@
+version: 1
+id: company-qualification
+name: Company qualification
+description: Research a company, repair incomplete evidence, build a validated profile, and make an evidence-backed qualification decision.
+framework: multi-runtime
+match:
+  runtime_names:
+    - anthropic_messages
+    - haystack
+    - langchain
+    - langgraph
+    - openai_agents
+ignore_observed:
+  # Native framework spans remain available in the raw replay, but they are
+  # implementation detail rather than additional business workflow steps.
+  - kinds: [component, graph_node]
+  - names: [workflow.definition, Workflow definition]
+
+stages:
+  - id: evidence
+    name: Evidence
+    description: Gather controlled company evidence and decide whether targeted recovery is required.
+    nodes:
+      - id: research
+        name: Research company
+        kind: Research
+        description: Gather the initial evidence set for the company.
+        match:
+          names: [product_factory.research]
+
+      - id: critique_evidence
+        name: Check evidence quality
+        kind: Evidence check
+        description: Find missing, weak, or conflicting qualification evidence.
+        match:
+          names: [product_factory.evidence_critique]
+        depends_on: [research]
+
+      - id: targeted_research
+        name: Recover evidence gaps
+        kind: Recovery path
+        description: Run targeted research only when the initial evidence is incomplete.
+        match:
+          names: [product_factory.targeted_research]
+        depends_on:
+          - node: critique_evidence
+            type: branch
+            route: gaps_found
+            label: Evidence gaps
+
+      - id: verify_recovered_evidence
+        name: Recheck recovered evidence
+        kind: Evidence check
+        description: Verify that targeted research closed the identified evidence gaps.
+        match:
+          names: [product_factory.evidence_critique_after_research]
+        depends_on: [targeted_research]
+
+  - id: profile
+    name: Company profile
+    description: Convert evidence into a valid, decision-ready profile.
+    depends_on: [evidence]
+    nodes:
+      - id: extract_profile
+        name: Build company profile
+        kind: Profile extraction
+        description: Create the structured company profile used by qualification policy.
+        match:
+          names: [product_factory.profile_extraction]
+        depends_on:
+          - node: critique_evidence
+            type: branch
+            route: evidence_sufficient
+            label: Evidence sufficient
+          - node: verify_recovered_evidence
+            type: branch
+            route: recovered
+            label: Recovered
+
+      - id: validate_profile
+        name: Validate profile
+        kind: Validation
+        description: Check profile completeness and evidence traceability before scoring.
+        match:
+          names: [product_factory.profile_validation]
+        depends_on: [extract_profile]
+
+  - id: qualification
+    name: Qualification
+    description: Score the company, apply policy, and assess the product goal.
+    depends_on: [profile]
+    nodes:
+      - id: analyze_qualification
+        name: Analyze qualification
+        kind: Analysis
+        description: Calculate evidence-backed qualification dimensions.
+        match:
+          names: [product_factory.qualification_analysis]
+        depends_on: [validate_profile]
+
+      - id: decide_qualification
+        name: Make qualification decision
+        kind: Decision
+        description: Apply deterministic policy to accept, reject, or escalate the company.
+        match:
+          names: [product_factory.deterministic_decision]
+        depends_on: [analyze_qualification]
+
+      - id: assess_goal
+        name: Assess product goal
+        kind: Goal assessment
+        description: Verify decision correctness and required-path completion.
+        match:
+          names: [product_factory.deterministic_goal_assessment]
+        depends_on: [decide_qualification]
+
+outcomes:
+  - id: accepted
+    name: Company accepted
+    from: [assess_goal]
+  - id: rejected
+    name: Company rejected
+    from: [assess_goal]
+  - id: escalated
+    name: Human review required
+    from: [assess_goal]

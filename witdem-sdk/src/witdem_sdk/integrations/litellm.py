@@ -79,6 +79,10 @@ def _usage(response: Any) -> Mapping[str, Any]:
     return _mapping(_value(response, "usage", {}))
 
 
+def _usage_info(response: Any) -> Mapping[str, Any]:
+    return _mapping(_value(response, "usage_info", {}))
+
+
 def _router_metadata(response: Any) -> Mapping[str, Any]:
     response_mapping = _mapping(response)
     direct = response_mapping.get("openrouter_metadata")
@@ -116,6 +120,33 @@ def _set_response_attributes(span: Span, kwargs: Mapping[str, Any], response: An
         observed = next((usage.get(name) for name in names if usage.get(name) is not None), None)
         if isinstance(observed, (int, float)) and not isinstance(observed, bool):
             span.set_attribute(target, observed)
+    usage_info = _usage_info(response)
+    pages_processed = usage_info.get("pages_processed")
+    if isinstance(pages_processed, (int, float)) and not isinstance(pages_processed, bool):
+        span.set_attribute("witdem.operation.type", "ocr")
+        span.set_attribute("witdem.operation.interface", "model_api")
+        span.set_attribute("witdem.operation.input_modalities", ["document"])
+        span.set_attribute("witdem.operation.output_modalities", ["text"])
+        span.set_attribute("gen_ai.usage.ocr_pages", pages_processed)
+        span.set_attribute(
+            "witdem.measurements",
+            json.dumps(
+                [
+                    {
+                        "key": "pages.processed",
+                        "value": pages_processed,
+                        "unit": "page",
+                        "aggregation": "sum",
+                        "scope": "operation",
+                        "provenance": "provider_reported",
+                    }
+                ],
+                separators=(",", ":"),
+            ),
+        )
+    document_bytes = usage_info.get("doc_size_bytes")
+    if isinstance(document_bytes, (int, float)) and not isinstance(document_bytes, bool):
+        span.set_attribute("gen_ai.usage.input_bytes", document_bytes)
     prompt_details = _mapping(usage.get("prompt_tokens_details"))
     completion_details = _mapping(usage.get("completion_tokens_details"))
     for key, observed in {
@@ -132,7 +163,7 @@ def _set_response_attributes(span: Span, kwargs: Mapping[str, Any], response: An
     selected_provider = _selected_route(metadata)
     initial_provider = _provider(str(kwargs.get("model") or ""), kwargs)
     if initial_provider == "openrouter":
-        span.set_attribute("witdem.gateway.name", "openrouter")
+        span.set_attribute("witdem.gateway.id", "openrouter")
     if selected_provider:
         span.set_attribute("witdem.route.provider", selected_provider)
         span.set_attribute("gen_ai.provider.name", selected_provider)
@@ -181,11 +212,17 @@ class WitdemLiteLLMCallback:
             kind=SpanKind.CLIENT,
             start_time=_nanoseconds(kwargs.get("start_time")),
         )
-        span.set_attribute("gen_ai.operation.name", "chat")
+        params = _mapping(kwargs.get("litellm_params"))
+        call_type = str(kwargs.get("call_type") or params.get("call_type") or "chat").casefold()
+        operation_name = "ocr" if call_type == "ocr" else "chat"
+        span.set_attribute("gen_ai.operation.name", operation_name)
+        span.set_attribute("witdem.operation.type", "ocr" if operation_name == "ocr" else "text_generation")
+        span.set_attribute("witdem.operation.interface", "model_api")
+        span.set_attribute("witdem.operation.role", "application")
         span.set_attribute("gen_ai.provider.name", provider)
         span.set_attribute("gen_ai.request.model", model)
         span.set_attribute("witdem.client.library", "litellm")
-        span.set_attribute("witdem.gateway.name", "litellm")
+        span.set_attribute("witdem.gateway.id", "litellm")
         span.set_attribute("witdem.capture_content", False)
         trace_id = kwargs.get("litellm_trace_id") or _litellm_metadata(kwargs).get("litellm_trace_id")
         if trace_id:

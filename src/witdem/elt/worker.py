@@ -181,6 +181,18 @@ def run_pending(*, rebuild: bool = False, maintenance_lock_held: bool = False) -
             {**transform_record, "ended_at": datetime.now(timezone.utc), "status": "failed", "error": str(exc)}
         )
         raise
+    from witdem.config import db_path
+    from witdem.dashboard.service import materialize_workflow_projections
+
+    try:
+        materialize_workflow_projections(db_path(), sorted(set(published)))
+    except Exception as exc:
+        for commit in selected:
+            corpus.update_state(commit.ingest_id, "failed", error=str(exc), transform_run_id=transform_run_id)
+        live_db.record_transform_run(
+            {**transform_record, "ended_at": datetime.now(timezone.utc), "status": "failed", "error": str(exc)}
+        )
+        raise
     for commit in selected:
         corpus.update_state(commit.ingest_id, "ready", transform_run_id=transform_run_id)
     live_db.record_transform_run({**transform_record, "ended_at": datetime.now(timezone.utc), "status": "ready"})

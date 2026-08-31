@@ -240,11 +240,7 @@ class _ObservedSpan:
     def finalize(self) -> None:
         """Name a tool-free completed Agent step from its observed structure."""
 
-        if (
-            self._operation_name.casefold() == "haystack.agent.step"
-            and not self._tool_names
-            and self._saw_model_child
-        ):
+        if self._operation_name.casefold() == "haystack.agent.step" and not self._tool_names and self._saw_model_child:
             self._set_step_identity(final_answer=True)
 
     def _set_step_identity(self, *, final_answer: bool = False) -> None:

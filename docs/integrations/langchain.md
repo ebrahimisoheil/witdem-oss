@@ -12,7 +12,7 @@ The LangChain integration wraps a runnable and appends a callback that records c
 - The model-provider package used by your chain
 
 ```bash
-python -m pip install "witdem-sdk[langchain]==0.3.0"
+python -m pip install "witdem-sdk[langchain]"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
@@ -50,7 +50,7 @@ contracts:
       achieved: $.witdem.artifact_valid
 ```
 
-The complete checked-in example is [`examples/langchain/runnable_pipeline`](../../examples/langchain/runnable_pipeline).
+The complete checked-in example is [`examples/langchain/runnable_pipeline`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/langchain/runnable_pipeline).
 
 ## Existing application integration
 

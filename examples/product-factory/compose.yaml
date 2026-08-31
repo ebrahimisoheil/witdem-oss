@@ -1,0 +1,18 @@
+services:
+  witdem:
+    environment:
+      WITDEM_CONFIG: /app/examples/product-factory/.witdem/witdem.yaml
+    volumes:
+      - ./examples/product-factory:/app/examples/product-factory:ro
+
+  elt-worker:
+    environment:
+      WITDEM_CONFIG: /app/examples/product-factory/.witdem/witdem.yaml
+    volumes:
+      - ./examples/product-factory:/app/examples/product-factory:ro
+
+  dashboard:
+    environment:
+      WITDEM_CONFIG: /app/examples/product-factory/.witdem/witdem.yaml
+    volumes:
+      - ./examples/product-factory:/app/examples/product-factory:ro

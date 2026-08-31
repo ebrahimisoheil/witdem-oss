@@ -24,6 +24,7 @@ from witdem.analytics.contracts import (
     CostSummary,
     ExecutionSummary,
     FailureSummary,
+    MeasurementCoverage,
     MetadataSnapshot,
     ModelSummary,
     OverviewSnapshot,
@@ -49,7 +50,8 @@ from witdem.analytics.identity import (
     display_tool,
     model_value,
 )
-from witdem.analytics.read_model import aggregate_performance, dashboard_metrics
+from witdem.analytics.operations import operation_identity, token_measurement_applicable
+from witdem.analytics.read_model import aggregate_performance, dashboard_metrics, runtime_state
 from witdem.analytics.repository.sql_loader import load_query
 from witdem.analytics.repository.state import Capabilities, FilterState
 from witdem.analytics.runtime import (
@@ -150,6 +152,106 @@ def _operation_duration(operation: Operation) -> float:
     return max(0.0, (operation.ended_at - operation.started_at).total_seconds())
 
 
+def _active_seconds(operations: Iterable[Operation]) -> float:
+    """Return wall time covered by operations, merging nested/overlapping spans."""
+
+    intervals = sorted(
+        (operation.started_at, operation.ended_at)
+        for operation in operations
+        if operation.started_at is not None and operation.ended_at is not None
+    )
+    if not intervals:
+        return 0.0
+    total = 0.0
+    start, end = intervals[0]
+    for next_start, next_end in intervals[1:]:
+        if next_start <= end:
+            if next_end > end:
+                end = next_end
+            continue
+        total += max(0.0, (end - start).total_seconds())
+        start, end = next_start, next_end
+    return total + max(0.0, (end - start).total_seconds())
+
+
+def _cost_eligible(operation: Operation) -> bool:
+    return operation.kind == "model" or (
+        operation_identity(operation)["family"] in {"inference", "media", "action"}
+        and any(
+            key in operation.attributes
+            for key in ("cost_usd", "gen_ai.cost.usd", "cost_unavailable_reason", "cost_applicable")
+        )
+    )
+
+
+def _token_eligible(operation: Operation) -> bool:
+    identity = operation_identity(operation)
+    return identity["family"] in {"inference", "media"} and token_measurement_applicable(
+        str(identity["type"]), operation.attributes
+    )
+
+
+def _complete_operation_total(operations: Iterable[Operation], measurement: str) -> tuple[bool, float | None]:
+    eligible = [
+        operation
+        for operation in operations
+        if (_cost_eligible(operation) if measurement == "cost" else _token_eligible(operation))
+    ]
+    if not eligible:
+        return False, None
+    field = "cost_usd" if measurement == "cost" else "total_tokens"
+    if not all(isinstance(operation.attributes.get(field), (int, float)) for operation in eligible):
+        return True, None
+    return True, sum(float(operation.attributes[field]) for operation in eligible)
+
+
+def _participant_identity(
+    operation: Operation, dimension: str
+) -> tuple[str, str, str | None, str | None, str | None, str | None] | None:
+    provider = (
+        str(
+            operation.attributes.get("provider")
+            or operation.attributes.get("gen_ai.provider.name")
+            or operation.attributes.get("gen_ai.system")
+            or ""
+        ).strip()
+        or None
+    )
+    model = str(model_value(operation) or "").strip() or None
+    vendor = (
+        str(
+            operation.attributes.get("model_vendor")
+            or operation.attributes.get("vendor")
+            or operation.attributes.get("witdem.vendor.id")
+            or ""
+        ).strip()
+        or None
+    )
+    if dimension == "provider":
+        if provider is None:
+            return None
+        return provider, provider, provider, None, None, vendor
+    if model is None:
+        return None
+    family = canonical_model_key(operation)
+    participant_id = f"{provider or 'unknown-provider'}::{family}"
+    return participant_id, display_model(operation), provider, model, family, vendor
+
+
+def _goal_assurance_state(row: Mapping[str, Any]) -> str:
+    if row.get("product_goal_achieved") is not True:
+        return "not_achieved"
+    explicit = str(row.get("assurance_status") or "").strip().casefold()
+    if explicit in {"assured", "needs_attention"}:
+        return explicit
+    evidence_sufficient = row.get("evidence_sufficient")
+    if evidence_sufficient is True:
+        return "assured"
+    if evidence_sufficient is False:
+        return "needs_attention"
+    return "unassessed"
+
+
 def _percentile(values: Iterable[float], percentile: float) -> float | None:
     ordered = sorted(float(value) for value in values)
     if not ordered:
@@ -199,6 +301,19 @@ def _performance_contract(row: Mapping[str, Any]) -> PerformanceSummary:
         extra_work_rate=float(row["extra_work_rate"]),
         cost_coverage=float(row["cost_coverage"]),
         semantics=str(row["semantics"]),
+        participant_id=str(row.get("participant_id") or row["label"]),
+        dimension=str(row.get("dimension") or "unknown"),
+        provider_id=str(row["provider_id"]) if row.get("provider_id") is not None else None,
+        model_id=str(row["model_id"]) if row.get("model_id") is not None else None,
+        model_family=str(row["model_family"]) if row.get("model_family") is not None else None,
+        vendor_id=str(row["vendor_id"]) if row.get("vendor_id") is not None else None,
+        active_seconds=float(row.get("active_seconds") or 0.0),
+        p50_call_seconds=(float(row["p50_call_seconds"]) if row.get("p50_call_seconds") is not None else None),
+        p95_call_seconds=(float(row["p95_call_seconds"]) if row.get("p95_call_seconds") is not None else None),
+        cost_eligible_operations=int(row.get("cost_eligible_operations") or 0),
+        cost_measured_operations=int(row.get("cost_measured_operations") or 0),
+        token_eligible_operations=int(row.get("token_eligible_operations") or 0),
+        token_measured_operations=int(row.get("token_measured_operations") or 0),
     )
 
 
@@ -499,6 +614,11 @@ class AnalyticsRepository:
         for operation in self._filtered_operations(filters):
             grouped.setdefault(operation.execution_id, []).append(operation)
         return grouped
+
+    def operations_by_execution(self, filters: FilterState = FilterState()) -> dict[str, list[Operation]]:
+        """Return normalized operations for disposable projection builders."""
+
+        return self._operations_by_execution(filters)
 
     @staticmethod
     def _matches_identity_filters(operations: list[Operation], filters: FilterState) -> bool:
@@ -853,6 +973,7 @@ class AnalyticsRepository:
         """Return the semantic execution summary for a filtered population."""
 
         metrics = self.dashboard_metrics(filters)
+        cost_summary = self.get_cost_summary(filters)
         return ExecutionSummary(
             total_runs=int(metrics["total_runs"]),
             successful_runs=int(metrics["completed_runs"]),
@@ -861,11 +982,15 @@ class AnalyticsRepository:
             recovered_runs=int(metrics["recovered_runs"]),
             extra_work_runs=int(metrics["extra_work_runs"]),
             avg_duration_seconds=(float(metrics["time_per_run"]) if metrics["time_per_run"] is not None else None),
-            measured_cost=(float(metrics["measured_cost"]) if metrics["measured_cost"] is not None else None),
-            cost_coverage=float(metrics["cost_coverage"]),
+            measured_cost=cost_summary.measured_cost,
+            cost_coverage=cost_summary.cost.coverage,
             business_successful_runs=int(metrics["business_successful_runs"]),
             business_unsuccessful_runs=int(metrics["business_unsuccessful_runs"]),
             business_reported_runs=int(metrics["business_reported_runs"]),
+            terminal_runs=int(metrics["terminal_runs"]),
+            unknown_runs=int(metrics["unknown_runs"]),
+            attention_runs=int(metrics["attention_runs"]),
+            runtime_success_rate=float(metrics["runtime_success_rate"]),
         )
 
     def get_product_goal_summary(self, filters: FilterState = FilterState()) -> ProductGoalSummary:
@@ -882,6 +1007,7 @@ class AnalyticsRepository:
                     "observed_status": row.get("application_outcome"),
                     "decision_correct": row.get("decision_correct"),
                     "product_goal_achieved": row.get("product_goal_achieved"),
+                    "assurance_status": row.get("assurance_status"),
                     "artifact_valid": row.get("artifact_valid"),
                     "decision_evidence_sufficient": row.get("evidence_sufficient"),
                     "closest_blocker": row.get("closest_blocker"),
@@ -933,9 +1059,18 @@ class AnalyticsRepository:
             if execution_id in recovery_ids
         )
         achieved_rows = [by_execution[execution_id] for execution_id in achieved_ids if execution_id in by_execution]
-        costs = [float(row["known_cost"]) for row in achieved_rows if row.get("known_cost") is not None]
+        operations_by_execution = self._operations_by_execution(filters)
+        cost_totals = [
+            _complete_operation_total(operations_by_execution.get(str(row["execution_id"]), []), "cost")
+            for row in achieved_rows
+        ]
+        token_totals = [
+            _complete_operation_total(operations_by_execution.get(str(row["execution_id"]), []), "tokens")
+            for row in achieved_rows
+        ]
+        costs = [float(value) for applicable, value in cost_totals if applicable and value is not None]
         durations = [float(row["duration_seconds"]) for row in achieved_rows if row.get("duration_seconds") is not None]
-        token_values = [float(row["total_tokens"]) for row in achieved_rows if row.get("total_tokens") is not None]
+        token_values = [float(value) for applicable, value in token_totals if applicable and value is not None]
         achieved_count = len(achieved_ids)
         return ProductGoalSummary(
             total_runs=len(rows),
@@ -981,6 +1116,7 @@ class AnalyticsRepository:
                     "observed_status": row.get("application_outcome"),
                     "decision_correct": row.get("decision_correct"),
                     "product_goal_achieved": row.get("product_goal_achieved"),
+                    "assurance_status": row.get("assurance_status"),
                     "artifact_valid": row.get("artifact_valid"),
                     "decision_evidence_sufficient": row.get("evidence_sufficient"),
                     "closest_blocker": row.get("closest_blocker"),
@@ -997,6 +1133,7 @@ class AnalyticsRepository:
                     goals[execution_id] = _json(goal_row.get("attributes"))
 
         result: list[dict[str, Any]] = []
+        operations_by_execution = self._operations_by_execution(filters)
         for execution_id, attributes in goals.items():
             execution = dict(by_execution[execution_id])
             execution["goal_attributes"] = attributes
@@ -1009,6 +1146,7 @@ class AnalyticsRepository:
                 "observed_status",
                 "decision_correct",
                 "product_goal_achieved",
+                "assurance_status",
                 "artifact_valid",
                 "decision_evidence_sufficient",
                 "required_path_observed",
@@ -1018,6 +1156,16 @@ class AnalyticsRepository:
             ):
                 if field in attributes:
                     execution[field] = attributes[field]
+            cost_applicable, complete_cost = _complete_operation_total(
+                operations_by_execution.get(execution_id, []), "cost"
+            )
+            token_applicable, complete_tokens = _complete_operation_total(
+                operations_by_execution.get(execution_id, []), "tokens"
+            )
+            execution["cost_applicable"] = cost_applicable
+            execution["complete_measured_cost"] = complete_cost
+            execution["tokens_applicable"] = token_applicable
+            execution["complete_total_tokens"] = complete_tokens
             result.append(execution)
         return self._remember(cache_key, result)
 
@@ -1041,8 +1189,8 @@ class AnalyticsRepository:
                 },
             )
             item["runs"] += 1
-            if row.get("known_cost") is not None:
-                item["known_cost"] += float(row["known_cost"])
+            if row.get("complete_measured_cost") is not None:
+                item["known_cost"] += float(row["complete_measured_cost"])
                 item["cost_measured_runs"] += 1
             if row.get("duration_seconds") is not None:
                 item["time_seconds"] += float(row["duration_seconds"])
@@ -1075,8 +1223,8 @@ class AnalyticsRepository:
             if achieved and row.get("duration_seconds") is not None:
                 item["duration_seconds"] += float(row["duration_seconds"])
                 item["duration_runs"] += 1
-            if achieved and row.get("known_cost") is not None:
-                item["measured_cost"] += float(row["known_cost"])
+            if achieved and row.get("complete_measured_cost") is not None:
+                item["measured_cost"] += float(row["complete_measured_cost"])
                 item["cost_runs"] += 1
         result: list[dict[str, Any]] = []
         for item in grouped.values():
@@ -1104,10 +1252,23 @@ class AnalyticsRepository:
         return self._remember(
             cache_key,
             self._query(
-                "SELECT execution_id, name, value, score, label, attributes "
+                "SELECT execution_id, name, value, score, label, observed_at, attributes "
                 "FROM serving.semantic_facts WHERE record_type = 'evaluation'"
             ),
         )
+
+    def _latest_evaluation_facts(self, allowed: set[str] | None = None) -> list[dict[str, Any]]:
+        latest: dict[tuple[str, str], dict[str, Any]] = {}
+        for fact in self._evaluation_facts():
+            execution_id = str(fact["execution_id"])
+            if allowed is not None and execution_id not in allowed:
+                continue
+            attributes = _json(fact.get("attributes"))
+            key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
+            existing = latest.get((execution_id, key))
+            if existing is None or str(fact.get("observed_at") or "") >= str(existing.get("observed_at") or ""):
+                latest[(execution_id, key)] = fact
+        return list(latest.values())
 
     def evaluation_summary(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Aggregate reported evaluations without interpreting contract-specific names."""
@@ -1116,9 +1277,7 @@ class AnalyticsRepository:
             return []
         allowed = {str(row["execution_id"]) for row in self.execution_rows(filters, limit=None)}
         grouped: dict[str, dict[str, Any]] = {}
-        for row in self._evaluation_facts():
-            if str(row["execution_id"]) not in allowed:
-                continue
+        for row in self._latest_evaluation_facts(allowed):
             attributes = _json(row.get("attributes"))
             key = str(attributes.get("evaluation_key") or row.get("name") or "Evaluation")
             item = grouped.setdefault(
@@ -1156,18 +1315,21 @@ class AnalyticsRepository:
 
     @staticmethod
     def _evaluation_met_target(row: dict[str, Any], attributes: dict[str, Any]) -> bool | None:
-        score = row.get("score")
+        passed = attributes.get("passed")
+        if isinstance(passed, bool):
+            return passed
+        score = row.get("score") if row.get("score") is not None else row.get("value")
         target = attributes.get("target")
-        direction = str(attributes.get("direction") or "higher_is_better")
+        direction = str(attributes.get("direction") or "equal").casefold()
         if isinstance(score, (int, float)) and isinstance(target, (int, float)):
-            return float(score) <= float(target) if direction == "lower_is_better" else float(score) >= float(target)
-        label = str(row.get("label") or "").strip().casefold()
-        if label in {"valid", "passed", "pass", "yes", "true", "achieved", "correct"}:
-            return True
-        if label in {"invalid", "failed", "fail", "no", "false", "not achieved", "incorrect"}:
-            return False
-        if isinstance(score, (int, float)) and target is None:
-            return float(score) >= 1.0
+            if direction in {"lower_is_better", "max", "at_most", "<="}:
+                return float(score) <= float(target)
+            if direction in {"higher_is_better", "min", "at_least", ">="}:
+                return float(score) >= float(target)
+            return float(score) == float(target)
+        observed = row.get("value") if row.get("value") is not None else row.get("label")
+        if target is not None and observed is not None:
+            return bool(observed == target)
         return None
 
     def goal_assurance(
@@ -1180,7 +1342,7 @@ class AnalyticsRepository:
         allowed = {str(row["execution_id"]) for row in rows}
         evaluations_by_execution: dict[str, list[dict[str, Any]]] = {}
         if "semantic_facts" in self._serving_tables:
-            for fact in self._evaluation_facts():
+            for fact in self._latest_evaluation_facts(allowed):
                 execution_id = str(fact["execution_id"])
                 if execution_id in allowed:
                     evaluations_by_execution.setdefault(execution_id, []).append(fact)
@@ -1238,13 +1400,11 @@ class AnalyticsRepository:
             item["achieved_runs"] += 1
             summary["achieved_runs"] = int(summary["achieved_runs"]) + 1
             facts = evaluations_by_execution.get(str(row["execution_id"]), [])
-            assessed: list[bool] = []
             for fact in facts:
                 attributes = _json(fact.get("attributes"))
                 met = self._evaluation_met_target(fact, attributes)
                 if met is None:
                     continue
-                assessed.append(met)
                 key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
                 evaluation = item["evaluations"].setdefault(
                     key,
@@ -1268,10 +1428,11 @@ class AnalyticsRepository:
                 if isinstance(fact.get("score"), (int, float)):
                     evaluation["score_total"] += float(fact["score"])
                     evaluation["score_runs"] += 1
-            if assessed and not all(assessed):
+            explicit_assurance = _goal_assurance_state(row)
+            if explicit_assurance == "needs_attention":
                 item["attention_runs"] += 1
                 summary["attention_runs"] = int(summary["attention_runs"]) + 1
-            elif assessed:
+            elif explicit_assurance == "assured":
                 item["assured_runs"] += 1
                 summary["assured_runs"] = int(summary["assured_runs"]) + 1
             else:
@@ -1284,9 +1445,7 @@ class AnalyticsRepository:
             for evaluation in item.pop("evaluations").values():
                 score_runs = int(evaluation.pop("score_runs"))
                 score_total = float(evaluation.pop("score_total"))
-                evaluations.append(
-                    {**evaluation, "average_score": score_total / score_runs if score_runs else None}
-                )
+                evaluations.append({**evaluation, "average_score": score_total / score_runs if score_runs else None})
             achieved_runs = int(item["achieved_runs"])
             assessed_runs = int(item["assured_runs"]) + int(item["attention_runs"])
             attention = sorted(evaluations, key=lambda value: (-int(value["attention_runs"]), str(value["name"])))
@@ -1309,22 +1468,103 @@ class AnalyticsRepository:
         summary["assessment_coverage"] = assessed_total / achieved_total if achieved_total else 0.0
         return sorted(portfolio, key=lambda item: (-int(item["runs"]), str(item["goal_name"]))), summary
 
-    def get_cost_summary(self, filters: FilterState = FilterState()) -> CostSummary:
-        """Return cost and token metrics without exposing SQL or table names."""
+    def _measurement_summary(
+        self, filters: FilterState, *, measurement: str
+    ) -> tuple[MeasurementCoverage, float | None, list[float], float | None, float | None]:
+        rows = self.execution_rows(filters, limit=None)
+        operations_by_execution = self._operations_by_execution(filters)
+        applicable = complete = partial = missing = eligible_total = measured_total = 0
+        measured_subtotal = 0.0
+        measured_any = False
+        complete_run_totals: list[float] = []
+        model_subtotal = tool_subtotal = 0.0
+        model_seen = tool_seen = False
+        for row in rows:
+            operations = operations_by_execution.get(str(row["execution_id"]), [])
+            eligible = [
+                operation
+                for operation in operations
+                if (_cost_eligible(operation) if measurement == "cost" else _token_eligible(operation))
+            ]
+            if not eligible:
+                continue
+            applicable += 1
+            field = "cost_usd" if measurement == "cost" else "total_tokens"
+            measured = [
+                operation for operation in eligible if isinstance(operation.attributes.get(field), (int, float))
+            ]
+            eligible_total += len(eligible)
+            measured_total += len(measured)
+            run_total = sum(float(operation.attributes[field]) for operation in measured)
+            if measured:
+                measured_subtotal += run_total
+                measured_any = True
+            if len(measured) == len(eligible):
+                complete += 1
+                complete_run_totals.append(run_total)
+            elif measured:
+                partial += 1
+            else:
+                missing += 1
+            if measurement == "cost":
+                for operation in measured:
+                    value = float(operation.attributes[field])
+                    if operation.kind == "model":
+                        model_subtotal += value
+                        model_seen = True
+                    elif operation.kind == "tool":
+                        tool_subtotal += value
+                        tool_seen = True
+        coverage = MeasurementCoverage(
+            total_runs=len(rows),
+            applicable_runs=applicable,
+            complete_runs=complete,
+            partial_runs=partial,
+            missing_runs=missing,
+            not_applicable_runs=len(rows) - applicable,
+            eligible_operations=eligible_total,
+            measured_operations=measured_total,
+        )
+        return (
+            coverage,
+            measured_subtotal if measured_any else None,
+            complete_run_totals,
+            model_subtotal if model_seen else None,
+            tool_subtotal if tool_seen else None,
+        )
 
-        metrics = self.dashboard_metrics(filters)
+    def get_cost_summary(self, filters: FilterState = FilterState()) -> CostSummary:
+        """Return direct measurements with explicit applicability and completeness."""
+
+        cost, measured_cost, complete_costs, model_cost, tool_cost = self._measurement_summary(
+            filters, measurement="cost"
+        )
+        tokens, total_tokens, _complete_tokens, _unused_model, _unused_tool = self._measurement_summary(
+            filters, measurement="tokens"
+        )
+        operations = self._filtered_operations(filters)
+        input_values = [
+            float(operation.attributes["input_tokens"])
+            for operation in operations
+            if operation.kind == "model" and isinstance(operation.attributes.get("input_tokens"), (int, float))
+        ]
+        output_values = [
+            float(operation.attributes["output_tokens"])
+            for operation in operations
+            if operation.kind == "model" and isinstance(operation.attributes.get("output_tokens"), (int, float))
+        ]
         return CostSummary(
-            measured_cost=float(metrics["measured_cost"]) if metrics["measured_cost"] is not None else None,
-            model_cost=float(metrics["model_cost"]) if metrics["model_cost"] is not None else None,
-            tool_cost=float(metrics["tool_cost"]) if metrics["tool_cost"] is not None else None,
-            cost_coverage=float(metrics["cost_coverage"]),
-            measured_cost_per_run=(
-                float(metrics["measured_cost_per_run"]) if metrics["measured_cost_per_run"] is not None else None
-            ),
-            input_tokens=float(metrics["input_tokens"]) if metrics["input_tokens"] is not None else None,
-            output_tokens=float(metrics["output_tokens"]) if metrics["output_tokens"] is not None else None,
-            total_tokens=float(metrics["total_tokens"]) if metrics["total_tokens"] is not None else None,
-            token_runs=int(metrics["token_runs"]),
+            measured_cost=measured_cost,
+            model_cost=model_cost,
+            tool_cost=tool_cost,
+            cost_coverage=cost.coverage,
+            measured_cost_per_run=_average(complete_costs),
+            input_tokens=sum(input_values) if input_values else None,
+            output_tokens=sum(output_values) if output_values else None,
+            total_tokens=total_tokens,
+            token_runs=tokens.complete_runs,
+            cost=cost,
+            tokens=tokens,
         )
 
     def get_overview_snapshot(self, filters: FilterState = FilterState()) -> OverviewSnapshot:
@@ -1340,9 +1580,9 @@ class AnalyticsRepository:
             runtime_breakdown: dict[str, int] = {}
             outcome_breakdown: dict[str, int] = {}
             for row in rows:
-                runtime = str(row.get("runtime_outcome") or row.get("runtime_status") or row.get("status") or "unknown")
+                runtime = runtime_state(row)
                 runtime_breakdown[runtime] = runtime_breakdown.get(runtime, 0) + 1
-                outcome = row.get("application_outcome") or row.get("business_outcome") or row.get("outcome")
+                outcome = row.get("application_outcome") or row.get("business_outcome")
                 if outcome:
                     label = str(outcome)
                     outcome_breakdown[label] = outcome_breakdown.get(label, 0) + 1
@@ -1355,8 +1595,8 @@ class AnalyticsRepository:
                 cost_unavailable=self.cost_unavailable_reasons(filters),
                 models=tuple(self.get_model_breakdown(filters)),
                 providers=tuple(self.get_provider_breakdown(filters)),
-                workflows=tuple(self.get_performance_summary("workflow", filters)),
-                stages=tuple(self.entity_summary("stages", filters)),
+                workflows=tuple(self.workflow_performance(filters)),
+                stages=tuple(self.workflow_stage_summary(filters)),
                 runtime_breakdown=runtime_breakdown,
                 outcome_breakdown=outcome_breakdown,
                 failures=tuple(self.get_failure_summary(filters)[:8]),
@@ -1409,6 +1649,13 @@ class AnalyticsRepository:
                 time_seconds=float(row["time_seconds"]),
                 known_cost=float(row["known_cost"]) if row.get("known_cost") is not None else None,
                 total_tokens=float(row["total_tokens"]) if row.get("total_tokens") is not None else None,
+                affected_run_time_seconds=float(row["affected_run_time_seconds"]),
+                affected_run_cost=(
+                    float(row["affected_run_cost"]) if row.get("affected_run_cost") is not None else None
+                ),
+                affected_run_tokens=(
+                    float(row["affected_run_tokens"]) if row.get("affected_run_tokens") is not None else None
+                ),
             )
             for row in self.failures(filters)
         ]
@@ -1470,9 +1717,7 @@ class AnalyticsRepository:
             "recovered_runs": sum(row.get("runtime_outcome") == "recovered" for row in samples),
         }
 
-    def get_comparison_insights(
-        self, dimension: str, filters: FilterState = FilterState()
-    ) -> list[dict[str, Any]]:
+    def get_comparison_insights(self, dimension: str, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Return operation-attributable model/provider comparisons.
 
         A mixed-model run contributes only the calls, tokens, cost and model time
@@ -1484,59 +1729,92 @@ class AnalyticsRepository:
             raise ValueError(f"unsupported comparison dimension: {dimension}")
         with self._overview_read_session():
             rows = self.execution_rows(filters, limit=None)
+            facts = self.participant_facts(filters, dimension)
+            if facts:
+                return self._comparison_from_participant_facts(rows, facts, dimension)
             operations_by_execution = self._operations_by_execution(filters)
-            groups: dict[str, list[dict[str, Any]]] = {}
+            groups: dict[str, dict[str, Any]] = {}
             for row in rows:
-                per_label: dict[str, dict[str, Any]] = {}
+                per_participant: dict[str, dict[str, Any]] = {}
                 for operation in operations_by_execution.get(str(row["execution_id"]), []):
                     if operation.kind != "model":
                         continue
-                    label = (
-                        display_model(operation)
-                        if dimension == "model"
-                        else str(operation.attributes.get("provider") or "")
-                    )
-                    if not label:
+                    identity = _participant_identity(operation, dimension)
+                    if identity is None:
                         continue
-                    sample = per_label.setdefault(
-                        label,
+                    participant_id, label, provider_id, model_id, model_family, vendor_id = identity
+                    sample = per_participant.setdefault(
+                        participant_id,
                         {
                             **row,
-                            "duration_seconds": 0.0,
+                            "participant_id": participant_id,
+                            "label": label,
+                            "dimension": dimension,
+                            "provider_id": provider_id,
+                            "model_id": model_id,
+                            "model_family": model_family,
+                            "vendor_id": vendor_id,
+                            "_operations": [],
                             "known_cost": 0.0,
                             "total_tokens": 0.0,
                             "calls": 0,
                             "_cost_seen": False,
+                            "_cost_eligible": 0,
+                            "_cost_measured": 0,
                             "_tokens_seen": False,
+                            "_token_eligible": 0,
+                            "_token_measured": 0,
                         },
                     )
-                    sample["duration_seconds"] += _operation_duration(operation)
+                    if sample["vendor_id"] is None and vendor_id is not None:
+                        sample["vendor_id"] = vendor_id
+                    sample["_operations"].append(operation)
                     sample["calls"] += 1
                     cost = operation.attributes.get("cost_usd")
+                    sample["_cost_eligible"] += int(_cost_eligible(operation))
                     if isinstance(cost, (int, float)):
                         sample["known_cost"] += float(cost)
                         sample["_cost_seen"] = True
+                        sample["_cost_measured"] += 1
                     tokens = operation.attributes.get("total_tokens")
+                    sample["_token_eligible"] += int(_token_eligible(operation))
                     if isinstance(tokens, (int, float)):
                         sample["total_tokens"] += float(tokens)
                         sample["_tokens_seen"] = True
-                for label, sample in per_label.items():
-                    if not sample.pop("_cost_seen"):
+                        sample["_token_measured"] += 1
+                for participant_id, sample in per_participant.items():
+                    participant_operations = sample.pop("_operations")
+                    sample["duration_seconds"] = _active_seconds(participant_operations)
+                    sample["call_durations"] = [_operation_duration(operation) for operation in participant_operations]
+                    cost_seen = sample.pop("_cost_seen")
+                    if not cost_seen or sample["_cost_measured"] < sample["_cost_eligible"]:
                         sample["known_cost"] = None
-                    if not sample.pop("_tokens_seen"):
+                    tokens_seen = sample.pop("_tokens_seen")
+                    if not tokens_seen or sample["_token_measured"] < sample["_token_eligible"]:
                         sample["total_tokens"] = None
-                    groups.setdefault(label, []).append(sample)
+                    bucket = groups.setdefault(
+                        participant_id,
+                        {
+                            "label": sample["label"],
+                            "participant_id": participant_id,
+                            "dimension": dimension,
+                            "provider_id": sample["provider_id"],
+                            "model_id": sample["model_id"],
+                            "model_family": sample["model_family"],
+                            "vendor_id": sample["vendor_id"],
+                            "samples": [],
+                        },
+                    )
+                    bucket["samples"].append(sample)
 
             evaluations_by_execution: dict[str, list[dict[str, Any]]] = {}
             if "semantic_facts" in self._serving_tables:
-                for fact in self._query(
-                    "SELECT execution_id, name, score, attributes FROM serving.semantic_facts "
-                    "WHERE record_type = 'evaluation'"
-                ):
+                for fact in self._latest_evaluation_facts({str(row["execution_id"]) for row in rows}):
                     if fact.get("score") is not None:
                         evaluations_by_execution.setdefault(str(fact["execution_id"]), []).append(fact)
             results = []
-            for label, samples in groups.items():
+            for bucket in groups.values():
+                samples = bucket["samples"]
                 evaluation_groups: dict[str, dict[str, Any]] = {}
                 for sample in samples:
                     for fact in evaluations_by_execution.get(str(sample["execution_id"]), []):
@@ -1555,13 +1833,116 @@ class AnalyticsRepository:
                 evaluations = []
                 for evaluation in evaluation_groups.values():
                     scores = evaluation.pop("scores")
-                    evaluations.append(
-                        {**evaluation, "reported_runs": len(scores), "average_score": _average(scores)}
-                    )
+                    evaluations.append({**evaluation, "reported_runs": len(scores), "average_score": _average(scores)})
+                insight = self._insight_summary(samples)
+                call_durations = [duration for sample in samples for duration in sample["call_durations"]]
+                cost_eligible = sum(int(sample["_cost_eligible"]) for sample in samples)
+                cost_measured = sum(int(sample["_cost_measured"]) for sample in samples)
+                token_eligible = sum(int(sample["_token_eligible"]) for sample in samples)
+                token_measured = sum(int(sample["_token_measured"]) for sample in samples)
                 results.append(
-                    {"label": label, **self._insight_summary(samples), "evaluations": evaluations}
+                    {
+                        **{key: value for key, value in bucket.items() if key != "samples"},
+                        **insight,
+                        "p50_duration_seconds": _percentile(call_durations, 0.50),
+                        "p95_duration_seconds": _percentile(call_durations, 0.95),
+                        "scope": "cohort+direct-attribution",
+                        "cost_eligible_operations": cost_eligible,
+                        "cost_measured_operations": cost_measured,
+                        "token_eligible_operations": token_eligible,
+                        "token_measured_operations": token_measured,
+                        "cost_coverage": cost_measured / cost_eligible if cost_eligible else 0.0,
+                        "evaluations": evaluations,
+                    }
                 )
-            return sorted(results, key=lambda item: (-int(item["runs"]), str(item["label"])))
+            return sorted(
+                results, key=lambda item: (-int(item["runs"]), str(item["label"]), str(item["participant_id"]))
+            )
+
+    def _comparison_from_participant_facts(
+        self, rows: list[dict[str, Any]], facts: list[dict[str, Any]], dimension: str
+    ) -> list[dict[str, Any]]:
+        by_execution = {str(row["execution_id"]): row for row in rows}
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for fact in facts:
+            execution = by_execution.get(str(fact["execution_id"]))
+            if execution is None:
+                continue
+            cost_complete = int(fact.get("cost_eligible_operations") or 0) == int(
+                fact.get("cost_measured_operations") or 0
+            )
+            token_complete = int(fact.get("token_eligible_operations") or 0) == int(
+                fact.get("token_measured_operations") or 0
+            )
+            groups.setdefault(str(fact["participant_id"]), []).append(
+                {
+                    **execution,
+                    "duration_seconds": fact.get("active_seconds"),
+                    "known_cost": fact.get("measured_cost") if cost_complete else None,
+                    "total_tokens": fact.get("total_tokens") if token_complete else None,
+                    "calls": fact.get("calls"),
+                    "call_durations": fact.get("call_durations") or [],
+                    "fact": fact,
+                }
+            )
+        allowed = set(by_execution)
+        evaluations_by_execution: dict[str, list[dict[str, Any]]] = {}
+        for fact in self._latest_evaluation_facts(allowed):
+            if fact.get("score") is not None:
+                evaluations_by_execution.setdefault(str(fact["execution_id"]), []).append(fact)
+        result = []
+        for participant_id, samples in groups.items():
+            first = samples[0]["fact"]
+            vendor_id = next(
+                (sample["fact"].get("vendor_id") for sample in samples if sample["fact"].get("vendor_id") is not None),
+                None,
+            )
+            evaluation_groups: dict[str, dict[str, Any]] = {}
+            for sample in samples:
+                for evaluation_fact in evaluations_by_execution.get(str(sample["execution_id"]), []):
+                    attributes = _json(evaluation_fact.get("attributes"))
+                    name = str(evaluation_fact.get("name") or attributes.get("evaluation_key") or "Evaluation")
+                    evaluation = evaluation_groups.setdefault(
+                        name,
+                        {
+                            "name": name,
+                            "scores": [],
+                            "target": attributes.get("target"),
+                            "direction": attributes.get("direction") or "higher_is_better",
+                        },
+                    )
+                    evaluation["scores"].append(float(evaluation_fact["score"]))
+            evaluations = []
+            for evaluation in evaluation_groups.values():
+                scores = evaluation.pop("scores")
+                evaluations.append({**evaluation, "reported_runs": len(scores), "average_score": _average(scores)})
+            call_durations = [float(value) for sample in samples for value in sample["call_durations"]]
+            cost_eligible = sum(int(sample["fact"].get("cost_eligible_operations") or 0) for sample in samples)
+            cost_measured = sum(int(sample["fact"].get("cost_measured_operations") or 0) for sample in samples)
+            token_eligible = sum(int(sample["fact"].get("token_eligible_operations") or 0) for sample in samples)
+            token_measured = sum(int(sample["fact"].get("token_measured_operations") or 0) for sample in samples)
+            result.append(
+                {
+                    "participant_id": participant_id,
+                    "dimension": dimension,
+                    "label": first["label"],
+                    "provider_id": first.get("provider_id"),
+                    "model_id": first.get("model_id"),
+                    "model_family": first.get("model_family"),
+                    "vendor_id": vendor_id,
+                    **self._insight_summary(samples),
+                    "p50_duration_seconds": _percentile(call_durations, 0.50),
+                    "p95_duration_seconds": _percentile(call_durations, 0.95),
+                    "cost_coverage": cost_measured / cost_eligible if cost_eligible else 0.0,
+                    "cost_eligible_operations": cost_eligible,
+                    "cost_measured_operations": cost_measured,
+                    "token_eligible_operations": token_eligible,
+                    "token_measured_operations": token_measured,
+                    "scope": "cohort+direct-attribution",
+                    "evaluations": evaluations,
+                }
+            )
+        return sorted(result, key=lambda item: (-int(item["runs"]), str(item["label"]), str(item["participant_id"])))
 
     def get_workflow_insights(self, filters: FilterState = FilterState(), limit: int = 10) -> dict[str, Any]:
         """Return canonical runtime portfolio, stage contribution and compact path variants."""
@@ -1592,9 +1973,7 @@ class AnalyticsRepository:
                 semantic = [operation for operation in operations if operation.kind == "workflow_stage"]
                 if not semantic:
                     semantic = [
-                        operation
-                        for operation in operations
-                        if operation.kind in {"graph_node", "component", "tool"}
+                        operation for operation in operations if operation.kind in {"graph_node", "component", "tool"}
                     ]
                 ordered = sorted(
                     semantic,
@@ -1785,9 +2164,7 @@ class AnalyticsRepository:
                             "total_tokens": row.get("total_tokens"),
                         }
                     )
-            outliers.sort(
-                key=lambda item: (-len(item["reasons"]), -float(item.get("duration_seconds") or 0))
-            )
+            outliers.sort(key=lambda item: (-len(item["reasons"]), -float(item.get("duration_seconds") or 0)))
             return {
                 "summary": {
                     "runs": len(rows),
@@ -1819,35 +2196,281 @@ class AnalyticsRepository:
         if dimension not in allowed:
             raise ValueError(f"unsupported performance dimension: {dimension}")
         rows = self.execution_rows(filters, limit=None)
-        operations_by_execution = self._operations_by_execution(filters)
         if dimension in {"provider", "model"}:
-            entity_groups: dict[str, list[dict[str, Any]]] = {}
-            for row in rows:
-                operations = operations_by_execution.get(str(row["execution_id"]), [])
-                if dimension == "provider":
-                    labels = {
-                        str(operation.attributes["provider"])
-                        for operation in operations
-                        if operation.attributes.get("provider")
-                    }
-                else:
-                    labels = {
-                        display_model(operation)
-                        for operation in operations
-                        if operation.kind == "model" and model_value(operation)
-                    }
-                for label in labels:
-                    entity_groups.setdefault(label, []).append(dict(row, **{dimension: label}))
-            result: list[dict[str, Any]] = []
-            for _label, grouped_rows in entity_groups.items():
-                result.extend(
-                    aggregate_performance(
-                        grouped_rows,
-                        dimension=dimension,
-                        business_available=self.capabilities().business_outcomes,
+            facts = self.participant_facts(filters, dimension)
+            if facts:
+                by_execution = {str(row["execution_id"]): row for row in rows}
+                fact_groups: dict[str, list[dict[str, Any]]] = {}
+                for fact in facts:
+                    execution = by_execution.get(str(fact["execution_id"]))
+                    if execution is not None:
+                        fact_groups.setdefault(str(fact["participant_id"]), []).append({**fact, "execution": execution})
+                materialized_result = []
+                for samples in fact_groups.values():
+                    first = samples[0]
+                    vendor_id = next(
+                        (sample.get("vendor_id") for sample in samples if sample.get("vendor_id") is not None),
+                        None,
                     )
+                    states = [runtime_state(sample["execution"]) for sample in samples]
+                    positive = [
+                        sample
+                        for sample, state in zip(samples, states, strict=True)
+                        if state in {"completed", "recovered"}
+                    ]
+                    negative = [sample for sample, state in zip(samples, states, strict=True) if state == "failed"]
+                    complete_cost_positive = [
+                        sample
+                        for sample in positive
+                        if int(sample.get("cost_eligible_operations") or 0) > 0
+                        and int(sample.get("cost_eligible_operations") or 0)
+                        == int(sample.get("cost_measured_operations") or 0)
+                    ]
+                    complete_token_positive = [
+                        sample
+                        for sample in positive
+                        if int(sample.get("token_eligible_operations") or 0) > 0
+                        and int(sample.get("token_eligible_operations") or 0)
+                        == int(sample.get("token_measured_operations") or 0)
+                    ]
+                    call_durations = [float(value) for sample in samples for value in sample.get("call_durations", [])]
+                    cost_eligible = sum(int(sample.get("cost_eligible_operations") or 0) for sample in samples)
+                    cost_measured = sum(int(sample.get("cost_measured_operations") or 0) for sample in samples)
+                    token_eligible = sum(int(sample.get("token_eligible_operations") or 0) for sample in samples)
+                    token_measured = sum(int(sample.get("token_measured_operations") or 0) for sample in samples)
+                    measured_costs = [
+                        float(sample["measured_cost"]) for sample in samples if sample.get("measured_cost") is not None
+                    ]
+                    token_values = [
+                        float(sample["total_tokens"]) for sample in samples if sample.get("total_tokens") is not None
+                    ]
+                    materialized_result.append(
+                        {
+                            "participant_id": first["participant_id"],
+                            "dimension": dimension,
+                            "label": first["label"],
+                            "provider_id": first.get("provider_id"),
+                            "model_id": first.get("model_id"),
+                            "model_family": first.get("model_family"),
+                            "vendor_id": vendor_id,
+                            "runs": len(samples),
+                            "calls": sum(int(sample.get("calls") or 0) for sample in samples),
+                            "completed": states.count("completed"),
+                            "successful": sum(
+                                sample["execution"].get("product_goal_achieved") is True for sample in samples
+                            ),
+                            "failed": states.count("failed"),
+                            "recovered": states.count("recovered"),
+                            "extra_work": sum(
+                                int(sample["execution"].get("repeated_work") or 0) > 0 for sample in samples
+                            ),
+                            "measured_cost": sum(measured_costs) if measured_costs else None,
+                            "cost_per_positive_run": _average(
+                                [
+                                    float(sample["measured_cost"])
+                                    for sample in complete_cost_positive
+                                    if sample.get("measured_cost") is not None
+                                ]
+                            ),
+                            "time_per_positive_run": _average([float(sample["active_seconds"]) for sample in positive]),
+                            "failed_run_cost": (
+                                sum(
+                                    float(sample["measured_cost"])
+                                    for sample in negative
+                                    if sample.get("measured_cost") is not None
+                                )
+                                if any(sample.get("measured_cost") is not None for sample in negative)
+                                else None
+                            ),
+                            "total_tokens": sum(token_values) if token_values else None,
+                            "tokens_per_positive_run": _average(
+                                [
+                                    float(sample["total_tokens"])
+                                    for sample in complete_token_positive
+                                    if sample.get("total_tokens") is not None
+                                ]
+                            ),
+                            "failed_run_tokens": (
+                                sum(
+                                    float(sample["total_tokens"])
+                                    for sample in negative
+                                    if sample.get("total_tokens") is not None
+                                )
+                                if any(sample.get("total_tokens") is not None for sample in negative)
+                                else None
+                            ),
+                            "failure_rate": states.count("failed") / len(samples),
+                            "extra_work_rate": sum(
+                                int(sample["execution"].get("repeated_work") or 0) > 0 for sample in samples
+                            )
+                            / len(samples),
+                            "cost_coverage": cost_measured / cost_eligible if cost_eligible else 0.0,
+                            "semantics": "cohort+direct-attribution",
+                            "active_seconds": sum(float(sample.get("active_seconds") or 0.0) for sample in samples),
+                            "p50_call_seconds": _percentile(call_durations, 0.50),
+                            "p95_call_seconds": _percentile(call_durations, 0.95),
+                            "cost_eligible_operations": cost_eligible,
+                            "cost_measured_operations": cost_measured,
+                            "token_eligible_operations": token_eligible,
+                            "token_measured_operations": token_measured,
+                        }
+                    )
+                return sorted(
+                    materialized_result,
+                    key=lambda item: (-int(item["runs"]), str(item["label"]), str(item["participant_id"])),
                 )
-            return sorted(result, key=lambda item: (-int(item["runs"]), str(item["label"])))
+            operations_by_execution = self._operations_by_execution(filters)
+            groups: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                per_participant: dict[str, dict[str, Any]] = {}
+                for operation in operations_by_execution.get(str(row["execution_id"]), []):
+                    identity = _participant_identity(operation, dimension)
+                    if identity is None:
+                        continue
+                    participant_id, label, provider_id, model_id, model_family, vendor_id = identity
+                    sample = per_participant.setdefault(
+                        participant_id,
+                        {
+                            "operations": [],
+                            "label": label,
+                            "provider_id": provider_id,
+                            "model_id": model_id,
+                            "model_family": model_family,
+                            "vendor_id": vendor_id,
+                        },
+                    )
+                    if sample["vendor_id"] is None and vendor_id is not None:
+                        sample["vendor_id"] = vendor_id
+                    sample["operations"].append(operation)
+                for participant_id, sample in per_participant.items():
+                    group = groups.setdefault(
+                        participant_id,
+                        {
+                            "participant_id": participant_id,
+                            "dimension": dimension,
+                            "label": sample["label"],
+                            "provider_id": sample["provider_id"],
+                            "model_id": sample["model_id"],
+                            "model_family": sample["model_family"],
+                            "vendor_id": sample["vendor_id"],
+                            "samples": [],
+                        },
+                    )
+                    if group["vendor_id"] is None and sample["vendor_id"] is not None:
+                        group["vendor_id"] = sample["vendor_id"]
+                    participant_operations = sample["operations"]
+                    eligible_cost_operations = [
+                        operation for operation in participant_operations if _cost_eligible(operation)
+                    ]
+                    measured_cost_operations = [
+                        operation
+                        for operation in eligible_cost_operations
+                        if isinstance(operation.attributes.get("cost_usd"), (int, float))
+                    ]
+                    eligible_token_operations = [
+                        operation for operation in participant_operations if _token_eligible(operation)
+                    ]
+                    measured_token_operations = [
+                        operation
+                        for operation in eligible_token_operations
+                        if isinstance(operation.attributes.get("total_tokens"), (int, float))
+                    ]
+                    group["samples"].append(
+                        {
+                            "execution": row,
+                            "operations": participant_operations,
+                            "active_seconds": _active_seconds(participant_operations),
+                            "cost": sum(
+                                float(operation.attributes["cost_usd"]) for operation in measured_cost_operations
+                            ),
+                            "cost_eligible": len(eligible_cost_operations),
+                            "cost_measured": len(measured_cost_operations),
+                            "tokens": sum(
+                                float(operation.attributes["total_tokens"]) for operation in measured_token_operations
+                            ),
+                            "token_eligible": len(eligible_token_operations),
+                            "token_measured": len(measured_token_operations),
+                        }
+                    )
+            result = []
+            for group in groups.values():
+                samples = group.pop("samples")
+                run_states = [runtime_state(sample["execution"]) for sample in samples]
+                positive = [
+                    sample
+                    for sample, state in zip(samples, run_states, strict=True)
+                    if state in {"completed", "recovered"}
+                ]
+                negative = [sample for sample, state in zip(samples, run_states, strict=True) if state == "failed"]
+                complete_cost_positive = [
+                    sample
+                    for sample in positive
+                    if sample["cost_eligible"] > 0 and sample["cost_measured"] == sample["cost_eligible"]
+                ]
+                complete_token_positive = [
+                    sample
+                    for sample in positive
+                    if sample["token_eligible"] > 0 and sample["token_measured"] == sample["token_eligible"]
+                ]
+                all_operations = [operation for sample in samples for operation in sample["operations"]]
+                call_durations = [_operation_duration(operation) for operation in all_operations]
+                cost_eligible = sum(sample["cost_eligible"] for sample in samples)
+                cost_measured = sum(sample["cost_measured"] for sample in samples)
+                token_eligible = sum(sample["token_eligible"] for sample in samples)
+                token_measured = sum(sample["token_measured"] for sample in samples)
+                measured_cost = sum(sample["cost"] for sample in samples) if cost_measured else None
+                total_tokens = sum(sample["tokens"] for sample in samples) if token_measured else None
+                result.append(
+                    {
+                        **group,
+                        "runs": len(samples),
+                        "calls": len(all_operations),
+                        "completed": run_states.count("completed"),
+                        "successful": sum(
+                            sample["execution"].get("product_goal_achieved") is True for sample in samples
+                        ),
+                        "failed": run_states.count("failed"),
+                        "recovered": run_states.count("recovered"),
+                        "extra_work": sum(int(sample["execution"].get("repeated_work") or 0) > 0 for sample in samples),
+                        "measured_cost": measured_cost,
+                        "cost_per_positive_run": (
+                            sum(sample["cost"] for sample in complete_cost_positive) / len(complete_cost_positive)
+                            if complete_cost_positive
+                            else None
+                        ),
+                        "time_per_positive_run": (
+                            sum(sample["active_seconds"] for sample in positive) / len(positive) if positive else None
+                        ),
+                        "failed_run_cost": sum(sample["cost"] for sample in negative) if negative else None,
+                        "total_tokens": total_tokens,
+                        "tokens_per_positive_run": (
+                            sum(sample["tokens"] for sample in complete_token_positive) / len(complete_token_positive)
+                            if complete_token_positive
+                            else None
+                        ),
+                        "failed_run_tokens": sum(sample["tokens"] for sample in negative) if negative else None,
+                        "failure_rate": run_states.count("failed") / len(samples) if samples else 0.0,
+                        "extra_work_rate": sum(
+                            int(sample["execution"].get("repeated_work") or 0) > 0 for sample in samples
+                        )
+                        / len(samples)
+                        if samples
+                        else 0.0,
+                        "cost_coverage": cost_measured / cost_eligible if cost_eligible else 0.0,
+                        "semantics": "cohort+direct-attribution",
+                        "active_seconds": sum(sample["active_seconds"] for sample in samples),
+                        "p50_call_seconds": _percentile(call_durations, 0.50),
+                        "p95_call_seconds": _percentile(call_durations, 0.95),
+                        "cost_eligible_operations": cost_eligible,
+                        "cost_measured_operations": cost_measured,
+                        "token_eligible_operations": token_eligible,
+                        "token_measured_operations": token_measured,
+                    }
+                )
+            return sorted(
+                result, key=lambda item: (-int(item["runs"]), str(item["label"]), str(item["participant_id"]))
+            )
+        operations_by_execution = self._operations_by_execution(filters)
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
             operations = operations_by_execution.get(str(row["execution_id"]), [])
@@ -1875,6 +2498,105 @@ class AnalyticsRepository:
                 )
             )
         return sorted(expanded, key=lambda item: (-int(item["runs"]), str(item["label"])))
+
+    def build_participant_facts(self, execution_ids: set[str] | None = None) -> list[dict[str, Any]]:
+        """Build disposable direct-attribution facts for ELT/rebuild."""
+
+        rows = self.execution_rows(limit=None)
+        if execution_ids is not None:
+            rows = [row for row in rows if str(row["execution_id"]) in execution_ids]
+        operations_by_execution = self._operations_by_execution()
+        facts: list[dict[str, Any]] = []
+        for row in rows:
+            execution_id = str(row["execution_id"])
+            operations = operations_by_execution.get(execution_id, [])
+            for dimension in ("provider", "model"):
+                grouped: dict[str, dict[str, Any]] = {}
+                for operation in operations:
+                    identity = _participant_identity(operation, dimension)
+                    if identity is None:
+                        continue
+                    participant_id, label, provider_id, model_id, model_family, vendor_id = identity
+                    item = grouped.setdefault(
+                        participant_id,
+                        {
+                            "execution_id": execution_id,
+                            "dimension": dimension,
+                            "participant_id": participant_id,
+                            "label": label,
+                            "provider_id": provider_id,
+                            "model_id": model_id,
+                            "model_family": model_family,
+                            "vendor_id": vendor_id,
+                            "operations": [],
+                        },
+                    )
+                    if item["vendor_id"] is None and vendor_id is not None:
+                        item["vendor_id"] = vendor_id
+                    item["operations"].append(operation)
+                for item in grouped.values():
+                    participant_operations = item.pop("operations")
+                    cost_eligible = [operation for operation in participant_operations if _cost_eligible(operation)]
+                    cost_measured = [
+                        operation
+                        for operation in cost_eligible
+                        if isinstance(operation.attributes.get("cost_usd"), (int, float))
+                    ]
+                    token_eligible = [operation for operation in participant_operations if _token_eligible(operation)]
+                    token_measured = [
+                        operation
+                        for operation in token_eligible
+                        if isinstance(operation.attributes.get("total_tokens"), (int, float))
+                    ]
+                    facts.append(
+                        {
+                            **item,
+                            "calls": len(participant_operations),
+                            "active_seconds": _active_seconds(participant_operations),
+                            "call_durations": [_operation_duration(operation) for operation in participant_operations],
+                            "measured_cost": (
+                                sum(float(operation.attributes["cost_usd"]) for operation in cost_measured)
+                                if cost_measured
+                                else None
+                            ),
+                            "total_tokens": (
+                                sum(float(operation.attributes["total_tokens"]) for operation in token_measured)
+                                if token_measured
+                                else None
+                            ),
+                            "cost_eligible_operations": len(cost_eligible),
+                            "cost_measured_operations": len(cost_measured),
+                            "token_eligible_operations": len(token_eligible),
+                            "token_measured_operations": len(token_measured),
+                        }
+                    )
+        return facts
+
+    def participant_facts(
+        self, filters: FilterState = FilterState(), dimension: str | None = None
+    ) -> list[dict[str, Any]]:
+        if dimension not in {None, "provider", "model"}:
+            raise ValueError(f"unsupported participant dimension: {dimension}")
+        cache_key = ("participant_facts", filters.as_key())
+        cached = self._cached(cache_key)
+        if cached is not _CACHE_MISS:
+            cached_rows = cast(list[dict[str, Any]], cached)
+            return [row for row in cached_rows if dimension is None or row["dimension"] == dimension]
+        allowed = {str(row["execution_id"]) for row in self.execution_rows(filters, limit=None)}
+        rows: list[dict[str, Any]] = []
+        if "participant_execution_facts" in self._tables:
+            rows = [
+                row
+                for row in self._query("SELECT * FROM participant_execution_facts")
+                if str(row["execution_id"]) in allowed
+            ]
+            for row in rows:
+                value = _json_value(row.get("call_durations"))
+                row["call_durations"] = value if isinstance(value, list) else []
+        if not rows and allowed:
+            rows = self.build_participant_facts(allowed)
+        self._remember(cache_key, rows)
+        return [row for row in rows if dimension is None or row["dimension"] == dimension]
 
     def entity_summary(self, entity: str, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         if entity not in {"providers", "models", "tools", "stages", "operations"}:
@@ -1956,6 +2678,126 @@ class AnalyticsRepository:
                 group["observed_versions"] = ", ".join(sorted(group["observed_versions"]))
             result.append(group)
         return sorted(result, key=lambda row: (-int(row["executions"]), -int(row["calls"]), str(row["label"])))[:50]
+
+    def workflow_stage_summary(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
+        """Aggregate declared YAML nodes from materialized projections."""
+
+        allowed = {str(row["execution_id"]) for row in self.execution_rows(filters, limit=None)}
+        groups: dict[str, dict[str, Any]] = {}
+        if "workflow_execution_projections" in self._tables:
+            for row in self._query("SELECT execution_id, workflow_id, projection FROM workflow_execution_projections"):
+                execution_id = str(row["execution_id"])
+                if execution_id not in allowed:
+                    continue
+                projection = _json_value(row.get("projection"))
+                if not isinstance(projection, Mapping):
+                    continue
+                workflow_value = projection.get("workflow")
+                workflow: Mapping[str, Any] = dict(workflow_value) if isinstance(workflow_value, Mapping) else {}
+                workflow_name = str(workflow.get("name") or row.get("workflow_id") or "Declared workflow")
+                for raw_node in projection.get("nodes", []):
+                    if not isinstance(raw_node, Mapping) or raw_node.get("state") == "inactive":
+                        continue
+                    node = dict(raw_node)
+                    node_id = str(node.get("id") or node.get("name") or "unknown")
+                    key = f"{row.get('workflow_id')}::{node_id}"
+                    group = groups.setdefault(
+                        key,
+                        {
+                            "canonical_key": key,
+                            "workflow": workflow_name,
+                            "label": str(node.get("name") or node_id),
+                            "calls": 0,
+                            "execution_ids": set(),
+                            "time_seconds": 0.0,
+                            "known_cost": 0.0,
+                            "cost_seen": False,
+                            "total_tokens": 0.0,
+                            "tokens_seen": False,
+                            "failures": 0,
+                            "extra_attempts": 0,
+                            "cost_eligible_operations": 0,
+                            "cost_measured_operations": 0,
+                            "token_eligible_operations": 0,
+                            "token_measured_operations": 0,
+                            "source": "declared_workflow",
+                        },
+                    )
+                    group["calls"] += int(node.get("attempts") or 0)
+                    group["execution_ids"].add(execution_id)
+                    group["time_seconds"] += float(node.get("duration_seconds") or 0.0)
+                    if isinstance(node.get("known_cost"), (int, float)):
+                        group["known_cost"] += float(node["known_cost"])
+                        group["cost_seen"] = True
+                    if isinstance(node.get("total_tokens"), (int, float)):
+                        group["total_tokens"] += float(node["total_tokens"])
+                        group["tokens_seen"] = True
+                    group["failures"] += int(node.get("state") == "failed")
+                    group["extra_attempts"] += max(0, int(node.get("attempts") or 0) - 1)
+                    for field in (
+                        "cost_eligible_operations",
+                        "cost_measured_operations",
+                        "token_eligible_operations",
+                        "token_measured_operations",
+                    ):
+                        group[field] += int(node.get(field) or 0)
+        if not groups:
+            for item in self.entity_summary("stages", filters):
+                groups[str(item["canonical_key"])] = {
+                    **item,
+                    "workflow": "Observed operations",
+                    "execution_ids": set(range(int(item["executions"]))),
+                    "cost_seen": item.get("known_cost") is not None,
+                    "tokens_seen": item.get("total_tokens") is not None,
+                    "cost_eligible_operations": int(item["calls"]) if item.get("known_cost") is not None else 0,
+                    "cost_measured_operations": int(item["calls"]) if item.get("known_cost") is not None else 0,
+                    "token_eligible_operations": int(item["calls"]) if item.get("total_tokens") is not None else 0,
+                    "token_measured_operations": int(item["calls"]) if item.get("total_tokens") is not None else 0,
+                    "source": "observed_operations",
+                }
+        result = []
+        for group in groups.values():
+            executions = len(group.pop("execution_ids"))
+            group["executions"] = executions
+            group["usual_seconds"] = group["time_seconds"] / executions if executions else None
+            group["known_cost"] = group["known_cost"] if group.pop("cost_seen") else None
+            group["total_tokens"] = group["total_tokens"] if group.pop("tokens_seen") else None
+            result.append(group)
+        return sorted(result, key=lambda item: (-float(item["time_seconds"]), str(item["label"])))[:50]
+
+    def workflow_performance(self, filters: FilterState = FilterState()) -> list[PerformanceSummary]:
+        rows = self.execution_rows(filters, limit=None)
+        by_execution = {str(row["execution_id"]): row for row in rows}
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        names: dict[str, str] = {}
+        if "workflow_execution_projections" in self._tables:
+            for row in self._query("SELECT execution_id, workflow_id, projection FROM workflow_execution_projections"):
+                execution_id = str(row["execution_id"])
+                if execution_id not in by_execution:
+                    continue
+                projection = _json_value(row.get("projection"))
+                workflow_value = projection.get("workflow") if isinstance(projection, Mapping) else None
+                workflow: Mapping[str, Any] = dict(workflow_value) if isinstance(workflow_value, Mapping) else {}
+                workflow_id = str(row.get("workflow_id") or "unmatched")
+                names[workflow_id] = str(workflow.get("name") or workflow_id)
+                grouped.setdefault(workflow_id, []).append(
+                    {**by_execution[execution_id], "workflow": names[workflow_id]}
+                )
+        matched = {str(item["execution_id"]) for samples in grouped.values() for item in samples}
+        unmatched = [row for row in rows if str(row["execution_id"]) not in matched]
+        if unmatched:
+            grouped["observed-unmatched"] = [
+                {**row, "workflow": "Observed operations (unmatched)"} for row in unmatched
+            ]
+        result: list[PerformanceSummary] = []
+        for samples in grouped.values():
+            result.extend(
+                _performance_contract(item)
+                for item in aggregate_performance(
+                    samples, dimension="workflow", business_available=self.capabilities().business_outcomes
+                )
+            )
+        return sorted(result, key=lambda item: (-item.runs, item.label))
 
     def entity_detail(self, entity: str, label: str, filters: FilterState = FilterState()) -> dict[str, Any]:
         summaries = [row for row in self.entity_summary(entity, filters) if str(row.get("label")) == label]
@@ -2193,6 +3035,11 @@ class AnalyticsRepository:
                     "known_cost_seen": False,
                     "total_tokens": 0.0,
                     "tokens_seen": False,
+                    "affected_run_time_seconds": 0.0,
+                    "affected_run_cost": 0.0,
+                    "affected_run_cost_seen": False,
+                    "affected_run_tokens": 0.0,
+                    "affected_run_tokens_seen": False,
                 },
             )
             item["failures"] += 1
@@ -2207,13 +3054,22 @@ class AnalyticsRepository:
                 item["providers"].add(str(chosen.attributes["provider"]))
             if chosen.attributes.get("model"):
                 item["models"].add(str(chosen.attributes["model"]))
-            item["time_seconds"] += float(execution.get("duration_seconds") or 0.0)
-            if isinstance(execution.get("known_cost"), (int, float)):
-                item["known_cost"] += float(execution["known_cost"])
+            item["time_seconds"] += _operation_duration(chosen)
+            operation_cost = chosen.attributes.get("cost_usd")
+            if isinstance(operation_cost, (int, float)):
+                item["known_cost"] += float(operation_cost)
                 item["known_cost_seen"] = True
-            if isinstance(execution.get("total_tokens"), (int, float)):
-                item["total_tokens"] += float(execution["total_tokens"])
+            operation_tokens = chosen.attributes.get("total_tokens")
+            if isinstance(operation_tokens, (int, float)):
+                item["total_tokens"] += float(operation_tokens)
                 item["tokens_seen"] = True
+            item["affected_run_time_seconds"] += float(execution.get("duration_seconds") or 0.0)
+            if isinstance(execution.get("known_cost"), (int, float)):
+                item["affected_run_cost"] += float(execution["known_cost"])
+                item["affected_run_cost_seen"] = True
+            if isinstance(execution.get("total_tokens"), (int, float)):
+                item["affected_run_tokens"] += float(execution["total_tokens"])
+                item["affected_run_tokens_seen"] = True
         result = []
         for item in groups.values():
             item["executions"] = len(item.pop("execution_ids"))
@@ -2221,12 +3077,250 @@ class AnalyticsRepository:
             item["models"] = ", ".join(sorted(item.pop("models"))) or None
             item["known_cost"] = item["known_cost"] if item.pop("known_cost_seen") else None
             item["total_tokens"] = item["total_tokens"] if item.pop("tokens_seen") else None
+            item["affected_run_cost"] = item["affected_run_cost"] if item.pop("affected_run_cost_seen") else None
+            item["affected_run_tokens"] = item["affected_run_tokens"] if item.pop("affected_run_tokens_seen") else None
             result.append(item)
         return sorted(result, key=lambda item: (-int(item["failures"]), str(item["failure_location"])))
 
     def replay(self, execution_id: str) -> ReplayGraph:
         graph, events, semantic_map = self._graph_inputs(execution_id)
         return derive_replay_graph(graph, events=events, semantic_stage_map=semantic_map)
+
+    def workflow_templates(self) -> list[dict[str, Any]]:
+        """Return the latest persisted version of every declared workflow."""
+
+        if "workflow_templates" not in self._tables:
+            return []
+        rows = self._query(
+            """
+            SELECT workflow_id, template_hash, name, definition, source, registered_at
+            FROM workflow_templates
+            QUALIFY row_number() OVER (
+                PARTITION BY workflow_id ORDER BY registered_at DESC, template_hash DESC
+            ) = 1
+            ORDER BY name, workflow_id
+            """
+        )
+        for row in rows:
+            row["definition"] = _json(row.get("definition"))
+        return rows
+
+    def execution_workflow(self, execution_id: str) -> dict[str, Any] | None:
+        if "execution_workflows" not in self._tables:
+            return None
+        rows = self._query(
+            "SELECT execution_id, workflow_id, template_hash, match_source, matched_at "
+            "FROM execution_workflows WHERE execution_id = ? LIMIT 1",
+            [execution_id],
+        )
+        return rows[0] if rows else None
+
+    def workflow_execution_ids(self, workflow_id: str) -> set[str]:
+        """Return executions associated with one authored workflow identity."""
+
+        if "execution_workflows" not in self._tables:
+            return set()
+        return {
+            str(row["execution_id"])
+            for row in self._query(
+                "SELECT execution_id FROM execution_workflows WHERE workflow_id = ?",
+                [workflow_id],
+            )
+        }
+
+    def workflow_projection(self, execution_id: str) -> dict[str, Any] | None:
+        if "workflow_execution_projections" not in self._tables:
+            return None
+        rows = self._query(
+            "SELECT projection FROM workflow_execution_projections WHERE execution_id = ? LIMIT 1",
+            [execution_id],
+        )
+        if not rows:
+            return None
+        value = rows[0].get("projection")
+        if isinstance(value, Mapping):
+            return dict(value)
+        try:
+            parsed = json.loads(str(value))
+        except (TypeError, ValueError):
+            return None
+        return dict(parsed) if isinstance(parsed, Mapping) else None
+
+    def workflow_projection_rows(
+        self,
+        workflow_id: str,
+        *,
+        limit: int | None = 100,
+    ) -> list[dict[str, Any]]:
+        if "workflow_execution_projections" not in self._tables:
+            return []
+        limit_clause = "" if limit is None else " LIMIT ?"
+        params: list[Any] = [workflow_id]
+        if limit is not None:
+            params.append(limit)
+        rows = self._query(
+            "SELECT execution_id, template_hash, projector_version, projection, projected_at "
+            "FROM workflow_execution_projections WHERE workflow_id = ? ORDER BY projected_at DESC" + limit_clause,
+            params,
+        )
+        for row in rows:
+            value = row.get("projection")
+            try:
+                row["projection"] = value if isinstance(value, Mapping) else json.loads(str(value))
+            except (TypeError, ValueError):
+                row["projection"] = None
+        return rows
+
+    def workflow_projection_catalog(self) -> list[dict[str, Any]]:
+        if "workflow_execution_projections" not in self._tables:
+            return []
+        rows = self._query(
+            "SELECT workflow_id, COUNT(*) AS execution_count, "
+            "arg_max(projection, COALESCE(json_extract_string(projection, '$.execution.started_at'), "
+            "CAST(projected_at AS VARCHAR))) AS latest_projection "
+            "FROM workflow_execution_projections GROUP BY workflow_id"
+        )
+        for row in rows:
+            value = row.get("latest_projection")
+            try:
+                row["latest_projection"] = value if isinstance(value, Mapping) else json.loads(str(value))
+            except (TypeError, ValueError):
+                row["latest_projection"] = None
+        return rows
+
+    def workflow_operation_facts(self, workflow_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return versioned operation identities and long-form measurements."""
+
+        if "operation_classification_facts" not in self._tables:
+            return [], []
+        operations = self._query(
+            "SELECT * FROM operation_classification_facts WHERE workflow_id = ? ORDER BY execution_id, operation_id",
+            [workflow_id],
+        )
+        measurements = self._query(
+            "SELECT * FROM operation_measurement_facts WHERE workflow_id = ? "
+            "ORDER BY execution_id, operation_id, measurement_key",
+            [workflow_id],
+        )
+        for operation in operations:
+            operation["input_modalities"] = _json_value(operation.get("input_modalities")) or []
+            operation["output_modalities"] = _json_value(operation.get("output_modalities")) or []
+            operation["attributes"] = _json(operation.get("attributes"))
+        identity_by_operation = {str(operation.get("operation_id") or ""): operation for operation in operations}
+        for measurement in measurements:
+            identity = identity_by_operation.get(str(measurement.get("operation_id") or ""), {})
+            for key in ("family", "operation_type", "interface", "role", "provider_id", "model_id"):
+                measurement[key] = identity.get(key)
+        return operations, measurements
+
+    def operation_health_facts(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return all materialized operation facts for cross-workflow health."""
+
+        if "operation_classification_facts" not in self._tables:
+            return [], []
+        rows = self._query(
+            "SELECT o.*, m.registry_version AS measurement_registry_version, m.measurement_key, m.value, "
+            "m.unit, m.aggregation, m.scope, m.measurement_status, m.provenance, m.applicability_source, "
+            "m.attempt AS measurement_attempt FROM operation_classification_facts o "
+            "LEFT JOIN operation_measurement_facts m ON o.operation_id = m.operation_id "
+            "ORDER BY o.execution_id, o.operation_id, m.measurement_key"
+        )
+        operations: dict[str, dict[str, Any]] = {}
+        measurements: list[dict[str, Any]] = []
+        for row in rows:
+            operation_id = str(row.get("operation_id") or "")
+            operations.setdefault(
+                operation_id,
+                {key: value for key, value in row.items() if not key.startswith("measurement_")},
+            )
+            if row.get("measurement_key") is not None:
+                measurements.append(
+                    {
+                        "operation_id": operation_id,
+                        "execution_id": row.get("execution_id"),
+                        "workflow_id": row.get("workflow_id"),
+                        "template_hash": row.get("template_hash"),
+                        "node_id": row.get("node_id"),
+                        "registry_version": row.get("measurement_registry_version"),
+                        "measurement_key": row.get("measurement_key"),
+                        "value": row.get("value"),
+                        "unit": row.get("unit"),
+                        "aggregation": row.get("aggregation"),
+                        "scope": row.get("scope"),
+                        "measurement_status": row.get("measurement_status"),
+                        "provenance": row.get("provenance"),
+                        "applicability_source": row.get("applicability_source"),
+                        "attempt": row.get("measurement_attempt"),
+                    }
+                )
+        return list(operations.values()), measurements
+
+    def execution_operation_facts(self, execution_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if "operation_classification_facts" not in self._tables:
+            return [], []
+        operations = self._query(
+            "SELECT * FROM operation_classification_facts WHERE execution_id = ? ORDER BY operation_id",
+            [execution_id],
+        )
+        measurements = self._query(
+            "SELECT * FROM operation_measurement_facts WHERE execution_id = ? ORDER BY operation_id, measurement_key",
+            [execution_id],
+        )
+        for operation in operations:
+            operation["input_modalities"] = _json_value(operation.get("input_modalities")) or []
+            operation["output_modalities"] = _json_value(operation.get("output_modalities")) or []
+            operation["attributes"] = _json(operation.get("attributes"))
+        identity_by_operation = {str(operation.get("operation_id") or ""): operation for operation in operations}
+        for measurement in measurements:
+            identity = identity_by_operation.get(str(measurement.get("operation_id") or ""), {})
+            for key in ("family", "operation_type", "interface", "role", "provider_id", "model_id"):
+                measurement[key] = identity.get(key)
+        return operations, measurements
+
+    def workflow_evaluations(self, workflow_id: str) -> list[dict[str, Any]]:
+        if "evaluations" not in self._tables or "execution_workflows" not in self._tables:
+            return []
+        rows = self._query(
+            "SELECT e.*, x.started_at AS execution_started_at "
+            "FROM evaluations e JOIN execution_workflows w USING (execution_id) "
+            "LEFT JOIN executions x USING (execution_id) "
+            "WHERE w.workflow_id = ? ORDER BY e.execution_id, e.name, e.evaluation_id",
+            [workflow_id],
+        )
+        for row in rows:
+            row["value"] = _json_value(row.get("value"))
+            row["attributes"] = _json(row.get("attributes"))
+        return rows
+
+    def workflow_evaluation_campaigns(self, workflow_id: str) -> list[dict[str, Any]]:
+        if "evaluation_campaigns" not in self._tables:
+            return []
+        rows = self._query(
+            "SELECT * FROM evaluation_campaigns WHERE workflow_id = ? ORDER BY started_at DESC",
+            [workflow_id],
+        )
+        for row in rows:
+            row["attributes"] = _json(row.get("attributes"))
+        return rows
+
+    def evaluation_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+        if "evaluation_campaigns" not in self._tables:
+            return None
+        campaigns = self._query("SELECT * FROM evaluation_campaigns WHERE campaign_id = ?", [campaign_id])
+        if not campaigns:
+            return None
+        campaign = campaigns[0]
+        campaign["attributes"] = _json(campaign.get("attributes"))
+        results = self._query(
+            "SELECT * FROM evaluation_case_results WHERE campaign_id = ? ORDER BY case_id, evaluation_key",
+            [campaign_id],
+        )
+        for result in results:
+            result["value"] = _json_value(result.get("value"))
+            result["target"] = _json_value(result.get("target"))
+            result["evidence"] = _json_value(result.get("evidence"))
+            result["attributes"] = _json(result.get("attributes"))
+        return {"campaign": campaign, "results": results}
 
     def execution_outcomes(self, execution_id: str) -> dict[str, Any]:
         """Return explicit runtime/application outcomes for one replay."""

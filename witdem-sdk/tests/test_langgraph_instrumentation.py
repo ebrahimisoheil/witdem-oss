@@ -25,9 +25,7 @@ class _FakeWitdem:
         self.closed += 1
 
     @contextmanager
-    def execution(
-        self, name: str | None, *, attributes: Mapping[str, Any]
-    ) -> Iterator[str]:
+    def execution(self, name: str | None, *, attributes: Mapping[str, Any]) -> Iterator[str]:
         self.executions.append((name, dict(attributes)))
         yield "execution-id"
 
@@ -97,7 +95,7 @@ def test_instrument_invoke_owns_setup_and_reports_explicit_result(
 
     assert result == {"value": "question", "approved": True}
     assert wrapped.graph_name == "research"
-    assert calls == [(('research-agent',), {"endpoint": None, "config_path": None})]
+    assert calls == [(("research-agent",), {"endpoint": None, "config_path": None})]
     assert client.executions == [("research-report", {"entrypoint": "api"})]
     assert client.reports == [{"result": "approved", "product_goal_achieved": True}]
     assert graph.configs[0]["tags"] == ["test"]

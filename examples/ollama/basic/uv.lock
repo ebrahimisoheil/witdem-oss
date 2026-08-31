@@ -211,7 +211,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -775,7 +775,7 @@ dev = [{ name = "pytest", specifier = ">=8.3,<9" }]
 
 [[package]]
 name = "witdem-sdk"
-version = "0.3.0"
+version = "0.1.0"
 source = { editable = "../../../witdem-sdk" }
 dependencies = [
     { name = "httpx" },
@@ -802,8 +802,8 @@ requires-dist = [
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.86,<2" },
     { name = "openai", marker = "extra == 'all'", specifier = ">=1.68,<4" },
     { name = "openai", marker = "extra == 'openrouter'", specifier = ">=1.68,<4" },
-    { name = "openai-agents", marker = "extra == 'all'", specifier = ">=0.0.10,<1" },
-    { name = "openai-agents", marker = "extra == 'openai'", specifier = ">=0.0.10,<1" },
+    { name = "openai-agents", marker = "extra == 'all'", specifier = ">=0.0.10,<0.21" },
+    { name = "openai-agents", marker = "extra == 'openai'", specifier = ">=0.0.10,<0.21" },
     { name = "openinference-instrumentation-smolagents", marker = "extra == 'all'", specifier = ">=0.1.20,<1" },
     { name = "openinference-instrumentation-smolagents", marker = "extra == 'smolagents'", specifier = ">=0.1.20,<1" },
     { name = "opentelemetry-api", specifier = ">=1.27,<2" },

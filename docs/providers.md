@@ -34,7 +34,7 @@ gen_ai.usage.input_tokens
 gen_ai.usage.output_tokens
 ```
 
-Provider-reported cost can be supplied as `gen_ai.cost.usd` or through a native/generic SDK operation. Without reported money, the model must match [`src/witdem/pricing/catalog.yaml`](../src/witdem/pricing/catalog.yaml). Override that catalog with `WITDEM_PRICING_FILE` when your deployment uses other models or negotiated rates. See [Pricing catalog](pricing.md) for dimensional rates, custom meters, and automated refresh.
+Provider-reported cost can be supplied as `gen_ai.cost.usd` or through a native/generic SDK operation. Without reported money, the model must match [`src/witdem/pricing/catalog.yaml`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/src/witdem/pricing/catalog.yaml). Override that catalog with `WITDEM_PRICING_FILE` when your deployment uses other models or negotiated rates. See [Pricing catalog](pricing.md) for dimensional rates, custom meters, and automated refresh.
 
 ## Generic provider integration
 

@@ -25,11 +25,11 @@ ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 WITDEM_ENDPOINT=http://localhost:4318
 ```
 
-The [tool-loop example](../../examples/anthropic/tool_loop) proves that multiple provider tool-use IDs remain associated with one execution. See [Using Witdem with Anthropic](../integrations/anthropic.md) for code.
+The [tool-loop example](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/tool_loop) proves that multiple provider tool-use IDs remain associated with one execution. See [Using Witdem with Anthropic](../integrations/anthropic.md) for code.
 
 ## Cost
 
-The bundled catalog contains selected Haiku, Sonnet, and Opus models listed in [`catalog.yaml`](../../src/witdem/pricing/catalog.yaml). Input, output, cache-read, and cache-creation token fields are preserved where Anthropic returns them. Unknown snapshots remain unmeasured unless aliased or provider-priced. See [Pricing catalog](../pricing.md) for automated refresh and limitations.
+The bundled catalog contains selected Haiku, Sonnet, and Opus models listed in [`catalog.yaml`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/src/witdem/pricing/catalog.yaml). Input, output, cache-read, and cache-creation token fields are preserved where Anthropic returns them. Unknown snapshots remain unmeasured unless aliased or provider-priced. See [Pricing catalog](../pricing.md) for automated refresh and limitations.
 
 ## Limitations
 

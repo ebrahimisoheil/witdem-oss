@@ -300,9 +300,7 @@ def _enrich_haystack_agent_steps(rows: list[Mapping[str, Any]]) -> list[Mapping[
             attributes["witdem.agent.step.name_provenance"] = "observed_child_tool"
         else:
             model_children = [
-                child
-                for child in direct_children
-                if str(child.get("name") or "").casefold().endswith(".llm")
+                child for child in direct_children if str(child.get("name") or "").casefold().endswith(".llm")
             ]
             if model_children:
                 failed = _span_failed(row) or any(_span_failed(child) for child in model_children)
@@ -396,9 +394,7 @@ def _merge_haystack_usage_summary(rows: list[Mapping[str, Any]]) -> list[Mapping
         return rows
     physical = [row for row in rows if row not in summaries]
     model_rows = [
-        row
-        for row in physical
-        if _kind(str(row.get("name") or "operation"), row.get("attributes")) == "model"
+        row for row in physical if _kind(str(row.get("name") or "operation"), row.get("attributes")) == "model"
     ]
     if not model_rows:
         return rows
@@ -450,6 +446,7 @@ def normalize_haystack_spans(
 
     rows = _enrich_haystack_agent_steps(_merge_haystack_usage_summary([dict(span) for span in spans]))
     requested_id = execution_id
+
     def span_execution_id(row: Mapping[str, Any]) -> Any:
         return _attribute(row, "witdem.execution_id")
 
@@ -457,11 +454,7 @@ def normalize_haystack_spans(
         matching = [row for row in rows if span_execution_id(row) == execution_id]
         if matching:
             traces = {str(row.get("trace_id")) for row in matching if row.get("trace_id")}
-            rows = [
-                row
-                for row in rows
-                if span_execution_id(row) == execution_id or row.get("trace_id") in traces
-            ]
+            rows = [row for row in rows if span_execution_id(row) == execution_id or row.get("trace_id") in traces]
     if not rows:
         raise ValueError("no Haystack/OpenTelemetry spans matched the execution")
     inferred_execution_id = requested_id or next(
@@ -533,8 +526,7 @@ def normalize_haystack_spans(
             **{
                 key: value
                 for key, value in usage.items()
-                if key not in {"input_tokens", "output_tokens", "usage_provenance"}
-                and isinstance(value, (int, float))
+                if key not in {"input_tokens", "output_tokens", "usage_provenance"} and isinstance(value, (int, float))
             },
         }
         if (
@@ -793,9 +785,7 @@ def _semantic_stage(operation: Operation, events: Sequence[Event], mapping: Mapp
     names = [
         event.name
         for event in events
-        if event.span_id == operation.span_id
-        and event.type == "event"
-        and not event.name.startswith(control_prefixes)
+        if event.span_id == operation.span_id and event.type == "event" and not event.name.startswith(control_prefixes)
     ]
     if not names:
         return None

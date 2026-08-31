@@ -11,6 +11,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.witdem
+    environment:
+      PYTHONPATH: /app/src
     volumes:
       - .:/app
       - witdem-live-data:/app/data

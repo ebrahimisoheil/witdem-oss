@@ -7,7 +7,7 @@
 Install the optional dependency:
 
 ```bash
-python -m pip install "witdem-sdk[litellm]==0.3.0"
+python -m pip install "witdem-sdk[litellm]"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
