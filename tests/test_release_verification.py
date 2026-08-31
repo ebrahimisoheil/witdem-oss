@@ -4,6 +4,12 @@ import base64
 import importlib.util
 from pathlib import Path
 
+import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from witdem.update import verify_manifest
+
 SCRIPT = Path(__file__).parents[1] / "scripts" / "release" / "verify.py"
 SPEC = importlib.util.spec_from_file_location("release_verify", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -110,3 +116,36 @@ def test_release_manifest_links_to_analytics_tag() -> None:
     )
 
     assert manifest["release_notes_url"].endswith("/releases/tag/analytics-v0.1.0")
+
+
+@pytest.mark.parametrize("encoding", ["base64", "hex", "pem", "escaped_pem"])
+def test_release_manifest_accepts_standard_ed25519_secret_encodings(encoding: str) -> None:
+    private_key = Ed25519PrivateKey.generate()
+    raw = private_key.private_bytes_raw()
+    pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    signing_key = {
+        "base64": base64.b64encode(raw).decode(),
+        "hex": raw.hex(),
+        "pem": pem,
+        "escaped_pem": pem.replace("\n", "\\n"),
+    }[encoding]
+
+    manifest = MANIFEST_MODULE.build_manifest(
+        repository="ebrahimisoheil/witdem-oss",
+        signing_key=signing_key,
+    )
+    public_key = base64.b64encode(private_key.public_key().public_bytes_raw()).decode()
+
+    assert verify_manifest(manifest, public_key=public_key)["platform_version"] == "0.1.0"
+
+
+def test_release_manifest_rejects_unrecognized_signing_key() -> None:
+    with pytest.raises(ValueError, match="must contain an Ed25519 private key"):
+        MANIFEST_MODULE.build_manifest(
+            repository="ebrahimisoheil/witdem-oss",
+            signing_key="not-a-key",
+        )
