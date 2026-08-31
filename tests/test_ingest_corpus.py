@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import json
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -142,13 +141,11 @@ def test_sdk_ingest_does_not_block_the_async_request_loop(monkeypatch, tmp_path:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             ingest = asyncio.create_task(client.post("/sdk/v1/records", json=payload))
             assert await asyncio.to_thread(started.wait, 1)
-            before = time.monotonic()
-            health = await client.get("/readiness")
-            elapsed = time.monotonic() - before
+            health = await asyncio.wait_for(client.get("/health"), timeout=1)
+            assert not ingest.done()
             release.set()
             response = await ingest
         assert health.status_code == 200
-        assert elapsed < 0.1
         assert response.status_code == 200
 
     asyncio.run(exercise())

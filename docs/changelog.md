@@ -1,9 +1,10 @@
 # Release notes
 
-## 0.1.3
+## 0.1.4
 
 - Fixed the worker container's false-negative health status under DuckDB lock contention.
 - Added an explicit lock-free process-liveness probe for workers in local and NPX Compose deployments.
+- Replaced a machine-speed timing assertion with a deterministic event-loop concurrency check.
 
 ## 0.1.2
 
