@@ -57,6 +57,11 @@ def test_extension_operation_survives_without_provider_inference() -> None:
     assert operation.attributes.get("gen_ai.provider.name") is None
 
 
+def test_default_interfaces_describe_framework_and_local_work() -> None:
+    assert operation_identity(_operation("component"))["interface"] == "framework"
+    assert operation_identity(_operation("x.example.future_transform"))["interface"] == "local"
+
+
 def test_observed_tool_span_implies_one_calculated_tool_call() -> None:
     facts = {fact["key"]: fact for fact in operation_measurements(_operation("tool"))}
 

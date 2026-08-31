@@ -54,6 +54,15 @@ The compatibility fields `total_tokens` and `known_cost` remain derived for exis
 
 Automatic observation works without YAML declarations. A declaration makes expected-versus-observed coverage explicit and resolves ambiguous framework spans:
 
+The generic SDK `operation()` call defaults to `kind="component"`, no explicit
+semantic `type`, `interface="unknown"`, and `role="application"`. Until an
+integration or YAML node supplies a semantic type, Witdem treats that span as
+workflow coordination and displays it as **Workflow step** rather than as an
+embedding, retrieval, generation, OCR, or tool operation. Top-level framework
+pipeline spans similarly remain **Workflow** coordination. Both stay available
+for replay and attribution but are excluded from semantic Operation Health by
+default.
+
 ```yaml
 stages:
   - id: ingestion

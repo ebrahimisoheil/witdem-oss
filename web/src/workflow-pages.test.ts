@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, validateWorkflowGeometry, workflowFitZoom, workflowLayout } from "./workflow-pages";
+import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
 
 describe("workflow presentation", () => {
+  it("links global execution drilldowns by authored workflow identity", () => {
+    expect(workflowRunsHref("contract-review")).toBe("/runs?workflow_id=contract-review");
+    expect(workflowRunsHref("contract-review", { provider: "open router" })).toBe(
+      "/runs?workflow_id=contract-review&provider=open+router",
+    );
+  });
+
   it("fits the complete workflow inside both viewport axes", () => {
     const zoom = workflowFitZoom(10_000, 2_200, 1_000, 700);
 

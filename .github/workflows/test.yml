@@ -33,7 +33,7 @@ jobs:
           node-version: "22.16.0"
           cache: npm
           cache-dependency-path: npm/package-lock.json
-      - run: npm install --global npm@11.4.1
+      - run: npm install --global npm@11.19.1
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test
@@ -187,7 +187,7 @@ jobs:
           node-version: "22.16.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm install --global npm@11.4.1
+      - run: npm install --global npm@11.19.1
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run typecheck

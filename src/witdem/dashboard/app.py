@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from filelock import Timeout as FileLockTimeout
 
 from witdem.analytics.repository.state import FilterState
@@ -82,9 +81,10 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
         filters: Annotated[FilterState, Depends(_filter_state)],
         page: int = 1,
         page_size: int = 10,
+        workflow_id: str | None = None,
     ) -> dict[str, Any]:
         with service.repository(database_path) as repo:
-            return service.runs(repo, filters, page, page_size)
+            return service.runs(repo, filters, page, page_size, workflow_id=workflow_id)
 
     @app.get("/api/v1/runs/{execution_id}")
     def run(execution_id: str) -> dict[str, Any]:
@@ -167,15 +167,48 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
 
     if assets.is_dir():
         asset_dir = assets / "assets"
+
+        @app.get("/runs/{execution_id}", include_in_schema=False)
+        def canonical_execution(execution_id: str) -> RedirectResponse:
+            """Keep one execution UI: the YAML-backed workflow replay."""
+            with service.repository(database_path) as repo:
+                result = service.run_detail(repo, execution_id)
+            canonical_url = result.get("canonical_url") if result else None
+            target = (
+                str(canonical_url)
+                if canonical_url
+                else f"/runs?unavailable_replay={execution_id}"
+            )
+            return RedirectResponse(target, status_code=307)
+
         if asset_dir.is_dir():
-            app.mount("/assets", StaticFiles(directory=asset_dir), name="dashboard-assets")
+            resolved_asset_dir = asset_dir.resolve()
+
+            @app.get("/assets/{asset_name:path}", include_in_schema=False)
+            def dashboard_asset(asset_name: str) -> Response:
+                candidate = (resolved_asset_dir / asset_name).resolve()
+                if candidate.is_relative_to(resolved_asset_dir) and candidate.is_file():
+                    return FileResponse(
+                        candidate,
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+                    )
+                if asset_name.startswith("advanced-workflow-graph-") and asset_name.endswith(".js"):
+                    return Response(
+                        "window.location.reload(); export const AdvancedWorkflowGraph = () => null;",
+                        media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+                    )
+                raise HTTPException(status_code=404, detail="asset not found")
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str) -> FileResponse:
             candidate = assets / path
             if path and candidate.is_file():
                 return FileResponse(candidate)
-            return FileResponse(assets / "index.html")
+            return FileResponse(
+                assets / "index.html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
 
     return app
 

@@ -315,7 +315,13 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
     interface = str(attributes.get("witdem.operation.interface") or "").strip().casefold()
     if interface not in VALID_INTERFACES:
         interface = (
-            "tool" if operation.kind == "tool" else "model_api" if family in {"inference", "media"} else "unknown"
+            "tool"
+            if operation.kind == "tool"
+            else "model_api"
+            if family in {"inference", "media"}
+            else "framework"
+            if family == "orchestration"
+            else "local"
         )
     role = str(attributes.get("witdem.operation.role") or "application").strip().casefold()
     if role not in VALID_ROLES:

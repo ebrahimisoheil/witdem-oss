@@ -63,6 +63,11 @@ addopts = "--strict-markers"
 testpaths = ["tests"]
 pythonpath = [".", "src"]
 markers = ["unit: deterministic unit tests", "integration: live boundary tests", "e2e: end-to-end tests"]
+filterwarnings = [
+  "error:The 'app' shortcut is now deprecated.*:DeprecationWarning",
+  "error::DeprecationWarning:httpx.*",
+  "error::DeprecationWarning:starlette.*",
+]
 
 [tool.ruff]
 line-length = 120

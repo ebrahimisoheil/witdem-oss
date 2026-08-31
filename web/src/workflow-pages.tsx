@@ -6,6 +6,11 @@ import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, 
 import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
 
+export const workflowRunsHref = (
+  workflowId: string,
+  filter: { model?: string; provider?: string } = {},
+) => `/runs?${new URLSearchParams({ workflow_id: workflowId, ...filter }).toString()}`;
+
 export const statePresentation = (state: string) => {
   if (state === "failed") {
     return { label: "Failed", border: "#dc5a5a", badge: "bg-red-50 text-red-700 ring-red-200" };
@@ -98,7 +103,6 @@ export function WorkflowDefinitionPage() {
   const q = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
   const operationQuery = useQuery({ queryKey: ["workflow-operations", workflowId], queryFn: () => api.workflowOperations(workflowId) });
   const evaluationQuery = useQuery({ queryKey: ["workflow-evaluations", workflowId], queryFn: () => api.workflowEvaluations(workflowId) });
-  const workflowFilter = String(q.data?.executions[0]?.workflow || q.data?.workflow.name || "");
   if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   const workflow = q.data!.workflow;
@@ -111,7 +115,7 @@ export function WorkflowDefinitionPage() {
       <DeclaredOverview replay={{ workflow, execution: { execution_id: "template" }, stages: workflow.stages.map((stage) => ({ ...stage, state: "inactive", active_nodes: 0, duration_seconds: null, known_cost: null, total_tokens: null })), nodes: [], transitions: workflow.transitions, outcomes: workflow.outcomes, discrepancies: { unexpected_operations: [], unexpected_transitions: [] } }} />
     </Panel>
     <WorkflowContextSummary workflowId={workflowId} operations={operationQuery.data} evaluations={evaluationQuery.data} />
-    <WorkflowAtAGlance executions={executions} stats={stats} overview={q.data!.analytics} workflowFilter={workflowFilter} />
+    <WorkflowAtAGlance executions={executions} stats={stats} overview={q.data!.analytics} workflowId={workflowId} />
   </>;
 }
 
@@ -174,14 +178,13 @@ export function WorkflowExecutionsPage() {
   if (q.error) return <ErrorPage error={q.error} />;
   const workflow = q.data!.workflow;
   const executions = q.data!.executions;
-  const workflowFilter = String(executions[0]?.workflow || workflow.name || "");
   return <>
     <PageHeader compact eyebrow="Workflow executions" title={workflow.name} description="Runs matched to this workflow and its historical template versions." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
     <Panel title="Executions" note="Select a run to inspect its path, operations, measurements, and evaluations.">
       <div className="space-y-2">{executions.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(run.execution_id)}`} />)}</div>
       {!executions.length ? <Empty>No executions have matched this workflow yet.</Empty> : null}
-      {executions.length ? <div className="mt-4 flex justify-end border-t border-[#eceae4] pt-4"><a href={`/runs?workflow=${encodeURIComponent(workflowFilter)}`} className="text-xs font-semibold text-[#5c35c8] hover:underline">See all executions for this workflow →</a></div> : null}
+      {executions.length ? <div className="mt-4 flex justify-end border-t border-[#eceae4] pt-4"><a href={workflowRunsHref(workflowId)} className="text-xs font-semibold text-[#5c35c8] hover:underline">See all executions for this workflow →</a></div> : null}
     </Panel>
   </>;
 }
@@ -190,22 +193,39 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
   const [selectedType, setSelectedType] = useState<string | null>(null);
   if (loading) return <LoadingPage />;
   if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
-  const executionCount = new Set(data.operations.map((operation) => operation.execution_id)).size;
-  const selectedOperations = data.operations.filter((operation) => !selectedType || operation.operation_type === selectedType).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
+  const semanticTypes = data.summary.types.filter((item) => item.family !== "orchestration" && item.type !== "x.witdem.unclassified");
+  const semanticTypeIds = new Set(semanticTypes.map((item) => item.type));
+  const semanticOperations = data.operations.filter((operation) => semanticTypeIds.has(operation.operation_type));
+  const semanticOperationIds = new Set(semanticOperations.map((operation) => operation.operation_id));
+  const semanticMeasurements = data.measurements.filter((measurement) => semanticOperationIds.has(measurement.operation_id));
+  const executionCount = new Set(semanticOperations.map((operation) => operation.execution_id)).size;
+  const measuredMeters = semanticMeasurements.filter((measurement) => measurement.measurement_status === "measured").length;
+  const missingMeters = semanticMeasurements.filter((measurement) => measurement.measurement_status === "missing").length;
+  const applicableMeters = measuredMeters + missingMeters;
+  const meterCoverage = applicableMeters ? measuredMeters / applicableMeters : null;
+  const selectedOperations = semanticOperations.filter((operation) => !selectedType || operation.operation_type === selectedType).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
   const selectedLabel = selectedType ? operationLabel(selectedType) : "All operation types";
+  const stepActivity = data.summary.types.find((item) => item.type === "component");
+  const workflowRuns = data.summary.types.find((item) => item.type === "workflow");
   return <div className="space-y-4">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <InsightCard label="Observed work" value={formatNumber(data.summary.total_operations)} note={`${formatNumber(executionCount)} executions · ${formatNumber(data.summary.types.length)} operation types`} />
-      <InsightCard label="Direct failures" value={formatNumber(data.summary.failed_operations)} note="Failure location, not affected-run exposure" tone={data.summary.failed_operations ? "attention" : "good"} />
-      <InsightCard label="Applicable meter coverage" value={data.measurement_coverage.coverage == null ? "Not applicable" : `${Math.round(data.measurement_coverage.coverage * 100)}%`} note={`${formatNumber(data.measurement_coverage.measured)} measured · ${formatNumber(data.measurement_coverage.missing)} missing`} tone={data.measurement_coverage.missing ? "attention" : "good"} />
-      <InsightCard label="Not-applicable meters" value={formatNumber(data.measurement_coverage.not_applicable)} note="Excluded from coverage instead of treated as zero" />
+      <InsightCard label="Semantic operations" value={formatNumber(semanticOperations.length)} note={`${formatNumber(executionCount)} executions · ${formatNumber(semanticTypes.length)} operation types`} />
+      <InsightCard label="Direct failures" value={formatNumber(semanticOperations.filter((operation) => ["error", "failed"].includes(operation.status)).length)} note="Failures in AI, knowledge, media, action, or quality work" tone={semanticOperations.some((operation) => ["error", "failed"].includes(operation.status)) ? "attention" : "good"} />
+      <InsightCard label="Usage coverage" value={meterCoverage == null ? "Not applicable" : `${Math.round(meterCoverage * 100)}%`} note={`${formatNumber(measuredMeters)} measured · ${formatNumber(missingMeters)} missing applicable meters`} tone={missingMeters ? "attention" : "good"} />
+      <InsightCard label="Participants" value={formatNumber(new Set(semanticOperations.flatMap((operation) => [operation.provider_id, operation.model_id]).filter(Boolean)).size)} note="Explicitly reported providers and models" />
     </div>
+    {(stepActivity || workflowRuns) ? <Panel title="Workflow coordination" note="Context from framework spans. These wrappers describe how work was coordinated; they are not model, OCR, retrieval, or tool calls.">
+      <div className="grid gap-3 md:grid-cols-2">
+        {stepActivity ? <CoordinationCard title="Step activity" value={`${formatNumber(stepActivity.operations)} spans`} detail={`${seconds(stepActivity.active_seconds)} across YAML workflow nodes`} explanation="Framework component spans attributed to declared workflow steps." /> : null}
+        {workflowRuns ? <CoordinationCard title="Workflow runs" value={`${formatNumber(workflowRuns.operations)} runs`} detail={`${seconds(workflowRuns.active_seconds)} top-level elapsed activity`} explanation="Top-level framework pipeline spans enclosing each execution." /> : null}
+      </div>
+    </Panel> : null}
     <div className="grid gap-4 xl:grid-cols-2">
-      <Panel title="Where work happened" note="Switch between volume, active time, cost, tokens, and operation-specific meters. Select a bar to filter evidence."><OperationActivityChart items={data.summary.types} onSelect={setSelectedType} /></Panel>
-      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by reported provider or model."><ParticipantOperationChart operations={data.operations} measurements={data.measurements} /></Panel>
+      <Panel title="Where work happened" note="Semantic operation types only. Switch between volume, active time, cost, tokens, and operation-specific meters."><OperationActivityChart items={semanticTypes} onSelect={setSelectedType} /></Panel>
+      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by explicitly reported provider or model."><ParticipantOperationChart operations={semanticOperations} measurements={semanticMeasurements} /></Panel>
     </div>
-    <Panel title="Operation profile" note="Each card summarizes one semantically distinct kind of work. Select a card to inspect its operations.">
-      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{data.summary.types.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
+    <Panel title="Operation profile" note="Actual AI, knowledge, media, action, and quality work. Select a card to inspect supporting operations.">
+      <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{semanticTypes.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
     </Panel>
     <Panel title={`Observed operations · ${selectedLabel}`} note="Longest operations first. Open an execution to inspect the operation in its workflow path.">
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
@@ -215,6 +235,10 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
       {!selectedOperations.length ? <Empty>No operations match this type.</Empty> : null}
     </Panel>
   </div>;
+}
+
+function CoordinationCard({ title, value, detail, explanation }: { title: string; value: string; detail: string; explanation: string }) {
+  return <div className="grid min-w-0 gap-3 rounded-lg border border-[#e5e2e8] bg-[#fbfafc] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><div className="text-xs font-semibold text-[#39343e]">{title}</div><div className="mt-1 text-[9px] leading-4 text-[#777178]">{explanation}</div></div><div className="min-w-0 sm:text-right"><div className="text-sm font-semibold text-[#3e3650]">{value}</div><div className="mt-0.5 text-[9px] text-[#89838b]">{detail}</div></div></div>;
 }
 
 function WorkflowEvaluationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean }) {
@@ -258,14 +282,14 @@ function OperationActivityChart({ items, onSelect }: { items: OperationTypeSumma
   const value = (item: OperationTypeSummary) => metric === "operations" ? item.operations : metric === "time" ? item.active_seconds : metric === "cost" ? item.measurements["cost.usd"] : metric === "tokens" ? item.measurements["tokens.total"] : item.measurements["pages.processed"];
   const rows = [...items].filter((item) => value(item) != null).sort((left, right) => Number(value(right)) - Number(value(left))).reverse();
   const labels = { operations: "Operations", time: "Active time", cost: "Measured cost", tokens: "Tokens", pages: "Pages" };
-  return <div><MetricToggle choices={["operations", "time", "cost", "tokens", "pages"]} active={metric} onChange={setMetric} labels={{ operations: "Volume", time: "Active time", cost: "Cost", tokens: "Tokens", pages: "Pages" }} />{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} onEvents={{ click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item.type) }} option={{ color: [metric === "cost" ? "#16a085" : metric === "time" ? "#2477e6" : "#6d4aff"], tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${operationLabel(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measurements["cost.usd"])}<br/>Tokens: ${item.measurements["tokens.total"] == null ? "Not applicable" : formatNumber(item.measurements["tokens.total"])}<br/><span style="color:#6d4aff">Select to inspect operations</span>` : ""; } }, grid: { left: 132, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", name: labels[metric], nameLocation: "middle", nameGap: 26, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((item) => operationLabel(item.type)), axisLabel: { width: 122, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }] }} /> : <Empty>This measurement is not applicable to the observed operation types.</Empty>}</div>;
+  return <div><MetricToggle choices={["operations", "time", "cost", "tokens", "pages"]} active={metric} onChange={setMetric} labels={{ operations: "Volume", time: "Active time", cost: "Cost", tokens: "Tokens", pages: "Pages" }} />{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} onEvents={{ click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item.type) }} option={{ color: [metric === "cost" ? "#16a085" : metric === "time" ? "#2477e6" : "#6d4aff"], tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${operationLabel(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measurements["cost.usd"])}<br/>Tokens: ${item.measurements["tokens.total"] == null ? "Not applicable" : formatNumber(item.measurements["tokens.total"])}<br/><span style="color:#6d4aff">Select to inspect operations</span>` : ""; } }, grid: { left: 132, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", name: labels[metric], nameLocation: "middle", nameGap: 26, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((item) => operationLabel(item.type)), axisLabel: { width: 122, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }] }} /> : <Empty>This measurement is not applicable to the observed operation types.</Empty>}</div>;
 }
 
 function ParticipantOperationChart({ operations, measurements }: { operations: OperationFact[]; measurements: OperationMeasurement[] }) {
   const [dimension, setDimension] = useState<"provider" | "model">("provider");
   const [metric, setMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
   const rows = participantOperationRows(operations, measurements, dimension).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
-  return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
+  return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
 }
 
 type ParticipantOperationRow = { id: string; calls: number; time: number; cost: number | null; tokens: number | null };
@@ -291,13 +315,24 @@ export function participantOperationRows(operations: OperationFact[], measuremen
 function OperationTypeCard({ item, active, onClick }: { item: OperationTypeSummary; active: boolean; onClick: () => void }) {
   const important = [["cost.usd", "Cost"], ["tokens.total", "Tokens"], ["pages.processed", "Pages"], ["documents.returned", "Documents"], ["vectors.output", "Vectors"]] as const;
   const usage = important.filter(([key]) => item.measurements[key] != null).slice(0, 3);
-  return <button type="button" onClick={onClick} className={`min-w-0 rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
-    <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0"><div className="truncate text-[13px] font-semibold">{operationLabel(item.type)}</div><div className="mt-0.5 truncate text-[9px] text-[#817b83]">{item.family} · {item.interfaces.join(", ") || "unknown interface"}</div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${item.failed ? "bg-red-50 text-red-700" : "bg-[#eef8f2] text-[#27754c]"}`}>{item.failed ? `${item.failed} failed` : "Healthy"}</span></div>
-    <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Calls" value={formatNumber(item.operations)} /><CardCell label="Active" value={seconds(item.active_seconds)} /></div>
+  return <button type="button" onClick={onClick} className={`flex h-full min-w-0 flex-col rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
+    <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0"><div className="truncate text-[13px] font-semibold">{operationLabel(item.type)}</div><div className="mt-0.5 truncate text-[9px] text-[#817b83]">{operationFamilyLabel(item.family)} · {operationInterfaceLabel(item.interfaces, item.family)}</div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${item.failed ? "bg-red-50 text-red-700" : "bg-[#eef8f2] text-[#27754c]"}`}>{item.failed ? `${item.failed} failed` : "Healthy"}</span></div>
+    <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Operations" value={formatNumber(item.operations)} /><CardCell label="Active time" value={seconds(item.active_seconds)} /></div>
     {usage.length ? <div className={`mt-2 grid gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed] ${usage.length === 1 ? "grid-cols-1" : usage.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>{usage.map(([key, label]) => <CardCell key={key} label={label} value={key === "cost.usd" ? money(item.measurements[key]) : formatNumber(item.measurements[key])} />)}</div> : <div className="mt-2 text-[9px] text-[#89838b]">Usage meters not applicable</div>}
-    {item.providers.length || item.models.length ? <div className="mt-2 truncate text-[9px] text-[#777178]" title={[...item.providers, ...item.models].join(", ")}>{item.providers.join(", ") || "Provider not reported"} · {item.models.join(", ") || "Model not reported"}</div> : null}
+    {item.providers.length || item.models.length ? <div className="mt-2 grid gap-2 border-t border-[#ece9ed] pt-2 sm:grid-cols-[.7fr_1.3fr]">
+      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Providers</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{item.providers.join(", ") || "Not reported"}</div></div>
+      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Models</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{item.models.join(", ") || "Not reported"}</div></div>
+    </div> : null}
   </button>;
 }
+
+const operationFamilyLabel = (family: string) => family.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+const operationInterfaceLabel = (interfaces: string[], family: string) => {
+  const labels: Record<string, string> = { model_api: "Provider API", tool: "Tool interface", framework: "Framework", datastore: "Datastore", search_service: "Search service", local: "Application", external_api: "External API" };
+  const resolved = interfaces.filter((value) => value !== "unknown").map((value) => labels[value] || operationFamilyLabel(value));
+  if (resolved.length) return resolved.join(", ");
+  return family === "orchestration" ? "Framework" : "Interface not reported";
+};
 
 function CardValue({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-xs font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
 function CardCell({ label, value }: { label: string; value: string }) { return <div className="min-w-0 bg-[#fbfafc] px-2.5 py-2"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-[11px] font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
@@ -518,8 +553,8 @@ function WorkflowGoalAnalysis({ executions, stats }: { executions: Run[]; stats:
   </Panel>;
 }
 
-function WorkflowExecutionAnalysis({ executions, stats, overview, workflowFilter }: { executions: Run[]; stats: ReturnType<typeof summarizeWorkflowRuns>; overview: Awaited<ReturnType<typeof api.overview>>; workflowFilter: string }) {
-  const runHref = (filter: { model?: string; provider?: string }) => `/runs?${new URLSearchParams({ workflow: workflowFilter, ...filter }).toString()}`;
+function WorkflowExecutionAnalysis({ executions, stats, overview, workflowId }: { executions: Run[]; stats: ReturnType<typeof summarizeWorkflowRuns>; overview: Awaited<ReturnType<typeof api.overview>>; workflowId: string }) {
+  const runHref = (filter: { model?: string; provider?: string }) => workflowRunsHref(workflowId, filter);
   return <Panel className="mt-4" title="Execution analysis" note="Run-to-run latency and the relationship between retries and elapsed time.">
     <div className="grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
       <AnalysisCard title="Latency over time" note={`Median ${seconds(stats.medianDuration)} · ${stats.runs} executions`}><ExecutionTrendChart runs={executions} /></AnalysisCard>
@@ -533,12 +568,12 @@ function WorkflowExecutionAnalysis({ executions, stats, overview, workflowFilter
   </Panel>;
 }
 
-function WorkflowAtAGlance({ executions, stats, overview, workflowFilter }: { executions: Run[]; stats: ReturnType<typeof summarizeWorkflowRuns>; overview: Pick<Awaited<ReturnType<typeof api.overview>>, "models" | "providers" | "stages">; workflowFilter: string }) {
+function WorkflowAtAGlance({ executions, stats, overview, workflowId }: { executions: Run[]; stats: ReturnType<typeof summarizeWorkflowRuns>; overview: Pick<Awaited<ReturnType<typeof api.overview>>, "models" | "providers" | "stages">; workflowId: string }) {
   const outcomes = executions.reduce<Record<string, number>>((result, run) => { const key = String(run.application_outcome || run.runtime_outcome || run.status || "Not reported"); result[key] = (result[key] || 0) + 1; return result; }, {});
   const outcomeColors = contractOutcomeColors(outcomes, []);
   const hasProductSuccess = executions.some((run) => run.product_goal_achieved === true)
     || Object.entries(outcomeColors).some(([name, color]) => name !== "completed" && color === "#16864b" && Boolean(outcomes[name]));
-  const runHref = (filter: { model?: string; provider?: string }) => `/runs?${new URLSearchParams({ workflow: workflowFilter, ...filter }).toString()}`;
+  const runHref = (filter: { model?: string; provider?: string }) => workflowRunsHref(workflowId, filter);
   return <Panel className="mt-3" title="Workflow at a glance" note={`${stats.runs} matched executions · goal, runtime, and attribution signals specific to this workflow`}>
     <div className="grid gap-2 xl:grid-cols-4">
       <AnalysisCard title="Goal attainment" note={`${stats.assessedRuns}/${stats.runs} assessed`}><RatioDonutChart height={138} value={stats.goalRate} achievedLabel="Achieved" remainderLabel="Not achieved" detail={`${stats.goalAchieved} of ${stats.assessedRuns} assessed executions`} /></AnalysisCard>

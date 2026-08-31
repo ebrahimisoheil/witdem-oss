@@ -16,7 +16,7 @@ The new boundary is explicit:
 | --- | --- |
 | Developer YAML | Workflow identity, meaningful stages, step identity, branches, convergence, loops, fallbacks, and outcomes |
 | Framework adapter | Native component/node identity and physical topology, without inventing business stages |
-| Runtime telemetry | Which operations ran, parentage, attempts, route evidence, timing, provider/model, tokens, and vadmeasured cost |
+| Runtime telemetry | Which operations ran, parentage, attempts, route evidence, timing, provider/model, tokens, and measured cost |
 | Witdem projection | Match observations to declared steps, embed owned model evidence, aggregate stage state, validate topology, and expose discrepancies |
 
 The canonical analytics tables and their definitions are unchanged. Workflow templates and execution associations are additive read context, so existing cost, latency, failure, path, and business-outcome analytics retain their meaning.
@@ -97,6 +97,117 @@ ignore_observed:
 ```
 
 The full Haystack and LangGraph examples are in `examples/workflow-replay/`.
+
+## Declare semantic operations, not framework wrappers
+
+Workflow topology and operation analytics answer different questions:
+
+- A YAML **workflow node** says where work belongs in the business DAG.
+- An observed **operation** says what kind of work actually ran: generation,
+  retrieval, embedding, reranking, OCR, a tool call, an evaluation, or another
+  vendor-neutral type.
+- Framework workflow, pipeline, agent, chain, and component spans describe
+  coordination. Witdem retains them for attribution and replay, but excludes
+  them from the default semantic Operation Health view.
+
+The generic Python SDK operation API intentionally starts without guessing the
+semantic operation type:
+
+| `witdem.operation(...)` argument | Default |
+| --- | --- |
+| `kind` | `component` |
+| `type` | not set |
+| `interface` | `unknown` |
+| `role` | `application` |
+
+An untyped generic operation is therefore classified as orchestration and may
+appear as **Workflow step** in coordination or replay evidence. A top-level
+framework pipeline span may appear as **Workflow**. These are not model,
+retrieval, OCR, or tool calls, and the dashboard does not count them as
+semantic operation health by default.
+
+Declare the operation on the matched YAML node when the framework span is
+ambiguous:
+
+```yaml
+stages:
+  - id: knowledge
+    name: Knowledge
+    nodes:
+      - id: embed_query
+        name: Embed query
+        kind: embedding
+        match:
+          names: [embed_query]
+        operation:
+          type: embedding
+          expects: [items.input, vectors.output]
+          optional: [tokens.input, cost.usd]
+
+      - id: retrieve_context
+        name: Retrieve context
+        kind: retrieval
+        match:
+          names: [retrieve_context]
+        operation:
+          type: retrieval
+          expects: [queries, documents.output]
+```
+
+The declaration does not fabricate measurements. It tells Witdem what the
+matched operation is and which meters are required or optional. Runtime
+telemetry still supplies provider, model, duration, attempts, measurements,
+and cost.
+
+When instrumenting a custom operation directly, supply the same semantic type
+in code:
+
+```python
+with witdem.operation(
+    "embed_query",
+    type="embedding",
+    interface="model_api",
+    role="application",
+    provider="reported-provider",
+    model="reported-model",
+) as operation:
+    operation.measure("items.input", 1, unit="item")
+    operation.measure("vectors.output", 1, unit="vector")
+```
+
+Prefer automatic framework/provider instrumentation first. Use explicit SDK
+metadata or a YAML `operation` declaration only where the observed span is
+ambiguous. Provider and model identities remain telemetry facts; do not encode
+them into the YAML operation type.
+
+## Why an execution says “No YAML replay”
+
+The execution list can display runtime telemetry without a workflow graph. The
+**No YAML replay** badge means the execution was observed but was not associated
+with an authored workflow definition and template hash.
+
+To make the execution open a workflow replay:
+
+1. Register the workflow definition in the project-root `witdem.yml`.
+2. Set `default_workflow` when the application has one workflow, or pass the
+   workflow ID when opening the execution.
+3. Make sure the workflow `match` rules identify the runtime/component names
+   actually emitted by the integration.
+4. Validate and compile the configuration before running the application.
+
+```bash
+witdem workflow compile --check
+```
+
+After changing matching or operation declarations, new executions use the new
+template automatically. Rebuild disposable historical projections when needed:
+
+```bash
+witdem workflow rebuild
+```
+
+Do not add a placeholder workflow merely to remove the badge. A missing replay
+is more accurate than attaching an execution to the wrong DAG.
 
 ## Compilation and rebuilds
 

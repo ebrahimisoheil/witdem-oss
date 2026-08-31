@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from fastapi.testclient import TestClient
 
-from witdem.analytics.core import Execution, Operation
+from witdem.analytics.core import Event, Execution, Operation
 from witdem.dashboard.app import create_dashboard_app
 from witdem.dashboard.service import _workflow_projection_analytics, materialize_workflow_projections
 from witdem.ingest import live_db
@@ -479,6 +479,7 @@ def test_historical_and_new_executions_share_one_persisted_template(tmp_path: Pa
     client = TestClient(create_dashboard_app(database, static_dir=tmp_path / "missing"))
     catalog = client.get("/api/v1/workflow-definitions").json()
     workflow = client.get("/api/v1/workflow-definitions/answer-flow").json()
+    filtered_runs = client.get("/api/v1/runs?workflow_id=answer-flow").json()
     old = client.get("/api/v1/runs/historical-run").json()
     new = client.get("/api/v1/workflow-definitions/answer-flow/executions/new-run").json()
     operations = client.get("/api/v1/workflow-definitions/answer-flow/operations").json()
@@ -486,6 +487,8 @@ def test_historical_and_new_executions_share_one_persisted_template(tmp_path: Pa
     campaigns = client.get("/api/v1/workflow-definitions/answer-flow/evaluation-campaigns").json()
 
     assert catalog["items"][0]["execution_count"] == 2
+    assert filtered_runs["count"] == 2
+    assert {run["execution_id"] for run in filtered_runs["items"]} == {"historical-run", "new-run"}
     assert catalog["items"][0]["version"] == 1
     assert all(run["workflow_total_steps"] == 4 for run in workflow["executions"])
     assert all(run["workflow_active_steps"] == 2 for run in workflow["executions"])
@@ -562,3 +565,56 @@ def test_projection_materialization_preserves_operations_without_a_declared_work
     detail = client.get(f"/api/v1/runs/{execution_id}").json()
     assert detail["operation_summary"]["total_operations"] == 1
     assert detail["measurements"][0]["measurement_key"] == "vectors.output"
+
+
+def test_persisted_template_does_not_claim_an_unassociated_runtime_run(tmp_path: Path, monkeypatch) -> None:
+    database = tmp_path / "analytics.duckdb"
+    monkeypatch.delenv("WITDEM_CONFIG", raising=False)
+    monkeypatch.setenv("WITDEM_DB_PATH", str(database))
+    live_db.initialize_analytics_store(database)
+    definition = _definition()
+
+    declared_id = "declared-run"
+    live_db.publish_transformed_bundle(
+        Execution(execution_id=declared_id, runtime_id="langgraph/answer", status="completed"),
+        [],
+        [],
+        [
+            Event(
+                execution_id=declared_id,
+                type="workflow",
+                name="workflow.definition",
+                payload={
+                    "workflow_id": definition.id,
+                    "template_hash": definition.template_hash,
+                    "definition": definition.model_dump(mode="json", by_alias=True),
+                },
+            )
+        ],
+    )
+
+    standalone_id = "standalone-langgraph-run"
+    live_db.publish_transformed_bundle(
+        Execution(execution_id=standalone_id, runtime_id="langgraph/answer", status="completed"),
+        [],
+        [],
+        [],
+    )
+    # Simulate a projection produced by the removed dashboard fallback. A full
+    # rebuild must discard it rather than keeping a phantom workflow execution.
+    live_db.store_workflow_projection(
+        database,
+        project_execution(definition, execution={"execution_id": standalone_id}, graph={"nodes": [], "edges": []}),
+    )
+
+    materialize_workflow_projections(database, [declared_id, standalone_id])
+
+    client = TestClient(create_dashboard_app(database, static_dir=tmp_path / "missing"))
+    declared = client.get(f"/api/v1/runs/{declared_id}").json()
+    standalone = client.get(f"/api/v1/runs/{standalone_id}").json()
+    catalog = client.get("/api/v1/workflow-definitions").json()
+
+    assert declared["canonical_url"] == f"/workflows/{definition.id}/executions/{declared_id}"
+    assert standalone["canonical_url"] is None
+    assert standalone["workflow_replay"] is None
+    assert catalog["items"][0]["execution_count"] == 1

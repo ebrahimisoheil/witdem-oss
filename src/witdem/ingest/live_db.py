@@ -972,6 +972,36 @@ def store_workflow_projection(path: str | Path, projection: Mapping[str, Any]) -
             connection.close()
 
 
+def delete_workflow_projections(path: str | Path, execution_ids: Sequence[str]) -> None:
+    """Remove disposable replays that no longer have a YAML association."""
+
+    identifiers = sorted({str(execution_id) for execution_id in execution_ids if str(execution_id)})
+    if not identifiers:
+        return
+    database_path = Path(path).expanduser()
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            placeholders = ", ".join("?" for _ in identifiers)
+            connection.execute(
+                f"DELETE FROM workflow_execution_nodes WHERE execution_id IN ({placeholders})",
+                identifiers,
+            )
+            connection.execute(
+                f"DELETE FROM workflow_execution_projections WHERE execution_id IN ({placeholders})",
+                identifiers,
+            )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
 def store_participant_facts(path: str | Path, execution_ids: Sequence[str], facts: Sequence[Mapping[str, Any]]) -> None:
     """Atomically replace rebuildable direct-attribution facts."""
 

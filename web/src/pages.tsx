@@ -1,5 +1,5 @@
-import { Link, useParams } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   api,
   type ContractDefinition,
@@ -44,7 +44,6 @@ import {
   StageAccumulation,
   useQuery,
   WorkflowBarChart,
-  WorkflowGraph,
   WorkflowStageContribution,
 } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
@@ -242,6 +241,10 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     unknown: "#7a8290",
   };
   const outcomeColors = contractOutcomeColors(d.outcome_breakdown, d.contracts);
+  const semanticOperationTypes = d.operation_health.types.filter((item) => item.family !== "orchestration" && item.type !== "x.witdem.unclassified");
+  const semanticOperationCount = semanticOperationTypes.reduce((total, item) => total + item.operations, 0);
+  const semanticOperationFailures = semanticOperationTypes.reduce((total, item) => total + item.failed, 0);
+  const excludedCoordinationCount = d.operation_health.total_operations - semanticOperationCount;
   return (
     <>
       <PageHeader
@@ -319,12 +322,12 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
           <Panel className="mt-4" title="Where work accumulates" note="Declared YAML steps ranked by deduplicated active wall time, directly attributed tokens, or measured cost.">
             <StageAccumulation items={d.stages} />
           </Panel>
-          <Panel className="mt-4" title="Operation health" note="Cross-workflow failures and required measurement coverage by vendor-neutral operation type.">
+          <Panel className="mt-4" title="Operation health" note={`Semantic AI, knowledge, media, action, and quality work. ${formatNumber(excludedCoordinationCount)} coordination or unclassified spans are excluded.`}>
             <div className="grid gap-4 xl:grid-cols-[1.45fr_.55fr]">
-              <OperationHealthChart items={d.operation_health.types} height={230} />
+              <OperationHealthChart items={semanticOperationTypes} height={230} />
               <div className="grid content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="rounded-lg border border-[#e8e5e9] bg-[#fbfbf9] p-3"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Observed activity</div><div className="mt-1 text-xl font-semibold">{formatNumber(d.operation_health.total_operations)}</div><div className="mt-1 text-[10px] text-[#777178]">across {formatNumber(d.operation_health.types.length)} operation types</div></div>
-                <div className={`rounded-lg border p-3 ${d.operation_health.failed_operations ? "border-red-200 bg-red-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Direct failures</div><div className={`mt-1 text-xl font-semibold ${d.operation_health.failed_operations ? "text-red-700" : ""}`}>{formatNumber(d.operation_health.failed_operations)}</div><div className="mt-1 text-[10px] text-[#777178]">failed operations, not affected-run exposure</div></div>
+                <div className="rounded-lg border border-[#e8e5e9] bg-[#fbfbf9] p-3"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Semantic activity</div><div className="mt-1 text-xl font-semibold">{formatNumber(semanticOperationCount)}</div><div className="mt-1 text-[10px] text-[#777178]">across {formatNumber(semanticOperationTypes.length)} operation types</div></div>
+                <div className={`rounded-lg border p-3 ${semanticOperationFailures ? "border-red-200 bg-red-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Direct failures</div><div className={`mt-1 text-xl font-semibold ${semanticOperationFailures ? "text-red-700" : ""}`}>{formatNumber(semanticOperationFailures)}</div><div className="mt-1 text-[10px] text-[#777178]">failed semantic operations, not affected-run exposure</div></div>
                 <div className={`rounded-lg border p-3 sm:col-span-2 xl:col-span-1 ${d.operation_measurement_alerts.length ? "border-amber-200 bg-amber-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Required measurement gaps</div><div className="mt-1 text-xl font-semibold">{formatNumber(d.operation_measurement_alerts.length)}</div>{d.operation_measurement_alerts.length ? <div className="mt-2 space-y-1 text-[10px] text-[#86531d]">{d.operation_measurement_alerts.slice(0, 3).map((item) => <div key={`${item.operation_type}-${item.measurement_key}`}>{humanizeOperation(item.operation_type)} · {item.measurement_key}: {formatNumber(item.operations)}</div>)}</div> : <div className="mt-1 text-[10px] text-[#777178]">No required meters are missing.</div>}</div>
               </div>
             </div>
@@ -876,19 +879,30 @@ export function RunsPage() {
   }));
   const [page, setPage] = useState(1);
   const workflow = routeParam("workflow");
-  const filters = { ...resolvedFilters(filterValues), workflow: workflow || undefined };
+  const workflowId = routeParam("workflow_id");
+  const unavailableReplay = routeParam("unavailable_replay");
+  const filters = { ...resolvedFilters(filterValues), workflow: workflow || undefined, workflow_id: workflowId || undefined };
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["runs", workflow, filterValues, page], queryFn: () => api.runs(filters, page, 10) });
+  const q = useQuery({ queryKey: ["runs", workflow, workflowId, filterValues, page], queryFn: () => api.runs(filters, page, 10) });
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
   return (
     <>
       <PageHeader
-        title="Runs"
-        description="Find a run by what it did, then open its complete telemetry and business story."
+        title="All executions"
+        description="Open executions that are associated with an authored YAML workflow contract."
       />
-      {workflow ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
+      {unavailableReplay ? (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-[#e8dfc6] bg-[#fffaf0] px-4 py-3 text-sm">
+          <div>
+            <span className="font-semibold text-[#80520e]">No workflow replay</span>
+            <span className="ml-2 text-[#756d60]">This execution has no associated YAML workflow contract.</span>
+          </div>
+          <a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Dismiss</a>
+        </div>
+      ) : null}
+      {workflow || workflowId ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow || workflowId}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
       <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => { setFilterValues(values); setPage(1); }} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
       <div className="mt-4 flex items-center justify-between text-sm">
@@ -905,113 +919,18 @@ function RunsTable({ rows, count }: { rows: Run[]; count: number }) {
   return (
     <Panel
       title={`${formatNumber(count)} runs`}
-      note="Newest first · select a run to inspect its complete path"
+      note="Newest first · YAML-backed executions open their canonical workflow replay"
     >
       <div className="space-y-2">
-        {rows.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/runs/${encodeURIComponent(run.execution_id)}`} />)}
+        {rows.map((run) => (
+          <ExecutionListCard
+            key={run.execution_id}
+            run={run}
+            href={run.canonical_url || undefined}
+          />
+        ))}
       </div>
     </Panel>
-  );
-}
-
-export function RunPage() {
-  const { executionId } = useParams({ from: "/runs/$executionId" });
-  const q = useQuery({
-    queryKey: ["run", executionId],
-    queryFn: () => api.run(executionId),
-  });
-  useEffect(() => {
-    if (q.data?.canonical_url) window.location.replace(q.data.canonical_url);
-  }, [q.data?.canonical_url]);
-  if (q.isLoading) return <LoadingPage />;
-  if (q.error) return <ErrorPage error={q.error} />;
-  if (q.data?.canonical_url) return <LoadingPage />;
-  const d = q.data!,
-    s = d.summary;
-  const definitionRecord = d.semantic_records.find(
-    (record) => record.name === "contract.definition",
-  );
-  const definition = (definitionRecord?.attributes || {}) as Record<
-    string,
-    Record<string, unknown>
-  >;
-  const goalRecord = d.semantic_records.find(
-    (record) => record.name === "product_goal",
-  );
-  const goalAttributes = (goalRecord?.attributes || {}) as Record<
-    string,
-    unknown
-  >;
-  const decisionRecord = d.semantic_records.find(
-    (record) => record.kind === "decision",
-  );
-  const resultName = String(
-    definition.result?.name || goalAttributes.result_name || "Result",
-  );
-  const goalName = String(
-    definition.product_goal?.name ||
-      goalAttributes.product_goal_name ||
-      "Product goal",
-  );
-  const resultState =
-    s.artifact_valid === true
-      ? "Valid"
-      : s.artifact_valid === false
-        ? "Needs attention"
-        : "Not reported";
-  const decisionValue = String(
-    decisionRecord?.value || s.application_outcome || "Not reported",
-  );
-  const goalState =
-    s.product_goal_achieved === true
-      ? "Achieved"
-      : s.product_goal_achieved === false
-        ? "Not achieved"
-        : "Not reported";
-  const story = `${resultName} was ${resultState.toLowerCase()}. The run decided ${decisionValue}, and ${goalName} was ${goalState.toLowerCase()} in ${seconds(s.duration_seconds)} for ${money(s.known_cost)}.`;
-  return (
-    <>
-      <PageHeader
-        eyebrow="Run replay"
-        title={s.display_name || String(s.workflow || "Agent run")}
-        description={story}
-        action={
-          <Link to="/runs">
-            <Button variant="outline">All runs</Button>
-          </Link>
-        }
-      />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Kpi
-          label="Runtime"
-          value={String(s.runtime_outcome || s.status || "Unknown")}
-        />
-        <Kpi label={resultName} value={resultState} tone={resultState === "Valid" ? "good" : "neutral"} />
-        <Kpi label={String(definition.decision?.name || "Decision")} value={decisionValue} />
-        <Kpi label={goalName} value={goalState} tone={goalState === "Achieved" ? "good" : "warn"} />
-        <Kpi label="Elapsed" value={seconds(s.duration_seconds)} />
-        <Kpi label="Measured cost" value={money(s.known_cost)} />
-      </div>
-      <Panel
-        className="mt-4"
-        title="How this run reached its result"
-        note="Workflow telemetry and application meaning in one compact view. Open full screen to inspect the complete path."
-      >
-        <WorkflowGraph detail={d} />
-      </Panel>
-      <details className="mt-4 rounded-xl border bg-white p-5">
-        <summary className="cursor-pointer text-sm font-semibold">
-          Technical records
-        </summary>
-        <pre className="mt-4 max-h-96 overflow-auto rounded-lg bg-[#f6f6f2] p-4 text-xs">
-          {JSON.stringify(
-            { outcomes: d.outcomes, semantic_records: d.semantic_records },
-            null,
-            2,
-          )}
-        </pre>
-      </details>
-    </>
   );
 }
 
@@ -1122,156 +1041,221 @@ export function IssuesPage() {
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
+  const data = q.data!;
+  const affectedRetryRuns = new Set(data.retries.flatMap((retry) => retry.runs.map((run) => run.execution_id))).size;
+  const runSignals = data.failures.length + data.quality_gaps.length + data.outliers.length;
+  const telemetrySignals = data.operation_failures.length + data.missing_required_measurements.length;
+  const operationFailures = data.operation_failures.reduce((total, item) => total + item.failed, 0);
+  const hasFailure = data.summary.terminal_failures > 0 || operationFailures > 0;
+  const hasAttention = runSignals + telemetrySignals > 0 || affectedRetryRuns > 0;
+  const headline = hasFailure
+    ? `${formatNumber(data.summary.terminal_failures + operationFailures)} failures need attention`
+    : hasAttention
+      ? "No failures. Efficiency and telemetry still need review."
+      : "No active issues in this population.";
+  const summary = [
+    data.outliers.length ? `${formatNumber(data.outliers.length)} p95 outlier run${data.outliers.length === 1 ? "" : "s"}` : null,
+    affectedRetryRuns ? `retries affected ${formatNumber(affectedRetryRuns)} run${affectedRetryRuns === 1 ? "" : "s"}` : null,
+    data.missing_required_measurements.length ? `${formatNumber(data.missing_required_measurements.length)} required measurement gap${data.missing_required_measurements.length === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" · ") || "No failure, quality, retry, outlier, or required-measurement signals were found.";
   return (
     <>
       <PageHeader
         title="Issues"
-        description="Failures, retries, and missing measurements—translated into concrete places to investigate."
+        description="A prioritized investigation queue for failures, quality regressions, retry pressure, resource outliers, and missing evidence."
       />
       <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="Runs analyzed" value={formatNumber(q.data!.summary.runs)} />
-        <Kpi label="Terminal failures" value={formatNumber(q.data!.summary.terminal_failures)} tone={q.data!.summary.terminal_failures ? "warn" : "good"} />
-        <Kpi label="Recovered runs" value={formatNumber(q.data!.summary.recovered_runs)} />
-        <Kpi label="Retry attempts" value={formatNumber(q.data!.summary.extra_attempts)} tone={q.data!.summary.extra_attempts ? "warn" : "good"} />
-        <Kpi label="Below target" value={formatNumber(q.data!.summary.quality_gaps)} tone={q.data!.summary.quality_gaps ? "warn" : "good"} />
-      </div>
-      <div className="grid gap-4 xl:grid-cols-12 xl:items-start">
-        <Panel className="xl:col-span-7" title="Investigation queue" note="Runtime, quality, and resource signals ranked together. Select any row to open its exact replay.">
-          <IssueRunQueue data={q.data!} />
-        </Panel>
-        <Panel className="xl:col-span-5" title="Retry hotspots" note="Repeated stages ranked by extra attempts. Expand a stage only when you need its affected runs.">
-          <RetryHotspotList data={q.data!} />
-        </Panel>
-      </div>
-      <Panel className="mt-4" title="Measurement coverage" note="Coverage explains which issue signals can be evaluated reliably for this population.">
-        <div className="grid gap-6 sm:grid-cols-3">
-          <CoverageMeter label="Cost measured" value={q.data!.measurement.cost} total={q.data!.measurement.total} />
-          <CoverageMeter label="Tokens measured" value={q.data!.measurement.tokens} total={q.data!.measurement.total} />
-          <CoverageMeter label="Business goal reported" value={q.data!.measurement.business_goal} total={q.data!.measurement.total} />
+      <section className={`mb-4 overflow-hidden rounded-xl border ${hasFailure ? "border-red-200 bg-red-50/50" : hasAttention ? "border-amber-200 bg-[#fffdf7]" : "border-emerald-200 bg-emerald-50/40"}`}>
+        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(440px,.75fr)] lg:items-center">
+          <div className="min-w-0">
+            <div className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[.1em] ${hasFailure ? "bg-red-100 text-red-700" : hasAttention ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}><span className={`size-1.5 rounded-full ${hasFailure ? "bg-red-500" : hasAttention ? "bg-amber-500" : "bg-emerald-500"}`} />Current assessment</div>
+            <h2 className="mt-3 text-xl font-semibold tracking-[-.02em] text-[#302d33]">{headline}</h2>
+            <p className="mt-1.5 max-w-3xl text-xs leading-5 text-[#77716f]">{summary}</p>
+          </div>
+          <dl className="grid grid-cols-2 overflow-hidden rounded-lg border border-black/5 bg-white/80 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+            <IssueFact label="Runs" value={formatNumber(data.summary.runs)} />
+            <IssueFact label="Run signals" value={formatNumber(runSignals)} />
+            <IssueFact label="Retry runs" value={formatNumber(affectedRetryRuns)} />
+            <IssueFact label="Telemetry gaps" value={formatNumber(telemetrySignals)} />
+          </dl>
         </div>
+      </section>
+      <Panel title="Prioritized investigations" note="The most consequential signals first. Open a run to inspect its YAML-backed execution replay.">
+        <IssueRunQueue data={data} />
       </Panel>
-      {(q.data!.operation_failures.length || q.data!.missing_required_measurements.length) ? <Panel className="mt-4" title="Operation and measurement issues" note="Only explicit operation failures and missing required meters appear here; optional meters are excluded.">
-        <div className="grid gap-2 md:grid-cols-2">{q.data!.operation_failures.map((item) => <div key={`failure-${item.type}`} className="rounded-lg border border-red-100 bg-red-50 p-3 text-xs"><div className="font-semibold text-red-800">{humanizeOperation(item.type)}</div><div className="mt-1 text-[10px] text-red-700">{formatNumber(item.failed)} failed of {formatNumber(item.operations)} operations</div></div>)}{q.data!.missing_required_measurements.map((item) => <div key={`meter-${item.operation_type}-${item.measurement_key}`} className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs"><div className="font-semibold text-amber-900">{humanizeOperation(item.operation_type)} · {item.measurement_key}</div><div className="mt-1 text-[10px] text-amber-800">Missing for {formatNumber(item.operations)} operations across {formatNumber(item.executions)} executions</div></div>)}</div>
-      </Panel> : null}
+      <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-start">
+        <Panel className="xl:col-span-7" title="Retry concentration" note="Extra attempts are grouped by the operation that retried; expand a row for its affected executions.">
+          <RetryHotspotList data={data} />
+        </Panel>
+        <Panel className="xl:col-span-5" title="Measurement visibility" note="Run-level reporting availability. Required operation-level gaps are surfaced in the investigation queue.">
+          <div className="space-y-5">
+            <CoverageMeter label="Measured cost" value={data.measurement.cost} total={data.measurement.total} />
+            <CoverageMeter label="Token usage" value={data.measurement.tokens} total={data.measurement.total} />
+            <CoverageMeter label="Business goal" value={data.measurement.business_goal} total={data.measurement.total} />
+          </div>
+          <div className="mt-5 border-t border-[#ece9e4] pt-4 text-[10px] leading-4 text-[#85807e]">Availability is not the same as applicability. Optional meters and operations without billable activity are not treated as failures.</div>
+        </Panel>
+      </div>
     </>
   );
 }
 
 const humanizeOperation = (value: string) => value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 
+function IssueFact({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 border-l border-[#ece9e4] px-3 py-3 first:border-l-0 lg:[&:nth-child(3)]:border-l-0 xl:[&:nth-child(3)]:border-l">
+    <dt className="text-[8px] font-semibold uppercase tracking-[.12em] text-[#938e8b]">{label}</dt>
+    <dd className="mt-1 text-lg font-semibold text-[#38333a]">{value}</dd>
+  </div>;
+}
+
 type IssueQueueItem = {
   key: string;
-  executionId: string;
+  category: "failures" | "quality" | "efficiency" | "telemetry";
+  executionId?: string;
   title: string;
   detail: string;
   signal: string;
+  metrics: string[];
   tone: "red" | "amber" | "violet" | "green";
   priority: number;
 };
 
 function IssueRunQueue({ data }: { data: Issues }) {
+  const [category, setCategory] = useState<"all" | IssueQueueItem["category"]>("all");
+  const outlierReason = (reason: string) => reason === "duration_seconds" ? "Latency above p95" : reason === "known_cost" ? "Cost above p95" : reason === "total_tokens" ? "Token usage above p95" : reason.replaceAll("_", " ");
+  const meterLabel = (value: string) => value.split(".").map((part) => part.replaceAll("_", " ")).join(" · ");
   const items: IssueQueueItem[] = [
     ...data.failures.map((failure) => ({
       key: `failure-${failure.execution_id}`,
+      category: "failures" as const,
       executionId: failure.execution_id,
-      title: failure.display_name || failure.execution_id,
-      detail: `${failure.failure_location} · ${seconds(failure.duration_seconds)} · ${money(failure.known_cost)}`,
-      signal: failure.runtime_outcome === "recovered" ? "Recovered" : "Terminal",
+      title: `${failure.display_name || "Execution"} ${failure.runtime_outcome === "recovered" ? "recovered after a failure" : "failed"}`,
+      detail: `${failure.failure_location} · execution ${failure.execution_id.slice(0, 12)}`,
+      signal: failure.runtime_outcome === "recovered" ? "Recovered" : "Terminal failure",
+      metrics: [seconds(failure.duration_seconds), money(failure.known_cost)],
       tone: failure.runtime_outcome === "recovered" ? "green" as const : "red" as const,
       priority: failure.runtime_outcome === "recovered" ? 1 : 0,
     })),
     ...data.quality_gaps.map((gap) => ({
       key: `quality-${gap.execution_id}-${gap.name}`,
+      category: "quality" as const,
       executionId: gap.execution_id,
-      title: gap.display_name || gap.execution_id,
-      detail: `${gap.name} · observed ${formatNumber(gap.score)} · target ${formatNumber(gap.target)}`,
+      title: `${gap.name} missed its declared target`,
+      detail: `${gap.display_name || "Execution"} · execution ${gap.execution_id.slice(0, 12)}`,
       signal: "Below target",
+      metrics: [`Observed ${formatNumber(gap.score)}`, `Target ${formatNumber(gap.target)}`, gap.direction.replaceAll("_", " ")],
       tone: "amber" as const,
-      priority: 2,
+      priority: 1,
     })),
     ...data.outliers.map((run) => ({
       key: `outlier-${run.execution_id}`,
+      category: "efficiency" as const,
       executionId: run.execution_id,
-      title: run.display_name || run.execution_id,
-      detail: `${run.reasons.map((reason) => reason.replaceAll("_", " ")).join(" · ")} · ${seconds(run.duration_seconds)} · ${money(run.known_cost)} · ${formatNumber(run.total_tokens)} tokens`,
-      signal: "p95 outlier",
+      title: run.reasons.length > 1 ? `${run.display_name || "Execution"} is an outlier across ${run.reasons.length} resource signals` : `${run.display_name || "Execution"} has ${outlierReason(run.reasons[0] || "a p95 outlier").toLowerCase()}`,
+      detail: `${run.reasons.map(outlierReason).join(" · ")} · execution ${run.execution_id.slice(0, 12)}`,
+      signal: "Resource outlier",
+      metrics: [seconds(run.duration_seconds), money(run.known_cost), run.total_tokens == null ? "Tokens not measured" : `${formatNumber(run.total_tokens)} tokens`],
       tone: "violet" as const,
-      priority: 3,
+      priority: 2,
+    })),
+    ...data.operation_failures.map((item) => ({
+      key: `operation-${item.type}`,
+      category: "failures" as const,
+      title: `${humanizeOperation(item.type)} operations failed`,
+      detail: "Direct operation failures, independent of the final execution outcome.",
+      signal: "Operation failure",
+      metrics: [`${formatNumber(item.failed)} failed`, `${formatNumber(item.operations)} observed`],
+      tone: "red" as const,
+      priority: 0,
+    })),
+    ...data.missing_required_measurements.map((item) => ({
+      key: `meter-${item.operation_type}-${item.measurement_key}`,
+      category: "telemetry" as const,
+      title: `${humanizeOperation(item.operation_type)} is missing ${meterLabel(item.measurement_key)}`,
+      detail: "A required operation measurement was applicable but not reported.",
+      signal: "Missing evidence",
+      metrics: [`${formatNumber(item.operations)} operation${item.operations === 1 ? "" : "s"}`, `${formatNumber(item.executions)} execution${item.executions === 1 ? "" : "s"}`],
+      tone: "amber" as const,
+      priority: 1,
     })),
   ].sort((left, right) => left.priority - right.priority || left.title.localeCompare(right.title));
-  if (!items.length) return <Empty>No run-level issues in this population.</Empty>;
+  const visible = category === "all" ? items : items.filter((item) => item.category === category);
+  if (!items.length) return <Empty>No failures, quality gaps, resource outliers, or required-measurement gaps in this population.</Empty>;
   const toneClasses = {
     red: "border-red-200 bg-red-50 text-red-700",
     amber: "border-amber-200 bg-amber-50 text-amber-800",
     violet: "border-violet-200 bg-violet-50 text-violet-700",
     green: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
+  const categories: Array<{ id: "all" | IssueQueueItem["category"]; label: string }> = [{ id: "all", label: "All" }, { id: "failures", label: "Failures" }, { id: "quality", label: "Quality" }, { id: "efficiency", label: "Efficiency" }, { id: "telemetry", label: "Telemetry" }];
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between text-xs text-[#777]">
-        <span>{formatNumber(items.length)} signals</span>
-        <span>Highest priority first</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Issue category">
+          {categories.map((item) => {
+            const count = item.id === "all" ? items.length : items.filter((candidate) => candidate.category === item.id).length;
+            return <button key={item.id} type="button" role="tab" aria-selected={category === item.id} onClick={() => setCategory(item.id)} className={`rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition ${category === item.id ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#69645f] hover:bg-[#ebe8f2]"}`}>{item.label} <span className="ml-1 opacity-75">{count}</span></button>;
+          })}
+        </div>
+        <span className="text-[10px] text-[#8a8581]">Highest priority first</span>
       </div>
-      <div className="max-h-[430px] divide-y divide-[#ecebe6] overflow-y-auto rounded-xl border border-[#ecebe6]">
-        {items.map((item) => (
-          <Link
-            key={item.key}
-            to="/runs/$executionId"
-            params={{ executionId: item.executionId }}
-            className="group grid min-w-0 gap-2 bg-white px-4 py-3 hover:bg-[#faf9ff] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-[#4f32aa] group-hover:underline" title={item.title}>{item.title}</div>
-              <div className="mt-1 truncate text-xs text-[#777]" title={item.detail}>{item.detail}</div>
-            </div>
-            <span className={`w-fit shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${toneClasses[item.tone]}`}>{item.signal}</span>
-          </Link>
-        ))}
+      <div className="divide-y divide-[#ecebe6] overflow-hidden rounded-xl border border-[#ecebe6]">
+        {visible.map((item) => {
+          const content = <><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold ${toneClasses[item.tone]}`}>{item.signal}</span><span className="text-sm font-semibold text-[#373239] group-hover:text-[#5836b0]">{item.title}</span></div><div className="mt-1.5 text-[10px] leading-4 text-[#7b7578]">{item.detail}</div></div><div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:justify-end">{item.metrics.map((metric) => <span key={metric} className="rounded-md bg-[#f4f2f5] px-2 py-1 text-[9px] font-medium text-[#5e5861]">{metric}</span>)}{item.executionId ? <span className="ml-1 text-[10px] font-semibold text-[#5c35c8]">Open replay →</span> : null}</div></>;
+          return item.executionId ? <a key={item.key} href={`/runs/${encodeURIComponent(item.executionId)}`} className="group grid min-w-0 gap-3 bg-white px-4 py-3.5 transition hover:bg-[#faf8ff] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">{content}</a> : <div key={item.key} className="group grid min-w-0 gap-3 bg-white px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">{content}</div>;
+        })}
       </div>
+      {!visible.length ? <div className="rounded-xl border border-dashed border-[#dedbe0] px-4 py-8 text-center text-xs text-[#817b80]">No {categories.find((item) => item.id === category)?.label.toLowerCase()} issues in this population.</div> : null}
     </div>
   );
 }
 
 function RetryHotspotList({ data }: { data: Issues }) {
   if (!data.retries.length) return <Empty>No retries in this population.</Empty>;
+  const totalAttempts = data.summary.extra_attempts;
+  const affectedRuns = new Set(data.retries.flatMap((retry) => retry.runs.map((run) => run.execution_id))).size;
+  const topShare = totalAttempts ? data.retries.slice(0, 2).reduce((total, retry) => total + retry.extra_attempts, 0) / totalAttempts : 0;
   return (
-    <div className="max-h-[490px] divide-y divide-[#ece8da] overflow-y-auto rounded-xl border border-[#ece8da] bg-[#fffdf7]">
+    <div>
+      <div className="mb-3 grid grid-cols-3 overflow-hidden rounded-lg border border-[#ece8da] bg-[#fffdf7]">
+        <RetryFact label="Extra attempts" value={formatNumber(totalAttempts)} />
+        <RetryFact label="Affected runs" value={formatNumber(affectedRuns)} />
+        <RetryFact label="Top two share" value={percent(topShare)} />
+      </div>
+      <div className="max-h-[390px] divide-y divide-[#ece8da] overflow-y-auto rounded-xl border border-[#ece8da] bg-white">
       {data.retries.map((retry, index) => (
-        <details key={retry.label} className="group px-4 py-3 open:bg-[#fffaf0]">
+        <details key={retry.label} className="group px-3 py-2.5 open:bg-[#fffaf0]">
           <summary className="cursor-pointer list-none">
-            <div className="flex items-start gap-3">
-              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-[#f6ead0] text-xs font-bold text-[#8a5a08]">{index + 1}</span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="line-clamp-2 text-sm font-semibold text-[#3d382f]">{retry.label}</span>
-                  <span className="shrink-0 text-sm font-semibold text-[#9a6208]">+{formatNumber(retry.extra_attempts)}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between text-xs text-[#81786b]">
-                  <span>{formatNumber(retry.affected_runs)} affected runs</span>
-                  <span className="font-medium text-[#6b4bbd] group-open:hidden">Show runs ↓</span>
-                  <span className="hidden font-medium text-[#6b4bbd] group-open:inline">Hide runs ↑</span>
-                </div>
-              </div>
+            <div className="grid grid-cols-[24px_minmax(0,1fr)_70px_72px_20px] items-center gap-2 text-xs">
+              <span className="text-center text-[10px] font-semibold text-[#9a7a3a]">{index + 1}</span>
+              <span className="truncate font-semibold text-[#3d382f]" title={retry.label}>{retry.label}</span>
+              <span className="text-right font-semibold text-[#9a6208]">+{formatNumber(retry.extra_attempts)}</span>
+              <span className="text-right text-[10px] text-[#81786b]">{formatNumber(retry.affected_runs)} {retry.affected_runs === 1 ? "run" : "runs"}</span>
+              <span className="text-[#6b4bbd] transition group-open:rotate-180">⌄</span>
             </div>
           </summary>
-          <div className="ml-10 mt-3 max-h-44 space-y-1 overflow-y-auto border-l border-[#eadab8] pl-3">
+          <div className="ml-8 mt-2 max-h-40 space-y-1 overflow-y-auto border-l border-[#eadab8] pl-3">
             {retry.runs.map((run) => (
-              <Link
+              <a
                 key={run.execution_id}
-                to="/runs/$executionId"
-                params={{ executionId: run.execution_id }}
+                href={`/runs/${encodeURIComponent(run.execution_id)}`}
                 className="block truncate rounded-md px-2 py-1.5 text-xs font-medium text-[#5a35c8] hover:bg-white hover:underline"
                 title={run.display_name || run.execution_id}
               >
-                {run.display_name || run.execution_id}
-              </Link>
+                {run.display_name || "Execution"} · {run.execution_id.slice(0, 12)}
+              </a>
             ))}
           </div>
         </details>
       ))}
+      </div>
     </div>
   );
+}
+
+function RetryFact({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 border-l border-[#ece8da] px-3 py-2.5 first:border-l-0"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#9a8d75]">{label}</div><div className="mt-1 text-sm font-semibold text-[#4a4032]">{value}</div></div>;
 }
 
 function CoverageMeter({ label, value, total }: { label: string; value: number; total: number }) {

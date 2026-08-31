@@ -314,6 +314,7 @@ export type Meta = {
 };
 export type DashboardFilters = {
   workflow?: string;
+  workflow_id?: string;
   contract_hash?: string;
   provider?: string;
   model?: string;
@@ -346,6 +347,7 @@ export type Run = Record<string, unknown> & {
   workflow_providers?: string[];
   contract_hash?: string;
   contract_name?: string;
+  canonical_url?: string | null;
 };
 export type RunDetail = {
   summary: Run;

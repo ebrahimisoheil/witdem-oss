@@ -3115,6 +3115,19 @@ class AnalyticsRepository:
         )
         return rows[0] if rows else None
 
+    def workflow_execution_ids(self, workflow_id: str) -> set[str]:
+        """Return executions associated with one authored workflow identity."""
+
+        if "execution_workflows" not in self._tables:
+            return set()
+        return {
+            str(row["execution_id"])
+            for row in self._query(
+                "SELECT execution_id FROM execution_workflows WHERE workflow_id = ?",
+                [workflow_id],
+            )
+        }
+
     def workflow_projection(self, execution_id: str) -> dict[str, Any] | None:
         if "workflow_execution_projections" not in self._tables:
             return None

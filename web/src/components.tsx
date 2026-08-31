@@ -2,15 +2,10 @@ import { Badge, Button, ProgressBar } from "@lemonsqueezy/wedges";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
-import type { ComparisonInsight, OperationTypeSummary, Overview, Performance, ProjectedWorkflowNode, Run, RunDetail, WorkflowStage } from "./api";
+import type { ComparisonInsight, OperationTypeSummary, Overview, Performance, ProjectedWorkflowNode, Run, WorkflowStage } from "./api";
 import { api, formatNumber, money, percent, seconds } from "./api";
 import witdemMark from "./assets/witdem-mark-purple.png";
 
-const AdvancedWorkflowGraph = lazy(() =>
-  import("./advanced-workflow-graph").then((module) => ({
-    default: module.AdvancedWorkflowGraph,
-  })),
-);
 const EChartsRuntime = lazy(() => import("./echarts-runtime"));
 const echarts = undefined;
 
@@ -220,23 +215,27 @@ export function browserDateDaysAgo(days: number) {
   return `${year}-${month}-${day}`;
 }
 
-export function ExecutionListCard({ run, href }: { run: Run; href: string }) {
+export function ExecutionListCard({ run, href }: { run: Run; href?: string }) {
   const runtime = String(run.runtime_outcome || run.status || "unknown");
   const outcome = String(run.application_outcome || "Not reported").replaceAll("_", " ");
   const goal = run.product_goal_achieved === true ? run.evidence_sufficient === false ? "Achieved · attention" : "Achieved" : run.product_goal_achieved === false ? "Not achieved" : "Not reported";
   const provider = run.workflow_providers?.join(", ") || String(run.provider || "Provider not observed");
-  const model = run.workflow_models?.join(", ") || String(run.model || "Model not observed");
   const measuredTokens = typeof run.total_tokens === "number";
   const healthy = runtime.toLowerCase() === "completed" && run.product_goal_achieved === true;
-  return <a href={href} className="group relative grid min-w-0 gap-3 overflow-hidden rounded-xl border border-[#e8e7e2] bg-white px-5 py-4 transition hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] xl:grid-cols-[minmax(220px,1fr)_150px_110px_70px_110px_110px] xl:items-center">
+  const content = <>
     <span className={`absolute inset-y-0 left-0 w-1 ${healthy ? "bg-[#25a86b]" : run.product_goal_achieved === false ? "bg-[#df5a5a]" : "bg-[#f0a128]"}`} />
-    <div className="min-w-0 pl-1"><div className="truncate text-base font-semibold text-[#3f277f] group-hover:text-[#5c35c8]">{run.display_name || String(run.workflow || "Agent run")}</div><div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#74746e]"><StatusBadge value={runtime} /><span>{formatDateTime(run.started_at)}</span><span className="text-[#c2c1bb]">·</span><span className="max-w-[180px] truncate" title={provider}>{provider}</span><span className="text-[#c2c1bb]">/</span><span className="max-w-[300px] truncate font-medium text-[#55554f]" title={model}>{model}</span></div></div>
-    <div className="min-w-0 border-t border-[#efeee9] pt-3 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Business result</div><div className="mt-1 truncate text-sm font-semibold capitalize text-[#33332f]" title={outcome}>{outcome}</div></div>
-    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Product goal</div><div className="mt-1"><Badge color={goal === "Achieved" ? "green" : goal === "Not achieved" ? "red" : goal === "Achieved · attention" ? "yellow" : "gray"}>{goal}</Badge></div></div>
-    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Elapsed</div><div className="mt-1 truncate text-sm font-semibold text-[#34342f]">{seconds(run.duration_seconds)}</div></div>
-    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Cost</div><div className="mt-1 truncate text-sm font-semibold text-[#34342f]">{money(run.known_cost)}</div></div>
-    <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Tokens</div><div className="mt-1 truncate text-sm font-semibold text-[#34342f]">{measuredTokens ? formatNumber(run.total_tokens) : "Not measured"}</div></div>
-  </a>;
+    <div className="min-w-0 pl-1"><div className="flex min-w-0 items-center gap-2"><div className="truncate text-base font-semibold text-[#3f277f] group-hover:text-[#5c35c8]">{run.display_name || String(run.workflow || "Agent run")}</div>{!href ? <span className="shrink-0 rounded-full bg-[#f3f1ed] px-2 py-1 text-[9px] font-semibold text-[#77716a]">No YAML replay</span> : null}</div><div className="mt-2 flex min-w-0 flex-nowrap items-center gap-x-2 text-xs text-[#74746e]"><StatusBadge value={runtime} /><span className="shrink-0 whitespace-nowrap">{formatDateTime(run.started_at)}</span><span className="shrink-0 text-[#c2c1bb]">·</span><span className="min-w-0 truncate text-[11px]" title={provider}>{provider}</span></div></div>
+    <div className="min-w-0 border-t border-[#efeee9] pt-3 xl:border-l xl:border-t-0 xl:pl-5 xl:pr-6 xl:pt-0"><div className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[.1em] text-[#92918a]">Business result</div><div className="mt-1 whitespace-nowrap text-xs font-semibold capitalize text-[#33332f]" title={outcome}>{outcome}</div></div>
+    <div className="min-w-0"><div className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[.1em] text-[#92918a]">Product goal</div><div className="mt-1"><Badge size="sm" className="whitespace-nowrap text-xs" color={goal === "Achieved" ? "green" : goal === "Not achieved" ? "red" : goal === "Achieved · attention" ? "yellow" : "gray"}>{goal}</Badge></div></div>
+    <div className="min-w-0"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#92918a]">Elapsed</div><div className="mt-1 whitespace-nowrap text-xs font-semibold text-[#34342f]">{seconds(run.duration_seconds)}</div></div>
+    <div className="min-w-0"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#92918a]">Cost</div><div className="mt-1 whitespace-nowrap text-xs font-semibold text-[#34342f]">{money(run.known_cost)}</div></div>
+    <div className="min-w-0"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#92918a]">Tokens</div><div className="mt-1 whitespace-nowrap text-xs font-semibold text-[#34342f]">{measuredTokens ? formatNumber(run.total_tokens) : "Not measured"}</div></div>
+  </>;
+  const className = "group relative grid min-w-0 gap-5 overflow-hidden rounded-xl border border-[#e8e7e2] bg-white px-5 py-4 transition xl:grid-cols-[minmax(260px,1fr)_205px_130px_65px_95px_95px] xl:items-center";
+  if (href) return <a href={href} className={`${className} hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)]`}>{content}</a>;
+  return <div className={`${className} opacity-75`} aria-label="No YAML workflow replay available">
+    {content}
+  </div>;
 }
 export function Kpi({
   label,
@@ -1288,14 +1287,6 @@ export function ExecutionStepDiagnostics({ nodes, onSelect, height = 360, comple
       series: states.map((state) => ({ name: state, type: "bar", stack: "step", barMaxWidth: 16, emphasis: { focus: "series" }, data: shown.map((node) => ({ value: node.state === state.toLowerCase() ? value(node) : 0, node })) })),
     }} />}
   </div>;
-}
-
-export function WorkflowGraph({ detail }: { detail: RunDetail }) {
-  return (
-    <Suspense fallback={<LoadingPage />}>
-      <AdvancedWorkflowGraph detail={detail} />
-    </Suspense>
-  );
 }
 
 export function StatusBadge({ value }: { value?: string }) {

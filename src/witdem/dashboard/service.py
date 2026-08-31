@@ -127,18 +127,36 @@ def overview(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
     )
 
 
-def runs(repo: AnalyticsRepository, filters: FilterState, page: int = 1, page_size: int = 10) -> dict[str, Any]:
+def runs(
+    repo: AnalyticsRepository,
+    filters: FilterState,
+    page: int = 1,
+    page_size: int = 10,
+    *,
+    workflow_id: str | None = None,
+) -> dict[str, Any]:
     rows = repo.execution_rows(filters, limit=None)
+    if workflow_id:
+        execution_ids = repo.workflow_execution_ids(workflow_id)
+        rows = [row for row in rows if str(row["execution_id"]) in execution_ids]
     size = max(1, min(page_size, 100))
     total = len(rows)
     pages = max(1, (total + size - 1) // size)
     current = max(1, min(page, pages))
     start = (current - 1) * size
+    page_rows = rows[start : start + size]
+    for row in page_rows:
+        association = repo.execution_workflow(str(row["execution_id"]))
+        row["canonical_url"] = (
+            f"/workflows/{association['workflow_id']}/executions/{row['execution_id']}"
+            if association is not None
+            else None
+        )
     return cast(
         dict[str, Any],
         jsonable_encoder(
             {
-                "items": rows[start : start + size],
+                "items": page_rows,
                 "count": total,
                 "page": current,
                 "page_size": size,
@@ -169,7 +187,9 @@ def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] |
     graph = repo.replay(execution_id).model_dump(mode="json")
     semantic_records = [record.to_dict() for record in repo.semantic_replay_records(execution_id)]
     workflow = _resolve_workflow(repo, summary, graph, semantic_records)
-    projection = repo.workflow_projection(execution_id)
+    # A replay is valid only while the execution has an authored YAML
+    # association. Never surface a stale projection for an unrelated run.
+    projection = repo.workflow_projection(execution_id) if workflow is not None else None
     if projection is None and workflow is not None:
         projection = project_execution(workflow, execution=summary, graph=graph)
     operation_facts, measurements = repo.execution_operation_facts(execution_id)
@@ -243,10 +263,16 @@ def materialize_workflow_projections(database: Path, execution_ids: list[str] | 
                 operation_classifications.extend(classifications)
                 operation_measurement_facts.extend(measurements)
         participant_facts = repo.build_participant_facts(set(selected))
-    from witdem.ingest.live_db import store_operation_facts, store_participant_facts, store_workflow_projection
+    from witdem.ingest.live_db import (
+        delete_workflow_projections,
+        store_operation_facts,
+        store_participant_facts,
+        store_workflow_projection,
+    )
 
     for projection in projections:
         store_workflow_projection(database, projection)
+    delete_workflow_projections(database, sorted(set(selected) - set(projected_execution_ids)))
     store_participant_facts(database, selected, participant_facts)
     # The Duckle publisher already materializes vendor-neutral operation facts
     # for every execution. Replace only executions that gained a YAML workflow
@@ -398,14 +424,11 @@ def _resolve_workflow(
     definitions = {**_persisted_definitions(repo), **load_registry().definitions}
     if association and str(association.get("workflow_id")) in definitions:
         return definitions[str(association["workflow_id"])]
-    execution = dict(summary)
-    graph_execution = graph.get("execution")
-    if isinstance(graph_execution, dict):
-        execution["attributes"] = graph_execution.get("attributes", {})
-        execution["runtime_id"] = execution.get("runtime_id") or graph_execution.get("runtime_id")
-    from witdem.workflows import WorkflowRegistry
-
-    return WorkflowRegistry(definitions.values()).match(execution)
+    # Associations belong to ingestion and must come from an emitted YAML
+    # definition/identity or a configured YAML match. Guessing here from a
+    # generic runtime name made arbitrary LangGraph runs appear under whichever
+    # persisted workflow happened to mention ``langgraph``.
+    return None
 
 
 def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:

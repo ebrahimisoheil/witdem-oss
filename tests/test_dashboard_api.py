@@ -53,6 +53,33 @@ def test_dashboard_rejects_unknown_run(tmp_path) -> None:
     assert response.status_code == 404
 
 
+def test_legacy_run_url_has_no_second_execution_view(tmp_path) -> None:
+    database = tmp_path / "live.duckdb"
+    live_db.initialize_analytics_store(database)
+    response = TestClient(create_dashboard_app(database)).get(
+        "/runs/not-found",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/runs?unavailable_replay=not-found"
+
+
+def test_removed_graph_chunk_recovers_an_open_legacy_tab(tmp_path) -> None:
+    database = tmp_path / "live.duckdb"
+    live_db.initialize_analytics_store(database)
+    static_dir = tmp_path / "static"
+    (static_dir / "assets").mkdir(parents=True)
+    (static_dir / "index.html").write_text("<div id='root'></div>", encoding="utf-8")
+    response = TestClient(create_dashboard_app(database, static_dir=static_dir)).get(
+        "/assets/advanced-workflow-graph-old-build.js"
+    )
+
+    assert response.status_code == 200
+    assert "window.location.reload()" in response.text
+    assert response.headers["cache-control"] == "no-cache, no-store, must-revalidate"
+
+
 def test_runs_are_server_paginated_ten_at_a_time(tmp_path) -> None:
     database = tmp_path / "live.duckdb"
     live_db.initialize_analytics_store(database)
