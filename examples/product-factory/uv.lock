@@ -1732,7 +1732,7 @@ dev = [
 
 [[package]]
 name = "witdem-sdk"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "../../witdem-sdk" }
 dependencies = [
     { name = "httpx" },

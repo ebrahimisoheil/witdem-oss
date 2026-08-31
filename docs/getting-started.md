@@ -15,7 +15,7 @@ Choose one:
 
 ```bash
 # Docker-managed
-npx -y witdem@latest up
+npx -y witdem@stable-0-1 up
 
 # Native Python, without Node or Docker
 pipx install witdem-analytics
@@ -25,7 +25,7 @@ witdem up
 Verify both public services:
 
 ```bash
-npx -y witdem@latest status  # NPX
+npx -y witdem@stable-0-1 status  # NPX
 witdem status                # pipx
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
@@ -150,7 +150,7 @@ The ELT worker processes ingestion asynchronously. A new run can take a short mo
 ## Stop without deleting data
 
 ```bash
-npx -y witdem@latest down  # NPX
+npx -y witdem@stable-0-1 down  # NPX
 witdem down                # pipx
 ```
 

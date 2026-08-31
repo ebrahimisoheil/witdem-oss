@@ -126,7 +126,7 @@ def apply_retention(plan: RetentionPlan) -> RetentionResult:
         raise RuntimeError("corpus changed after the retention preview; run the command again")
     mutated = False
     try:
-        with corpus.maintenance_lock(timeout=60.0):
+        with corpus.maintenance_lock(timeout=60.0), corpus.ingest_lock(timeout=60.0):
             cutoff = _observed_at(plan.cutoff)
             current_ingest_ids = tuple(
                 commit.ingest_id for commit in corpus.list_commits() if _observed_at(commit.received_at) < cutoff
@@ -151,7 +151,7 @@ def apply_retention(plan: RetentionPlan) -> RetentionResult:
         recovery_error: Exception | None = None
         if mutated:
             try:
-                with corpus.maintenance_lock(timeout=60.0):
+                with corpus.maintenance_lock(timeout=60.0), corpus.ingest_lock(timeout=60.0):
                     _restore_tree(staging, root)
                     run_pending(rebuild=True, maintenance_lock_held=True)
             except Exception as caught:  # noqa: BLE001 - report both maintenance failures

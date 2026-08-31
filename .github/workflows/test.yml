@@ -40,7 +40,7 @@ jobs:
       - run: npm pack --dry-run
       - name: Validate the packaged Compose definition
         env:
-          WITDEM_IMAGE: ghcr.io/ebrahimisoheil/witdem-analytics:0.1.1
+          WITDEM_IMAGE: ghcr.io/ebrahimisoheil/witdem-analytics:0.1.2
           WITDEM_RECEIVER_PORT: "4318"
           WITDEM_DASHBOARD_PORT: "8501"
         run: docker compose --file compose.yaml config --quiet

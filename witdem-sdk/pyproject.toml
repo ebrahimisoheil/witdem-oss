@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "witdem-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Public client SDK for emitting Witdem business-semantic records correlated to the caller's active OpenTelemetry execution."
 readme = { text = "Witdem SDK provides optional application semantics and framework integrations for Witdem Analytics.", content-type = "text/markdown" }
 requires-python = ">=3.10,<3.14"

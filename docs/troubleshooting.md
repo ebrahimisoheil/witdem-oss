@@ -12,7 +12,7 @@ witdem logs worker
 witdem logs dashboard
 ```
 
-Use the same commands after `npx -y witdem@latest` for Docker installations.
+Use the same commands after `npx -y witdem@stable-0-1` for Docker installations.
 
 ## A port is occupied
 
@@ -43,11 +43,13 @@ historical workflow analytics need regeneration, stop active ingestion and run
 
 ## A projection rebuild fails
 
-The maintenance lock prevents ingestion and publication from racing the
-rebuild. Inspect `witdem logs worker`, fix the reported YAML, disk, or Duckle
-error, then rerun `witdem workflow compile --check` and `witdem workflow
-rebuild`. Failed corpus batches retain their error and can be retried; do not
-delete `corpus/`.
+The maintenance lock prevents competing projection work from racing the
+rebuild. Ingestion uses a separate short-lived durable-write lock, so ordinary
+ELT does not stall telemetry; stop application traffic before an explicit
+rebuild when you need one exact corpus snapshot. Inspect `witdem logs worker`,
+fix the reported YAML, disk, or Duckle error, then rerun `witdem workflow
+compile --check` and `witdem workflow rebuild`. Failed corpus batches retain
+their error and can be retried; do not delete `corpus/`.
 
 ## Update registry is unavailable
 

@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.2
+
+- Kept SDK and OTLP ingestion responsive during parallel durable writes and ordinary ELT processing.
+- Added bounded grouped persistence, explicit retryable backpressure, and configurable SDK delivery deadlines.
+- Added parallel durability and maintenance-contention regression coverage with no immutable-corpus changes.
+
 ## 0.1.1
 
 - Rotated the production release-manifest signing key after the original private key was unavailable.

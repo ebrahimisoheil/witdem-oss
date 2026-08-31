@@ -5,7 +5,7 @@
 NPX manages a version-matched Docker Compose stack:
 
 ```bash
-npx -y witdem@latest up
+npx -y witdem@stable-0-1 up
 ```
 
 pipx installs the analytics platform into an isolated Python environment and
@@ -36,7 +36,7 @@ witdem workflow compile [--check|--force]
 witdem workflow rebuild
 ```
 
-Prefix commands with `npx -y witdem@latest` instead of `witdem` for the Docker
+Prefix commands with `npx -y witdem@stable-0-1` instead of `witdem` for the Docker
 path. `down` stops services and never deletes data. `dev` is a foreground mode
 for contributors.
 
@@ -100,6 +100,27 @@ witdem prune --older-than 30d --yes  # permanent corpus retention action
 
 Retention is the only command above that deletes corpus data, and requires an
 explicit target and confirmation.
+
+## Ingestion reliability and backpressure
+
+The receiver acknowledges SDK and OTLP requests only after their immutable
+corpus data is durable. Concurrent writes pass through a bounded group-commit
+queue so disk work cannot block the async request loop. When that queue remains
+full, the receiver returns `503` with `Retry-After: 1`; clients should retry the
+same idempotent event or span identity.
+
+Receiver controls:
+
+| Environment variable | Default | Purpose |
+| --- | ---: | --- |
+| `WITDEM_INGEST_QUEUE_SIZE` | `2048` | Maximum durable commits waiting for the writer |
+| `WITDEM_INGEST_GROUP_SIZE` | `64` | Maximum commits published in one writer group |
+| `WITDEM_INGEST_GROUP_WINDOW_MS` | `2` | Short collection window for concurrent commits |
+| `WITDEM_INGEST_ENQUEUE_TIMEOUT` | `5` | Seconds to apply backpressure before returning `503` |
+
+Increasing timeouts alone does not increase receiver throughput. Check receiver
+logs and disk latency before increasing the queue. ELT remains outside the
+acknowledgement path and cannot make an accepted batch disappear.
 
 ## Updates and offline operation
 

@@ -174,3 +174,20 @@ One physical runtime boundary maps to an execution. Physically observed agents, 
 Content capture is disabled by default. Prompts, completions, documents, tool arguments/results, and graph state are not required for structural analytics. Correlation uses explicit execution/trace/span identity; names and timestamps are not used to invent missing relationships.
 
 Provider-reported monetary cost is authoritative when present. Otherwise Witdem may calculate cost from observed provider, model, and usage using its versioned catalog. Unknown prices remain unavailable with a diagnostic reason.
+
+## Delivery under load
+
+Semantic records use a bounded background queue, retry transient receiver
+errors three times, and expose delivery counts through `delivery_status()`.
+`flush()` returns `False` when its deadline expires; it never reports success
+while records remain pending.
+
+| Environment variable | Default | Purpose |
+| --- | ---: | --- |
+| `WITDEM_SDK_QUEUE_SIZE` | `1000` | Maximum pending semantic records |
+| `WITDEM_SDK_QUEUE_WAIT` | `0.1` | Seconds of application-side backpressure before dropping a new record |
+| `WITDEM_SDK_REQUEST_TIMEOUT` | `10` | Timeout for one delivery attempt |
+| `WITDEM_SDK_FLUSH_TIMEOUT` | `30` | Default deadline for explicit shutdown flushing |
+
+These settings affect SDK semantic records. Standard OTLP exporters have their
+own batch, queue, retry, and timeout settings.
