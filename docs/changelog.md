@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.1
+
+- Rotated the production release-manifest signing key after the original private key was unavailable.
+- Preserved the `0.1` protocol, workflow, corpus, and SDK compatibility contracts.
+
 ## 0.1.0
 
 - Hardened package and container reproducibility with locked runtime constraints and pinned build tools.

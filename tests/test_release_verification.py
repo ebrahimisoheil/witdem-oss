@@ -35,14 +35,14 @@ def test_existing_version_tag_cannot_point_to_another_commit(monkeypatch) -> Non
     real_git = MODULE._git
 
     def fake_git(*arguments: str, check: bool = True) -> str:
-        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.1.0^{commit}"):
+        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.1.1^{commit}"):
             return "old-commit"
         if arguments == ("rev-parse", "HEAD"):
             return "new-commit"
         return real_git(*arguments, check=check)
 
     monkeypatch.setattr(MODULE, "_git", fake_git)
-    errors = MODULE.validate("platform", "analytics-v0.1.0", require_clean=False)
+    errors = MODULE.validate("platform", "analytics-v0.1.1", require_clean=False)
     assert any("version reuse refused" in error for error in errors)
 
 
@@ -53,7 +53,7 @@ def test_tag_suffix_must_match_manifest() -> None:
 
 def test_ambient_platform_tag_does_not_contaminate_sdk_validation(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
-    monkeypatch.setenv("GITHUB_REF_NAME", "analytics-v0.1.0")
+    monkeypatch.setenv("GITHUB_REF_NAME", "analytics-v0.1.1")
 
     assert MODULE.validate("sdk", None, require_clean=False) == []
 
@@ -115,7 +115,7 @@ def test_release_manifest_links_to_analytics_tag() -> None:
         signing_key=signing_key,
     )
 
-    assert manifest["release_notes_url"].endswith("/releases/tag/analytics-v0.1.0")
+    assert manifest["release_notes_url"].endswith("/releases/tag/analytics-v0.1.1")
 
 
 @pytest.mark.parametrize("encoding", ["base64", "hex", "pem", "escaped_pem"])
@@ -140,7 +140,7 @@ def test_release_manifest_accepts_standard_ed25519_secret_encodings(encoding: st
     )
     public_key = base64.b64encode(private_key.public_key().public_bytes_raw()).decode()
 
-    assert verify_manifest(manifest, public_key=public_key)["platform_version"] == "0.1.0"
+    assert verify_manifest(manifest, public_key=public_key)["platform_version"] == "0.1.1"
 
 
 def test_release_manifest_rejects_unrecognized_signing_key() -> None:

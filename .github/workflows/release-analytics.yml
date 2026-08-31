@@ -273,6 +273,14 @@ jobs:
           uv run python scripts/release/build_manifest.py \
             --repository "${{ github.repository }}" \
             --output witdem-release.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from witdem.update import verify_manifest
+
+          verify_manifest(json.loads(Path("witdem-release.json").read_text()))
+          print("Signed release manifest matches the embedded public key.")
+          PY
       - name: Publish authoritative manifest last
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
