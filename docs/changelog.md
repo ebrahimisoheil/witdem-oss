@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.3
+
+- Fixed the worker container's false-negative health status under DuckDB lock contention.
+- Added an explicit lock-free process-liveness probe for workers in local and NPX Compose deployments.
+
 ## 0.1.2
 
 - Kept SDK and OTLP ingestion responsive during parallel durable writes and ordinary ELT processing.
