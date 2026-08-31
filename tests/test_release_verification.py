@@ -29,7 +29,7 @@ def test_existing_version_tag_cannot_point_to_another_commit(monkeypatch) -> Non
         return real_git(*arguments, check=check)
 
     monkeypatch.setattr(MODULE, "_git", fake_git)
-    errors = MODULE.validate("platform", None, require_clean=False)
+    errors = MODULE.validate("platform", "analytics-v0.1.0", require_clean=False)
     assert any("version reuse refused" in error for error in errors)
 
 
@@ -38,19 +38,18 @@ def test_tag_suffix_must_match_manifest() -> None:
     assert any("release tag" in error for error in errors)
 
 
-def test_pull_request_merge_ref_is_not_treated_as_a_release_tag(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("CI", "true")
-    monkeypatch.setenv("GITHUB_REF_TYPE", "branch")
-    monkeypatch.setenv("GITHUB_REF_NAME", "1/merge")
-
-    assert MODULE.validate("platform", None, require_clean=False) == []
-
-
-def test_tag_ref_suffix_must_match_manifest(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_ambient_platform_tag_does_not_contaminate_sdk_validation(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
-    monkeypatch.setenv("GITHUB_REF_NAME", "analytics-v9.9.9")
+    monkeypatch.setenv("GITHUB_REF_NAME", "analytics-v0.1.0")
 
-    errors = MODULE.validate("platform", None, require_clean=False)
+    assert MODULE.validate("sdk", None, require_clean=False) == []
+
+
+def test_explicit_tag_is_validated_even_when_ambient_tag_differs(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
+    monkeypatch.setenv("GITHUB_REF_NAME", "sdk-v0.1.0")
+
+    errors = MODULE.validate("platform", "analytics-v9.9.9", require_clean=False)
     assert any("release tag" in error for error in errors)
 
 
@@ -67,3 +66,18 @@ def test_release_commit_whitespace_errors_are_rejected(monkeypatch) -> None:  # 
     monkeypatch.setattr(MODULE, "_git", fake_git)
     errors = MODULE.validate("platform", None, require_clean=True)
     assert any("release commit contains whitespace errors" in error for error in errors)
+
+
+def test_platform_recovery_preserves_immutable_tag_provenance() -> None:
+    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "release-analytics.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    release_tag_expression = (
+        "RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' "
+        "&& inputs.release_tag || github.ref_name }}"
+    )
+    assert release_tag_expression in workflow
+    assert workflow.count("ref: ${{ needs.preflight.outputs.release_tag }}") == 3
+    assert "sha-${{ needs.preflight.outputs.release_commit }}" in workflow

@@ -3,6 +3,12 @@ name: Release Witdem platform
 on:
   push:
     tags: ["analytics-v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing immutable analytics release tag to recover"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -17,6 +23,7 @@ env:
   PIP_VERSION: "26.2.1"
   BUILD_VERSION: "1.5.0"
   TWINE_VERSION: "7.0.0"
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   preflight:
@@ -24,17 +31,31 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       sdk_version: ${{ steps.release.outputs.sdk_version }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_commit: ${{ steps.release.outputs.release_commit }}
     steps:
+      - name: Require an immutable analytics tag
+        run: |
+          case "$RELEASE_TAG" in
+            analytics-v*) ;;
+            *) echo "Recovery requires an analytics-v* tag, found: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          git ls-remote --exit-code \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
       - id: release
         run: |
-          python scripts/release/verify.py --component platform --tag "$GITHUB_REF_NAME" --require-clean
+          python scripts/release/verify.py --component platform --tag "$RELEASE_TAG" --require-clean
           version=$(python -c 'import json; print(json.load(open("release.json"))["platform_version"])')
           sdk_version=$(python -c 'import json; print(json.load(open("release.json"))["sdk_version"])')
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sdk_version=$sdk_version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - run: python scripts/release/check_pypi.py witdem-analytics "${{ steps.release.outputs.version }}"
       - run: python scripts/release/check_pypi.py witdem-sdk "${{ steps.release.outputs.sdk_version }}" --must-exist
       - uses: actions/setup-node@v4
@@ -64,6 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.preflight.outputs.release_tag }}
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
@@ -143,6 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.preflight.outputs.release_tag }}
           fetch-depth: 0
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -161,7 +184,7 @@ jobs:
           provenance: mode=max
           tags: |
             ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ needs.preflight.outputs.release_commit }}
       - name: Compose smoke test published image
         env:
           WITDEM_ANALYTICS_IMAGE: ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}
@@ -223,6 +246,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.release_tag }}
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}
@@ -245,5 +270,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" witdem-release.json --clobber
+          gh release view "${{ needs.preflight.outputs.release_tag }}" >/dev/null 2>&1 || \
+            gh release create "${{ needs.preflight.outputs.release_tag }}" --generate-notes
+          gh release upload "${{ needs.preflight.outputs.release_tag }}" witdem-release.json --clobber
