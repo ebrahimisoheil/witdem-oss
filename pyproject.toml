@@ -37,6 +37,7 @@ witdem = "witdem.cli:main"
 
 [dependency-groups]
 dev = [
+  "httpx2>=2.12,<3",
   "mypy>=1.15,<2",
   "numpy>=2,<2.3",
   "pytest>=8.3,<9",
