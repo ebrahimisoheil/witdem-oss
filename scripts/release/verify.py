@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import runpy
 import subprocess
 import sys
@@ -171,20 +170,18 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         errors.append(f"docker-compose.yml does not default to {image_reference}")
 
     expected_tag = f"analytics-v{platform_version}" if component == "platform" else f"sdk-v{sdk_version}"
-    observed_tag = tag
-    if not observed_tag and os.getenv("GITHUB_REF_TYPE") == "tag":
-        observed_tag = os.getenv("GITHUB_REF_NAME")
-    if observed_tag:
-        _expect("release tag", observed_tag, expected_tag, errors)
+    if tag:
+        _expect("release tag", tag, expected_tag, errors)
 
-    existing_tag_commit = _git("rev-parse", f"refs/tags/{expected_tag}^{{commit}}", check=False)
-    head_commit = _git("rev-parse", "HEAD")
-    if existing_tag_commit and existing_tag_commit != head_commit:
-        errors.append(
-            f"version reuse refused: {expected_tag} already identifies {existing_tag_commit}, not {head_commit}"
-        )
-    if observed_tag and not existing_tag_commit:
-        errors.append(f"release tag {expected_tag} is not available in the checkout")
+    if tag:
+        existing_tag_commit = _git("rev-parse", f"refs/tags/{expected_tag}^{{commit}}", check=False)
+        head_commit = _git("rev-parse", "HEAD")
+        if existing_tag_commit and existing_tag_commit != head_commit:
+            errors.append(
+                f"version reuse refused: {expected_tag} already identifies {existing_tag_commit}, not {head_commit}"
+            )
+        if not existing_tag_commit:
+            errors.append(f"release tag {expected_tag} is not available in the checkout")
     if require_clean:
         if _git("status", "--porcelain"):
             errors.append("release worktree is not clean")
