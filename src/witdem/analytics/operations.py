@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from witdem.analytics.core import Operation
 
-OPERATION_TAXONOMY_VERSION = "1"
+OPERATION_TAXONOMY_VERSION = "2"
 MEASUREMENT_REGISTRY_VERSION = "1"
 
 OperationFamily = str
@@ -214,8 +214,16 @@ VALID_INTERFACES = frozenset(
         "mcp", "library", "local", "external_api", "browser", "human", "unknown",
     }
 )
-VALID_ROLES = frozenset({"application", "model", "tool", "agent", "evaluator", "guardrail", "system", "human"})
+VALID_ROLES = frozenset(
+    {"application", "model", "tool", "agent", "evaluator", "guardrail", "system", "human", "control"}
+)
 VALID_MODALITIES = frozenset({"text", "structured", "document", "vector", "image", "audio", "video"})
+VALID_ENTITY_KINDS = frozenset({"execution", "operation", "business_event"})
+VALID_PLANES = frozenset({"control", "work", "business"})
+
+_CONTROL_FAMILIES = frozenset({"orchestration", "agent_control"})
+_CONTROL_MCP_TYPES = frozenset({"mcp_connection", "mcp_server", "mcp_capability_discovery"})
+_MODEL_APPLICABLE_FAMILIES = frozenset({"inference", "media"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -500,6 +508,16 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
         ),
         None,
     )
+    explicit_entity_kind = str(attributes.get("witdem.entity.kind") or "").strip().casefold()
+    execution_name = str(attributes.get("witdem.execution.name") or "").strip()
+    entity_kind = (
+        explicit_entity_kind
+        if explicit_entity_kind in VALID_ENTITY_KINDS
+        else "execution"
+        if operation.parent_span_id is None and execution_name
+        else "operation"
+    )
+    runtime_kind = str(attributes.get("witdem.runtime.kind") or attributes.get("runtime.kind") or "").strip().casefold()
     operation_type = (
         explicit_type
         or OTEL_OPERATION_TYPES.get(otel_name)
@@ -508,7 +526,11 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
         or _bounded_metadata_type(operation)
     )
     if not operation_type:
-        operation_type = {
+        operation_type = ({
+            "workflow": "workflow",
+            "pipeline": "workflow",
+            "agent": "agent",
+        }.get(runtime_kind) if entity_kind == "execution" else None) or {
             "workflow": "workflow",
             "pipeline": "workflow",
             "agent": "agent",
@@ -530,16 +552,39 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
             if family == "orchestration"
             else "local"
         )
-    role = str(attributes.get("witdem.operation.role") or "application").strip().casefold()
+    explicit_plane = str(attributes.get("witdem.operation.plane") or "").strip().casefold()
+    plane = (
+        None
+        if entity_kind == "execution"
+        else explicit_plane
+        if explicit_plane in VALID_PLANES
+        else "control"
+        if family in _CONTROL_FAMILIES or operation_type in _CONTROL_MCP_TYPES
+        else "work"
+    )
+    role = str(
+        attributes.get("witdem.operation.role")
+        or ("control" if plane == "control" else "application")
+    ).strip().casefold()
     if role not in VALID_ROLES:
         role = "application"
+    model_reported = any(
+        attributes.get(key)
+        for key in ("gen_ai.response.model", "gen_ai.request.model", "model")
+    )
+    model_applicability = (
+        "applicable" if model_reported or family in _MODEL_APPLICABLE_FAMILIES else "not_applicable"
+    )
     return {
         "taxonomy_version": OPERATION_TAXONOMY_VERSION,
+        "entity_kind": entity_kind,
+        "plane": plane,
         "family": family,
         "type": operation_type,
         "subtype": str(attributes.get("witdem.operation.subtype") or otel_name or oi_kind or operation.name),
         "interface": interface,
         "role": role,
+        "model_applicability": model_applicability,
         "input_modalities": [
             item for item in _strings(attributes.get("witdem.operation.input_modalities")) if item in VALID_MODALITIES
         ],

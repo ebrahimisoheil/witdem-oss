@@ -17,6 +17,7 @@ pipx installation or replace it with `npx -y witdem@latest` for Docker.
 | `witdem eval validate <campaign.jsonl>` | Validate an offline evaluation campaign without writes |
 | `witdem eval import <campaign.jsonl> [--db PATH\|--data-dir PATH]` | Import framework-neutral campaign results |
 | `witdem workflow rebuild` | Rebuild serving projections under maintenance lock |
+| `witdem taxonomy reprocess` | Reclassify derived operation facts from preserved raw telemetry |
 | `witdem dev` | Run foreground contributor mode |
 
 Common options are `--receiver-port`, `--dashboard-port`, and `--data-dir`.

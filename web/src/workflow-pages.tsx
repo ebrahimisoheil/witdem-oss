@@ -193,18 +193,20 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
   const [selectedType, setSelectedType] = useState<string | null>(null);
   if (loading) return <LoadingPage />;
   if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
-  const semanticTypes = data.summary.types.filter((item) => item.family !== "orchestration");
-  const semanticTypeIds = new Set(semanticTypes.map((item) => item.type));
-  const semanticOperations = data.operations.filter((operation) => semanticTypeIds.has(operation.operation_type));
-  const semanticOperationIds = new Set(semanticOperations.map((operation) => operation.operation_id));
-  const semanticMeasurements = data.measurements.filter((measurement) => semanticOperationIds.has(measurement.operation_id));
-  const executionCount = new Set(semanticOperations.map((operation) => operation.execution_id)).size;
-  const measuredMeters = semanticMeasurements.filter((measurement) => measurement.measurement_status === "measured").length;
-  const missingMeters = semanticMeasurements.filter((measurement) => measurement.measurement_status === "missing").length;
+  const operationPlane = (item: OperationTypeSummary) => item.plane || (["orchestration", "agent_control"].includes(item.family) ? "control" : "work");
+  const workTypes = data.summary.types.filter((item) => operationPlane(item) === "work");
+  const controlTypes = data.summary.types.filter((item) => operationPlane(item) === "control");
+  const workTypeIds = new Set(workTypes.map((item) => item.type));
+  const workOperations = data.operations.filter((operation) => (operation.entity_kind || "operation") === "operation" && workTypeIds.has(operation.operation_type));
+  const workOperationIds = new Set(workOperations.map((operation) => operation.operation_id));
+  const workMeasurements = data.measurements.filter((measurement) => workOperationIds.has(measurement.operation_id));
+  const executionCount = new Set(workOperations.map((operation) => operation.execution_id)).size;
+  const measuredMeters = workMeasurements.filter((measurement) => measurement.measurement_status === "measured").length;
+  const missingMeters = workMeasurements.filter((measurement) => measurement.measurement_status === "missing").length;
   const applicableMeters = measuredMeters + missingMeters;
   const meterCoverage = applicableMeters ? measuredMeters / applicableMeters : null;
   const selectedOperationIds = new Set(
-    semanticOperations
+    workOperations
       .filter((operation) => !selectedType || operation.operation_type === selectedType)
       .map((operation) => operation.operation_id),
   );
@@ -212,7 +214,7 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
     let changed = true;
     while (changed) {
       changed = false;
-      for (const operation of semanticOperations) {
+      for (const operation of workOperations) {
         if (operation.parent_operation_id && selectedOperationIds.has(operation.parent_operation_id) && !selectedOperationIds.has(operation.operation_id)) {
           selectedOperationIds.add(operation.operation_id);
           changed = true;
@@ -220,29 +222,26 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
       }
     }
   }
-  const selectedOperations = semanticOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
+  const selectedOperations = workOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
   const selectedLabel = selectedType ? operationLabel(selectedType) : "All operation types";
-  const stepActivity = data.summary.types.find((item) => item.type === "component");
-  const workflowRuns = data.summary.types.find((item) => item.type === "workflow");
   return <div className="space-y-4">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <InsightCard label="Semantic operations" value={formatNumber(semanticOperations.length)} note={`${formatNumber(executionCount)} executions · ${formatNumber(semanticTypes.length)} operation types`} />
-      <InsightCard label="Direct failures" value={formatNumber(semanticOperations.filter((operation) => ["error", "failed"].includes(operation.status)).length)} note="Failures in AI, knowledge, media, action, or quality work" tone={semanticOperations.some((operation) => ["error", "failed"].includes(operation.status)) ? "attention" : "good"} />
+      <InsightCard label="Work operations" value={formatNumber(workOperations.length)} note={`${formatNumber(executionCount)} executions · ${formatNumber(workTypes.length)} operation types`} />
+      <InsightCard label="Direct failures" value={formatNumber(workOperations.filter((operation) => ["error", "failed"].includes(operation.status)).length)} note="Failures in computational, external, or human work" tone={workOperations.some((operation) => ["error", "failed"].includes(operation.status)) ? "attention" : "good"} />
       <InsightCard label="Usage coverage" value={meterCoverage == null ? "Not applicable" : `${Math.round(meterCoverage * 100)}%`} note={`${formatNumber(measuredMeters)} measured · ${formatNumber(missingMeters)} missing applicable meters`} tone={missingMeters ? "attention" : "good"} />
-      <InsightCard label="Participants" value={formatNumber(new Set(semanticOperations.flatMap((operation) => [operation.provider_id, operation.model_id, operation.implementation_id]).filter(Boolean)).size)} note="Explicitly reported providers, models, and implementations" />
+      <InsightCard label="Participants" value={formatNumber(uniqueIdentities(workOperations.flatMap((operation) => [operation.provider_id, operation.model_id, operation.implementation_id])).length)} note="Distinct reported providers, models, and implementations" />
     </div>
-    {(stepActivity || workflowRuns) ? <Panel title="Workflow coordination" note="Context from framework spans. These wrappers describe how work was coordinated; they are not model, OCR, retrieval, or tool calls.">
-      <div className="grid gap-3 md:grid-cols-2">
-        {stepActivity ? <CoordinationCard title="Step activity" value={`${formatNumber(stepActivity.operations)} spans`} detail={`${seconds(stepActivity.active_seconds)} across YAML workflow nodes`} explanation="Framework component spans attributed to declared workflow steps." /> : null}
-        {workflowRuns ? <CoordinationCard title="Workflow runs" value={`${formatNumber(workflowRuns.operations)} runs`} detail={`${seconds(workflowRuns.active_seconds)} top-level elapsed activity`} explanation="Top-level framework pipeline spans enclosing each execution." /> : null}
+    {controlTypes.length ? <Panel title="Control-flow profile" note="How the system coordinated work. Execution containers remain in run headers and are not counted as operations.">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {controlTypes.map((item) => <CoordinationCard key={item.type} title={operationLabel(item.type)} value={`${formatNumber(item.operations)} operations`} detail={seconds(item.active_seconds)} explanation={`${operationFamilyLabel(item.family)} control activity${item.failed ? ` · ${formatNumber(item.failed)} failed` : ""}.`} />)}
       </div>
     </Panel> : null}
     <div className="grid gap-4 xl:grid-cols-2">
-      <Panel title="Where work happened" note="Semantic operation types only. Switch between volume, active time, cost, tokens, and operation-specific meters."><OperationActivityChart items={semanticTypes} onSelect={setSelectedType} /></Panel>
-      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by explicitly reported participant identity."><ParticipantOperationChart operations={semanticOperations} measurements={semanticMeasurements} /></Panel>
+      <Panel title="Where work happened" note="Work-plane operations only. Switch between volume, active time, cost, tokens, and operation-specific meters."><OperationActivityChart items={workTypes} onSelect={setSelectedType} /></Panel>
+      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by distinct participant identity."><ParticipantOperationChart operations={workOperations} measurements={workMeasurements} /></Panel>
     </div>
-    <Panel title="Operation profile" note="Actual AI, knowledge, media, action, and quality work. Select a card to inspect supporting operations.">
-      <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{semanticTypes.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
+    <Panel title="Work profile" note="Computational, external, and human work—separate from control flow and business outcomes. Select a card to inspect supporting operations.">
+      <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{workTypes.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
     </Panel>
     <Panel title={`Observed operations · ${selectedLabel}`} note={selectedType ? "Selected operations and their nested child work. Open an execution to inspect the full path." : "Longest operations first. Open an execution to inspect the operation in its workflow path."}>
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
@@ -337,15 +336,32 @@ function OperationTypeCard({ item, active, onClick }: { item: OperationTypeSumma
     return (leftRank < 0 ? preferred.length : leftRank) - (rightRank < 0 ? preferred.length : rightRank) || left.localeCompare(right);
   }).slice(0, 3);
   const usage = measurementKeys.map((key) => [key, operationFamilyLabel(key.replaceAll(".", "_"))] as const);
+  const participants = uniqueIdentities([...item.providers, ...item.implementations]);
+  const linkedActivity = (item.linked_children || []).map((child) => {
+    const identities = uniqueIdentities([...child.providers, ...child.models, ...child.implementations]);
+    return `${operationLabel(child.type)}${identities.length ? `: ${identities.join(" · ")}` : ""}`;
+  });
   return <button type="button" onClick={onClick} className={`flex h-full min-w-0 flex-col rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
     <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0"><div className="truncate text-[13px] font-semibold">{operationLabel(item.type)}</div><div className="mt-0.5 truncate text-[9px] text-[#817b83]">{operationFamilyLabel(item.family)} · {operationInterfaceLabel(item.interfaces, item.family)}</div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${item.failed ? "bg-red-50 text-red-700" : "bg-[#eef8f2] text-[#27754c]"}`}>{item.failed ? `${item.failed} failed` : "Healthy"}</span></div>
     <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Operations" value={formatNumber(item.operations)} /><CardCell label="Active time" value={seconds(item.active_seconds)} /></div>
     {usage.length ? <div className={`mt-2 grid gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed] ${usage.length === 1 ? "grid-cols-1" : usage.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>{usage.map(([key, label]) => <CardCell key={key} label={label} value={key === "cost.usd" ? money(item.measurements[key]) : formatNumber(item.measurements[key])} />)}</div> : <div className="mt-2 text-[9px] text-[#89838b]">Usage meters not applicable</div>}
-    {item.providers.length || item.models.length || item.implementations.length ? <div className="mt-2 grid gap-2 border-t border-[#ece9ed] pt-2 sm:grid-cols-[.7fr_1.3fr]">
-      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Participants</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{[...item.providers, ...item.implementations].join(", ") || "Not reported"}</div></div>
-      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Models</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{item.models.join(", ") || "Not reported"}</div></div>
-    </div> : null}
+    <div className="mt-2 grid gap-2 border-t border-[#ece9ed] pt-2 sm:grid-cols-[.7fr_1.3fr]">
+      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Participants</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{participants.join(", ") || "Not reported"}</div></div>
+      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Models</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{item.models.join(", ") || (item.model_applicability === "not_applicable" ? "Not applicable" : "Not reported")}</div></div>
+    </div>
+    {linkedActivity.length ? <div className="mt-2 border-t border-[#ece9ed] pt-2"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Linked child activity</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{linkedActivity.join("; ")}</div></div> : null}
   </button>;
+}
+
+export function uniqueIdentities(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  return values.filter((value): value is string => {
+    if (!value) return false;
+    const key = value.trim().toLocaleLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 const operationFamilyLabel = (family: string) => family.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());

@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.2.2
+
+- Separated execution containers, control-plane orchestration, and work-plane operations so workflow roots no longer appear as unknown AI operations.
+- Added explicit model applicability, participant deduplication, and linked child activity to operation profiles.
+- Added safe taxonomy reprocessing from immutable raw telemetry with `witdem taxonomy reprocess`.
+- Reclassified the preserved CUAD stress dataset with taxonomy v2 and verified direct Anthropic and OpenAI SDK paths alongside framework-emitted operations.
+
 ## 0.2.1
 
 - Added an extensible, versioned AI operation taxonomy that keeps operation type separate from interface, provider, implementation, framework, and role.

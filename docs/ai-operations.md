@@ -167,6 +167,18 @@ witdem workflow rebuild
 
 The rebuild retains historical workflow hashes and unknown extension measurements.
 
+When an operation-taxonomy release changes classification or applicability,
+reprocess every derived operation fact without modifying the immutable raw
+telemetry:
+
+```bash
+witdem taxonomy reprocess
+```
+
+Execution containers remain in run history and workflow graphs, but are not
+counted in Work or Control-flow operation profiles. The reprocessor reports the
+taxonomy and measurement-registry versions used for the new serving facts.
+
 ## Dashboard placement
 
 Workflow detail links to dedicated Overview, Operations, Evaluations, and Executions routes. Operations and Evaluations combine compact summaries, interactive analytics, and filtered evidence rather than presenting raw lists alone. Execution replay includes compact operation/evaluation summaries. System Health and Issues surface cross-workflow operation failures and missing applicable meters; Goal Performance links evaluations without treating every evaluation as a product goal. Charts never mix pages, tokens, documents, vectors, seconds, and media units on one axis.

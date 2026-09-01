@@ -424,7 +424,7 @@ def _workflow_compile(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
-def _workflow_rebuild(args: argparse.Namespace) -> None:
+def _rebuild_serving_data(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, int]]:
     from witdem.dashboard.service import materialize_workflow_projections
     from witdem.elt.worker import run_pending
     from witdem.ingest import corpus
@@ -435,7 +435,31 @@ def _workflow_rebuild(args: argparse.Namespace) -> None:
     with corpus.maintenance_lock(timeout=60.0):
         transform = run_pending(rebuild=True, maintenance_lock_held=True)
         projections = materialize_workflow_projections(config.database)
+    return transform, projections
+
+
+def _workflow_rebuild(args: argparse.Namespace) -> None:
+    transform, projections = _rebuild_serving_data(args)
     print(json.dumps({"status": "ok", "transform": transform, "projections": projections}, indent=2))
+
+
+def _taxonomy_reprocess(args: argparse.Namespace) -> None:
+    from witdem.analytics.operations import MEASUREMENT_REGISTRY_VERSION, OPERATION_TAXONOMY_VERSION
+
+    transform, projections = _rebuild_serving_data(args)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "operation_taxonomy_version": OPERATION_TAXONOMY_VERSION,
+                "measurement_registry_version": MEASUREMENT_REGISTRY_VERSION,
+                "raw_telemetry": "preserved",
+                "transform": transform,
+                "projections": projections,
+            },
+            indent=2,
+        )
+    )
 
 
 def _eval_validate(args: argparse.Namespace) -> None:
@@ -698,6 +722,15 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_rebuild.add_argument("--db")
     workflow_rebuild.add_argument("--data-dir")
     workflow_rebuild.set_defaults(func=_workflow_rebuild)
+    taxonomy = commands.add_parser("taxonomy", help="inspect or reprocess operation taxonomy facts")
+    taxonomy_commands = taxonomy.add_subparsers(dest="taxonomy_command", required=True)
+    taxonomy_reprocess = taxonomy_commands.add_parser(
+        "reprocess",
+        help="rebuild derived operation facts from preserved raw telemetry",
+    )
+    taxonomy_reprocess.add_argument("--db")
+    taxonomy_reprocess.add_argument("--data-dir")
+    taxonomy_reprocess.set_defaults(func=_taxonomy_reprocess)
     evaluations = commands.add_parser("eval", help="validate or import offline evaluation campaigns")
     evaluation_commands = evaluations.add_subparsers(dest="evaluation_command", required=True)
     evaluation_validate = evaluation_commands.add_parser("validate", help="validate campaign JSONL without writes")

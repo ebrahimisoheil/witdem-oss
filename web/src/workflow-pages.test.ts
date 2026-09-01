@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
+import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
 
 describe("workflow presentation", () => {
@@ -112,6 +112,10 @@ describe("workflow presentation", () => {
     const measurement = (operation_id: string, measurement_key: string, value: number): OperationMeasurement => ({ operation_id, execution_id: "run-1", workflow_id: "flow", measurement_key, value, unit: measurement_key === "cost.usd" ? "USD" : "token", measurement_status: "measured", provenance: "provider" });
     const rows = participantOperationRows([operation("a", "one"), operation("b", "two")], [measurement("a", "cost.usd", 1), measurement("b", "cost.usd", 4), measurement("b", "tokens.total", 20)], "provider");
     expect(rows).toEqual([{ id: "one", calls: 1, time: 2, cost: 1, tokens: null }, { id: "two", calls: 1, time: 3, cost: 4, tokens: 20 }]);
+  });
+
+  it("deduplicates participant identities case-insensitively", () => {
+    expect(uniqueIdentities(["lancedb", "LanceDB", null, "voyage"])).toEqual(["lancedb", "voyage"]);
   });
 
   it("groups evaluation definitions and preserves unassessed results", () => {

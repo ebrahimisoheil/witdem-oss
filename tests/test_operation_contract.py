@@ -7,6 +7,8 @@ from witdem.analytics.core import Execution, Operation
 from witdem.analytics.operations import operation_identity, operation_measurements
 from witdem.analytics.repository.analytics_repository import _participant_identity, _token_eligible
 from witdem.analytics.serving import build_serving_rows
+from witdem.cli import build_parser
+from witdem.dashboard.service import _operation_summary
 from witdem.elt.adapter_stage import transform_bundle
 from witdem.integrations.normalizers.otel import sanitize_otel_span
 
@@ -89,6 +91,102 @@ def test_classification_precedence_and_orthogonal_dimensions() -> None:
     assert identity["family"] == "custom"
     assert identity["interface"] == "mcp"
     assert identity["role"] == "tool"
+
+
+def test_root_execution_container_is_not_a_work_operation() -> None:
+    started = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    operation = Operation(
+        operation_id="root-contract-review",
+        execution_id="run-contract-review",
+        kind="operation",
+        name="contract-review",
+        started_at=started,
+        ended_at=started + timedelta(seconds=1),
+        attributes={
+            "witdem.execution.name": "contract-review",
+            "witdem.runtime.kind": "workflow",
+        },
+    )
+
+    identity = operation_identity(operation)
+
+    assert identity["entity_kind"] == "execution"
+    assert identity["family"] == "orchestration"
+    assert identity["type"] == "workflow"
+    assert identity["plane"] is None
+    assert identity["model_applicability"] == "not_applicable"
+
+
+def test_control_and_work_planes_do_not_depend_on_framework_or_interface() -> None:
+    workflow = _operation("workflow")
+    retrieval = _operation("retrieval", {"witdem.operation.interface": "mcp"})
+
+    workflow_identity = operation_identity(workflow)
+    retrieval_identity = operation_identity(retrieval)
+
+    assert workflow_identity["plane"] == "control"
+    assert workflow_identity["role"] == "control"
+    assert retrieval_identity["plane"] == "work"
+    assert retrieval_identity["interface"] == "mcp"
+    assert retrieval_identity["model_applicability"] == "not_applicable"
+
+
+def test_operation_summary_excludes_containers_and_preserves_linked_child_activity() -> None:
+    operations = [
+        {
+            "operation_id": "root",
+            "entity_kind": "execution",
+            "family": "orchestration",
+            "operation_type": "workflow",
+            "status": "ok",
+        },
+        {
+            "operation_id": "retrieval",
+            "entity_kind": "operation",
+            "family": "knowledge",
+            "operation_type": "retrieval",
+            "implementation_id": "lancedb",
+            "model_applicability": "not_applicable",
+            "status": "ok",
+        },
+        {
+            "operation_id": "embedding",
+            "parent_operation_id": "retrieval",
+            "entity_kind": "operation",
+            "family": "inference",
+            "operation_type": "embedding",
+            "provider_id": "voyage",
+            "model_id": "voyage-4-large",
+            "model_applicability": "applicable",
+            "status": "ok",
+        },
+    ]
+
+    summary = _operation_summary(operations, [])
+    retrieval = next(item for item in summary["types"] if item["type"] == "retrieval")
+
+    assert summary["total_operations"] == 2
+    assert summary["execution_containers"] == 1
+    assert all(item["type"] != "workflow" for item in summary["types"])
+    assert retrieval["models"] == []
+    assert retrieval["model_applicability"] == "not_applicable"
+    assert retrieval["linked_children"] == [
+        {
+            "type": "embedding",
+            "family": "inference",
+            "operations": 1,
+            "providers": ["voyage"],
+            "models": ["voyage-4-large"],
+            "implementations": [],
+        }
+    ]
+
+
+def test_taxonomy_reprocess_cli_is_available() -> None:
+    args = build_parser().parse_args(["taxonomy", "reprocess"])
+
+    assert args.command == "taxonomy"
+    assert args.taxonomy_command == "reprocess"
 
 
 def test_adapter_and_bounded_function_metadata_classify_without_provider_rules() -> None:

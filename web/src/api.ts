@@ -396,11 +396,14 @@ export type OperationFact = {
   execution_id: string;
   workflow_id: string;
   node_id?: string | null;
+  entity_kind?: "execution" | "operation" | "business_event";
+  plane?: "control" | "work" | "business" | null;
   family: string;
   operation_type: string;
   subtype?: string | null;
   interface: string;
   role: string;
+  model_applicability?: "applicable" | "not_applicable";
   input_modalities: string[];
   output_modalities: string[];
   provider_id?: string | null;
@@ -419,6 +422,7 @@ export type OperationFact = {
 export type OperationTypeSummary = {
   type: string;
   family: string;
+  plane?: "control" | "work" | "business";
   operations: number;
   failed: number;
   active_seconds: number;
@@ -427,10 +431,20 @@ export type OperationTypeSummary = {
   providers: string[];
   models: string[];
   implementations: string[];
+  model_applicability?: "applicable" | "not_applicable";
+  linked_children?: Array<{
+    type: string;
+    family: string;
+    operations: number;
+    providers: string[];
+    models: string[];
+    implementations: string[];
+  }>;
   measurements: Record<string, number>;
 };
 export type OperationSummary = {
   total_operations: number;
+  execution_containers?: number;
   failed_operations: number;
   types: OperationTypeSummary[];
 };
