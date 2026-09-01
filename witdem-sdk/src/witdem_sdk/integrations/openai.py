@@ -1,9 +1,8 @@
-"""OpenRouter's OpenAI-compatible client with authoritative route and cost enrichment."""
+"""Explicit instrumentation for the direct OpenAI Python SDK."""
 
 from __future__ import annotations
 
 import inspect
-import json
 from collections.abc import Callable, Mapping
 from functools import wraps
 from typing import Any
@@ -30,67 +29,61 @@ def _mapping(value: Any) -> Mapping[str, Any]:
         return value
     dump = getattr(value, "model_dump", None)
     if callable(dump):
-        observed = dump()
-        return observed if isinstance(observed, Mapping) else {}
+        dumped = dump()
+        return dumped if isinstance(dumped, Mapping) else {}
+    attributes = getattr(value, "__dict__", None)
+    if isinstance(attributes, Mapping):
+        return attributes
     return {}
 
 
-def _metadata(response: Any) -> Mapping[str, Any]:
-    response_mapping = _mapping(response)
-    direct = response_mapping.get("openrouter_metadata")
-    if isinstance(direct, Mapping):
-        return direct
-    provider_fields = response_mapping.get("provider_specific_fields")
-    if isinstance(provider_fields, Mapping):
-        nested = provider_fields.get("openrouter_metadata")
-        if isinstance(nested, Mapping):
-            return nested
-    return {}
-
-
-def _selected_provider(metadata: Mapping[str, Any]) -> str | None:
-    endpoints = metadata.get("endpoints")
-    available = endpoints.get("available") if isinstance(endpoints, Mapping) else None
-    if isinstance(available, list):
-        for endpoint in available:
-            if isinstance(endpoint, Mapping) and endpoint.get("selected") and endpoint.get("provider"):
-                return str(endpoint["provider"]).casefold().replace(" ", "_")
-    return None
+def _payload(response: Any) -> Any:
+    nested = _value(response, "response")
+    return nested if nested is not None else response
 
 
 def observe_response(response: Any) -> Mapping[str, Any]:
-    """Return content-free usage, route, and billing facts from an OpenRouter response."""
+    """Extract content-free identity, usage, and tool-call facts."""
 
-    nested_response = _value(response, "response")
-    payload = nested_response if nested_response is not None else response
+    payload = _payload(response)
     usage = _mapping(_value(payload, "usage", {}))
-    prompt_details = _mapping(usage.get("prompt_tokens_details"))
-    completion_details = _mapping(usage.get("completion_tokens_details"))
-    metadata = _metadata(payload)
-    cost_details = _mapping(usage.get("cost_details"))
+    input_details = _mapping(usage.get("input_tokens_details") or usage.get("prompt_tokens_details"))
+    output_details = _mapping(usage.get("output_tokens_details") or usage.get("completion_tokens_details"))
+    data = _value(payload, "data", [])
+    vectors = data if isinstance(data, (list, tuple)) else []
+    first_vector = _value(vectors[0], "embedding", []) if vectors else []
     return {
         "response_model": _value(payload, "model"),
-        "input_tokens": usage.get("prompt_tokens", usage.get("input_tokens")),
-        "output_tokens": usage.get("completion_tokens", usage.get("output_tokens")),
+        "input_tokens": usage.get("input_tokens", usage.get("prompt_tokens")),
+        "output_tokens": usage.get("output_tokens", usage.get("completion_tokens")),
         "total_tokens": usage.get("total_tokens"),
-        "cache_read_tokens": prompt_details.get("cached_tokens"),
-        "cache_creation_tokens": prompt_details.get("cache_write_tokens"),
-        "reasoning_tokens": completion_details.get("reasoning_tokens"),
-        "audio_input_tokens": prompt_details.get("audio_tokens"),
-        "audio_output_tokens": completion_details.get("audio_tokens"),
-        "cost_usd": usage.get("cost"),
-        "upstream_cost_usd": cost_details.get("upstream_inference_cost"),
-        "route_provider": _selected_provider(metadata),
-        "route_requested_model": metadata.get("requested"),
-        "route_strategy": metadata.get("strategy"),
-        "route_region": metadata.get("region"),
-        "route_attempt": metadata.get("attempt"),
-        "route_is_byok": metadata.get("is_byok"),
-        "route_attempts": metadata.get("attempts"),
+        "cache_read_tokens": input_details.get("cached_tokens"),
+        "reasoning_tokens": output_details.get("reasoning_tokens"),
+        "audio_input_tokens": input_details.get("audio_tokens"),
+        "audio_output_tokens": output_details.get("audio_tokens"),
+        "output_vectors": len(vectors) if vectors else None,
+        "vector_dimensions": len(first_vector) if isinstance(first_vector, (list, tuple)) else None,
+        "tool_call_ids": _tool_call_ids(payload),
     }
 
 
-def _record(operation: Any, response: Any) -> None:
+def _tool_call_ids(payload: Any) -> list[str]:
+    ids: list[str] = []
+    for item in _value(payload, "output", []) or []:
+        item_type = _value(item, "type")
+        item_id = _value(item, "call_id") or _value(item, "id")
+        if item_type in {"function_call", "tool_call"} and item_id:
+            ids.append(str(item_id))
+    for choice in _value(payload, "choices", []) or []:
+        message = _value(choice, "message")
+        for call in _value(message, "tool_calls", []) or []:
+            item_id = _value(call, "id")
+            if item_id:
+                ids.append(str(item_id))
+    return list(dict.fromkeys(ids))
+
+
+def _record(operation: Any, response: Any, *, embedding: bool) -> None:
     observed = observe_response(response)
     response_model = observed.get("response_model")
     if response_model:
@@ -102,53 +95,59 @@ def _record(operation: Any, response: Any) -> None:
             "output_tokens",
             "total_tokens",
             "cache_read_tokens",
-            "cache_creation_tokens",
             "reasoning_tokens",
             "audio_input_tokens",
             "audio_output_tokens",
         )
-        if isinstance(observed.get(name), (int, float)) and not isinstance(observed.get(name), bool)
+        if isinstance(observed.get(name), int)
     }
+    meters: dict[str, int] = {}
+    if embedding:
+        if isinstance(observed.get("output_vectors"), int):
+            meters["vectors.output"] = observed["output_vectors"]
+        if isinstance(observed.get("vector_dimensions"), int):
+            meters["vector.dimensions"] = observed["vector_dimensions"]
+        if meters:
+            usage["meters"] = meters
     if usage:
         operation.usage(**usage)
-    cost = observed.get("cost_usd")
-    if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-        operation.cost(float(cost), source="openrouter_reported")
-    attrs = {
-        "witdem.gateway.name": "openrouter",
-        "witdem.route.provider": observed.get("route_provider"),
-        "witdem.route.requested_model": observed.get("route_requested_model"),
-        "witdem.route.strategy": observed.get("route_strategy"),
-        "witdem.route.region": observed.get("route_region"),
-        "witdem.route.attempt": observed.get("route_attempt"),
-        "witdem.route.is_byok": observed.get("route_is_byok"),
-        "witdem.route.upstream_cost_usd": observed.get("upstream_cost_usd"),
+    tool_ids = observed.get("tool_call_ids")
+    if isinstance(tool_ids, list) and tool_ids:
+        operation.span.set_attribute("gen_ai.tool.call.id", tool_ids[0])
+        operation.span.set_attribute("witdem.openai.tool_call.ids", tool_ids)
+        operation.span.set_attribute("witdem.openai.tool_call.count", len(tool_ids))
+
+
+def _context(witdem: Any, operation_name: str, model: str, *, embedding: bool) -> Any:
+    attributes = {
+        "witdem.execution.source": "openai_sdk",
+        "witdem.client.library": "openai",
+        "witdem.capture_content": False,
     }
-    for key, value in attrs.items():
-        if value is not None:
-            operation.span.set_attribute(key, value)
-    provider = observed.get("route_provider")
-    if provider:
-        operation.span.set_attribute("gen_ai.provider.name", str(provider))
-    attempts = observed.get("route_attempts")
-    if isinstance(attempts, list):
-        operation.span.set_attribute("witdem.route.attempt_count", len(attempts))
-        operation.span.set_attribute("witdem.route.attempts", json.dumps(attempts, default=str, separators=(",", ":")))
-
-
-def _headers(kwargs: dict[str, Any]) -> None:
-    current = kwargs.get("extra_headers")
-    resolved = dict(current) if isinstance(current, Mapping) else {}
-    resolved.setdefault("X-OpenRouter-Metadata", "enabled")
-    kwargs["extra_headers"] = resolved
+    if embedding:
+        return witdem.operation(
+            operation_name,
+            family="inference",
+            operation_type="embedding",
+            subtype="embeddings",
+            interface="model_api",
+            provider_id="openai",
+            model_id=model,
+            input_modalities=("text",),
+            output_modalities=("vector",),
+            execution_source="openai_sdk",
+            attributes={"witdem.client.library": "openai", "gen_ai.operation.name": "embeddings"},
+        )
+    return witdem.model(operation_name, provider="openai", model=model, attributes=attributes)
 
 
 class _ObservedStream:
-    def __init__(self, stream: Any, operation: Any, context: Any) -> None:
+    def __init__(self, stream: Any, operation: Any, context: Any, *, embedding: bool) -> None:
         self._stream = stream
         self._iterator = iter(stream)
         self._operation = operation
         self._context = context
+        self._embedding = embedding
         self._last: Any = None
         self._closed = False
 
@@ -175,7 +174,7 @@ class _ObservedStream:
             return
         self._closed = True
         if self._last is not None:
-            _record(self._operation, self._last)
+            _record(self._operation, self._last, embedding=self._embedding)
         close = getattr(self._stream, "close", None)
         try:
             if callable(close):
@@ -185,11 +184,12 @@ class _ObservedStream:
 
 
 class _ObservedAsyncStream:
-    def __init__(self, stream: Any, operation: Any, context: Any) -> None:
+    def __init__(self, stream: Any, operation: Any, context: Any, *, embedding: bool) -> None:
         self._stream = stream
         self._iterator = stream.__aiter__()
         self._operation = operation
         self._context = context
+        self._embedding = embedding
         self._last: Any = None
         self._closed = False
 
@@ -216,7 +216,7 @@ class _ObservedAsyncStream:
             return
         self._closed = True
         if self._last is not None:
-            _record(self._operation, self._last)
+            _record(self._operation, self._last, embedding=self._embedding)
         close = getattr(self._stream, "aclose", None)
         try:
             if callable(close):
@@ -226,31 +226,21 @@ class _ObservedAsyncStream:
 
 
 class _CreateProxy:
-    def __init__(self, create: Any, witdem: Any, operation_name: str) -> None:
+    def __init__(self, create: Any, witdem: Any, operation_name: str, *, embedding: bool = False) -> None:
         self._create = create
         self._witdem = witdem
         self._operation_name = operation_name
+        self._embedding = embedding
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        _headers(kwargs)
-        model = str(kwargs.get("model") or "openrouter.model")
-        context = self._witdem.model(
-            self._operation_name,
-            provider="openrouter",
-            model=model,
-            attributes={
-                "witdem.gateway.name": "openrouter",
-                "witdem.execution.source": "openrouter_sdk",
-                "witdem.client.library": "openai",
-                "witdem.capture_content": False,
-            },
-        )
+        model = str(kwargs.get("model") or "openai.model")
+        context = _context(self._witdem, self._operation_name, model, embedding=self._embedding)
         operation = context.__enter__()
         try:
             response = self._create(*args, **kwargs)
             if kwargs.get("stream"):
-                return _ObservedStream(response, operation, context)
-            _record(operation, response)
+                return _ObservedStream(response, operation, context, embedding=self._embedding)
+            _record(operation, response, embedding=self._embedding)
             context.__exit__(None, None, None)
             return response
         except BaseException as exc:
@@ -261,25 +251,14 @@ class _CreateProxy:
 
 class _AsyncCreateProxy(_CreateProxy):
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        _headers(kwargs)
-        model = str(kwargs.get("model") or "openrouter.model")
-        context = self._witdem.model(
-            self._operation_name,
-            provider="openrouter",
-            model=model,
-            attributes={
-                "witdem.gateway.name": "openrouter",
-                "witdem.execution.source": "openrouter_sdk",
-                "witdem.client.library": "openai",
-                "witdem.capture_content": False,
-            },
-        )
+        model = str(kwargs.get("model") or "openai.model")
+        context = _context(self._witdem, self._operation_name, model, embedding=self._embedding)
         operation = context.__enter__()
         try:
             response = await self._create(*args, **kwargs)
             if kwargs.get("stream"):
-                return _ObservedAsyncStream(response, operation, context)
-            _record(operation, response)
+                return _ObservedAsyncStream(response, operation, context, embedding=self._embedding)
+            _record(operation, response, embedding=self._embedding)
             context.__exit__(None, None, None)
             return response
         except BaseException as exc:
@@ -289,11 +268,10 @@ class _AsyncCreateProxy(_CreateProxy):
 
 
 class _EndpointProxy:
-    def __init__(self, endpoint: Any, witdem: Any, operation_name: str) -> None:
+    def __init__(self, endpoint: Any, witdem: Any, operation_name: str, *, embedding: bool = False) -> None:
         self._endpoint = endpoint
-        create = endpoint.create
-        proxy_type = _AsyncCreateProxy if inspect.iscoroutinefunction(create) else _CreateProxy
-        self.create = proxy_type(create, witdem, operation_name)
+        proxy = _AsyncCreateProxy if inspect.iscoroutinefunction(endpoint.create) else _CreateProxy
+        self.create = proxy(endpoint.create, witdem, operation_name, embedding=embedding)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._endpoint, name)
@@ -302,7 +280,7 @@ class _EndpointProxy:
 class _ChatProxy:
     def __init__(self, chat: Any, witdem: Any) -> None:
         self._chat = chat
-        self.completions = _EndpointProxy(chat.completions, witdem, "openrouter.chat.completions")
+        self.completions = _EndpointProxy(chat.completions, witdem, "openai.chat.completions")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._chat, name)
@@ -311,20 +289,27 @@ class _ChatProxy:
 class _ClientProxy:
     def __init__(self, client: Any, witdem: Any) -> None:
         self._client = client
+        if hasattr(client, "responses"):
+            self.responses = _EndpointProxy(client.responses, witdem, "openai.responses")
         if hasattr(client, "chat") and hasattr(client.chat, "completions"):
             self.chat = _ChatProxy(client.chat, witdem)
-        if hasattr(client, "responses"):
-            self.responses = _EndpointProxy(client.responses, witdem, "openrouter.responses")
+        if hasattr(client, "embeddings"):
+            self.embeddings = _EndpointProxy(client.embeddings, witdem, "openai.embeddings", embedding=True)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
 
 
-def instrument_openrouter(client: Any, *, witdem: Any) -> Any:
-    """Return a content-safe proxy for an OpenAI-compatible OpenRouter client."""
+def instrument_openai(client: Any, *, witdem: Any) -> Any:
+    """Return a content-safe proxy around a sync or async OpenAI client."""
 
-    if not ((hasattr(client, "chat") and hasattr(client.chat, "completions")) or hasattr(client, "responses")):
-        raise TypeError("OpenRouter instrumentation expects an OpenAI-compatible client")
+    supported = (
+        hasattr(client, "responses")
+        or (hasattr(client, "chat") and hasattr(client.chat, "completions"))
+        or hasattr(client, "embeddings")
+    )
+    if not supported:
+        raise TypeError("OpenAI instrumentation expects responses, chat.completions, or embeddings")
     return _ClientProxy(client, witdem)
 
 
@@ -339,7 +324,7 @@ def instrument(
     attributes: Mapping[str, Any] | None = None,
     report_result: ResultReporter | None = None,
 ) -> Callable[..., Any]:
-    """Wrap one workload and inject an instrumented OpenRouter client."""
+    """Wrap an OpenAI workload and inject one instrumented direct SDK client."""
 
     if getattr(function, "__witdem_instrumented__", False):
         return function
@@ -357,7 +342,7 @@ def instrument(
         @wraps(function)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             with integration_settings.invocation() as witdem:
-                result = await function(instrument_openrouter(client, witdem=witdem), *args, **kwargs)
+                result = await function(instrument_openai(client, witdem=witdem), *args, **kwargs)
                 integration_settings.report(result, witdem)
                 return result
 
@@ -367,7 +352,7 @@ def instrument(
     @wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         with integration_settings.invocation() as witdem:
-            result = function(instrument_openrouter(client, witdem=witdem), *args, **kwargs)
+            result = function(instrument_openai(client, witdem=witdem), *args, **kwargs)
             integration_settings.report(result, witdem)
             return result
 

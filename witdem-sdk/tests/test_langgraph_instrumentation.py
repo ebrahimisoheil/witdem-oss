@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import contextmanager
+from types import SimpleNamespace
 from typing import Any, TypedDict
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 pytest.importorskip("langgraph")
 
@@ -157,3 +161,33 @@ def test_instrument_runs_a_compiled_langgraph(
     wrapped = langgraph.instrument(builder.compile(), service_name="counter")
 
     assert wrapped.invoke({"count": 1}) == {"count": 2}
+
+
+def test_langgraph_node_is_current_parent_for_direct_sdk_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    from langgraph.graph import END, StateGraph
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr("witdem_sdk.integrations.langchain.trace.get_tracer", provider.get_tracer)
+    direct_tracer = provider.get_tracer("direct-provider")
+
+    class State(TypedDict):
+        count: int
+
+    def increment(state: State) -> State:
+        with direct_tracer.start_as_current_span("direct.openai"):
+            return {"count": state["count"] + 1}
+
+    builder = StateGraph(State)
+    builder.add_node("increment", increment)
+    builder.set_entry_point("increment")
+    builder.add_edge("increment", END)
+    callback = langgraph.WitdemLangGraphCallback(SimpleNamespace())
+
+    assert builder.compile().invoke({"count": 1}, config={"callbacks": [callback]}) == {"count": 2}
+
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+    node = next(span for span in spans.values() if span.attributes.get("langgraph.node") == "increment")
+    assert spans["direct.openai"].parent is not None
+    assert spans["direct.openai"].parent.span_id == node.context.span_id

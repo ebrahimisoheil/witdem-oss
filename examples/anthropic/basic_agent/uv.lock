@@ -907,7 +907,7 @@ dev = [{ name = "pytest", specifier = ">=8.3,<9" }]
 
 [[package]]
 name = "witdem-sdk"
-version = "0.1.1"
+version = "0.2.1"
 source = { editable = "../../../witdem-sdk" }
 dependencies = [
     { name = "httpx" },
@@ -938,6 +938,7 @@ requires-dist = [
     { name = "litellm", marker = "extra == 'all'", specifier = ">=1.86,<2" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.86,<2" },
     { name = "openai", marker = "extra == 'all'", specifier = ">=1.68,<4" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.68,<4" },
     { name = "openai", marker = "extra == 'openrouter'", specifier = ">=1.68,<4" },
     { name = "openai-agents", marker = "extra == 'all'", specifier = ">=0.0.10,<0.21" },
     { name = "openai-agents", marker = "extra == 'openai'", specifier = ">=0.0.10,<0.21" },

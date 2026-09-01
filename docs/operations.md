@@ -5,7 +5,7 @@
 NPX manages a version-matched Docker Compose stack:
 
 ```bash
-npx -y witdem@stable-0-1 up
+npx -y witdem@latest up
 ```
 
 pipx installs the analytics platform into an isolated Python environment and
@@ -36,7 +36,7 @@ witdem workflow compile [--check|--force]
 witdem workflow rebuild
 ```
 
-Prefix commands with `npx -y witdem@stable-0-1` instead of `witdem` for the Docker
+Prefix commands with `npx -y witdem@latest` instead of `witdem` for the Docker
 path. `down` stops services and never deletes data. `dev` is a foreground mode
 for contributors.
 

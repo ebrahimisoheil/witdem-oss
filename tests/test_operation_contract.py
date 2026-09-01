@@ -57,6 +57,90 @@ def test_extension_operation_survives_without_provider_inference() -> None:
     assert operation.attributes.get("gen_ai.provider.name") is None
 
 
+def test_untyped_model_operation_is_unknown_not_generation() -> None:
+    started = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    operation = Operation(
+        operation_id="op-unknown-model",
+        execution_id="run-neutral",
+        kind="model",
+        name="model.call",
+        started_at=started,
+        ended_at=started + timedelta(seconds=1),
+        attributes={"gen_ai.provider.name": "provider-a", "gen_ai.request.model": "opaque-model"},
+    )
+
+    assert operation_identity(operation)["type"] == "unknown"
+
+
+def test_classification_precedence_and_orthogonal_dimensions() -> None:
+    operation = _operation(
+        "contract_conflict_analysis",
+        {
+            "witdem.operation.family": "custom",
+            "gen_ai.operation.name": "embeddings",
+            "call_type": "rerank",
+            "witdem.operation.interface": "mcp",
+            "witdem.operation.role": "tool",
+        },
+    )
+
+    identity = operation_identity(operation)
+    assert identity["type"] == "contract_conflict_analysis"
+    assert identity["family"] == "custom"
+    assert identity["interface"] == "mcp"
+    assert identity["role"] == "tool"
+
+
+def test_adapter_and_bounded_function_metadata_classify_without_provider_rules() -> None:
+    adapter = _operation("", {"witdem.operation.type": "", "call_type": "embedding"})
+    function = _operation(
+        "",
+        {"witdem.operation.type": "", "code.function.name": "run_hybrid_search"},
+    )
+
+    assert operation_identity(adapter)["type"] == "embedding"
+    assert operation_identity(function)["type"] == "hybrid_search"
+
+
+def test_materialized_facts_preserve_nested_execution_and_implementation_identity() -> None:
+    spans = [
+        {
+            "trace_id": "a" * 32,
+            "span_id": "1" * 16,
+            "name": "retrieve",
+            "attributes": {
+                "witdem.execution_id": "run-nested",
+                "witdem.operation.family": "knowledge",
+                "witdem.operation.type": "retrieval",
+                "witdem.operation.interface": "mcp",
+                "witdem.implementation.id": "lancedb",
+                "witdem.execution.source": "custom-pipeline",
+            },
+        },
+        {
+            "trace_id": "a" * 32,
+            "span_id": "2" * 16,
+            "parent_span_id": "1" * 16,
+            "name": "embed query",
+            "attributes": {
+                "witdem.execution_id": "run-nested",
+                "gen_ai.operation.name": "embeddings",
+                "gen_ai.provider.name": "provider-a",
+            },
+        },
+    ]
+
+    result = transform_bundle({"execution_id": "run-nested", "spans_json": json.dumps(spans)})
+    facts = json.loads(result["operation_classifications_json"])
+    retrieval = next(item for item in facts if item["operation_type"] == "retrieval")
+    embedding = next(item for item in facts if item["operation_type"] == "embedding")
+
+    assert retrieval["interface"] == "mcp"
+    assert retrieval["implementation_id"] == "lancedb"
+    assert retrieval["execution_source"] == "custom-pipeline"
+    assert embedding["parent_operation_id"] == retrieval["operation_id"]
+
+
 def test_default_interfaces_describe_framework_and_local_work() -> None:
     assert operation_identity(_operation("component"))["interface"] == "framework"
     assert operation_identity(_operation("x.example.future_transform"))["interface"] == "local"

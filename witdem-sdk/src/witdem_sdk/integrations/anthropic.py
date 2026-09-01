@@ -61,7 +61,12 @@ class _MessagesProxy:
 
         def create(*args: Any, **kwargs: Any) -> Any:
             model_name = str(kwargs.get("model", "anthropic.model"))
-            with self._witdem.model("anthropic.messages.create", provider="anthropic", model=model_name) as operation:
+            with self._witdem.model(
+                "anthropic.messages.create",
+                provider="anthropic",
+                model=model_name,
+                attributes={"witdem.execution.source": "anthropic_sdk", "witdem.client.library": "anthropic"},
+            ) as operation:
                 try:
                     response = original(*args, **kwargs)
                     operation.response_model(_model(response))
@@ -78,7 +83,12 @@ class _MessagesProxy:
 
         async def acreate(*args: Any, **kwargs: Any) -> Any:
             model_name = str(kwargs.get("model", "anthropic.model"))
-            with self._witdem.model("anthropic.messages.create", provider="anthropic", model=model_name) as operation:
+            with self._witdem.model(
+                "anthropic.messages.create",
+                provider="anthropic",
+                model=model_name,
+                attributes={"witdem.execution.source": "anthropic_sdk", "witdem.client.library": "anthropic"},
+            ) as operation:
                 try:
                     response = await original(*args, **kwargs)
                     operation.response_model(_model(response))

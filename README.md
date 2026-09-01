@@ -11,7 +11,7 @@ Tracing tells you what executed. Witdem connects those executions to application
 [![Tests](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml/badge.svg)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![SDK on PyPI](https://img.shields.io/pypi/v/witdem-sdk?label=witdem-sdk)](https://pypi.org/project/witdem-sdk/)
 [![Analytics on PyPI](https://img.shields.io/pypi/v/witdem-analytics?label=witdem-analytics)](https://pypi.org/project/witdem-analytics/)
-[![npm](https://img.shields.io/npm/v/witdem/stable-0-1?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
+[![npm](https://img.shields.io/npm/v/witdem/latest?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -39,7 +39,7 @@ Choose one backend launcher. Applications use `witdem-sdk` with either path.
 Docker-managed (requires Docker Compose):
 
 ```bash
-npx -y witdem@stable-0-1 up
+npx -y witdem@latest up
 ```
 
 Native Python (requires Python and [pipx](https://pipx.pypa.io/)):
@@ -54,16 +54,16 @@ Both start the receiver, ELT worker, and dashboard, wait for health, open
 lifecycle vocabulary is the same:
 
 ```bash
-npx -y witdem@stable-0-1 status   # Docker path
+npx -y witdem@latest status   # Docker path
 witdem status                     # pipx path
-npx -y witdem@stable-0-1 logs receiver
+npx -y witdem@latest logs receiver
 witdem down
 ```
 
 Check releases and compatibility without changing packages or data:
 
 ```bash
-npx -y witdem@stable-0-1 update --check
+npx -y witdem@latest update --check
 witdem update --check
 ```
 
@@ -143,6 +143,7 @@ Statuses reflect current implementation and test evidence, not roadmap intent.
 | [LangGraph](docs/integrations/langgraph.md) | **Beta** | Compiled graphs, nodes, tools, models, errors, sync/async invocation and streaming |
 | [LangChain](docs/integrations/langchain.md) | **Beta** | Runnables, chains, chat/LLM calls, tools, retrievers, sync/async invocation and streaming |
 | [Native Python](docs/integrations/native-python.md) | **Supported** | Execution, operation, model, tool, decision, evaluation, outcome, and metric primitives |
+| [Direct OpenAI SDK](docs/integrations/openai.md) | **Beta** | Responses, Chat Completions, embeddings, sync/async and streaming calls, usage, tool-call IDs |
 | [OpenAI Agents](docs/integrations/openai-agents.md) | **Beta** | Native trace processor, agents, generations, tools, handoffs, sync/async workloads |
 | [Anthropic Messages and Claude Agent SDK](docs/integrations/anthropic.md) | **Beta** | Messages calls, usage, tool-use IDs, multi-turn workloads, Claude Agent message streams |
 | [Hugging Face smolagents](docs/integrations/smolagents.md) | **Beta** | Official OpenInference agent, step, model, and tool spans; sync and streaming execution |
@@ -198,7 +199,7 @@ Docker-free path. The npm package never runs a `postinstall` script.
 | ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
-npx -y witdem@stable-0-1 status
+npx -y witdem@latest status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```

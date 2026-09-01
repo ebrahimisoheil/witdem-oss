@@ -28,6 +28,46 @@ _PROVIDERS = (
 _MODEL_COMPONENT_MARKERS = ("generator", "embedder", "ranker")
 
 
+def _semantic_tags(operation_name: str, tags: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe native Haystack work from callback semantics, not identity."""
+
+    evidence = " ".join(
+        (
+            operation_name,
+            str(tags.get("haystack.component.fully_qualified_type") or ""),
+            str(tags.get("haystack.component.name") or ""),
+        )
+    ).casefold()
+    operation_type: str | None = None
+    interface = "framework"
+    if "hybridsearch" in evidence or "hybrid_search" in evidence:
+        operation_type, interface = "hybrid_search", "library"
+    elif "vectorsearch" in evidence or "vector_search" in evidence:
+        operation_type, interface = "vector_search", "library"
+    elif "embedder" in evidence or "embedding" in evidence:
+        operation_type, interface = "embedding", "model_api"
+    elif "retriever" in evidence or "retrieval" in evidence:
+        operation_type, interface = "retrieval", "library"
+    elif "reranker" in evidence or "ranker" in evidence:
+        operation_type, interface = "reranking", "model_api"
+    elif "generator" in evidence or operation_name.casefold().endswith(".llm"):
+        operation_type, interface = "text_generation", "model_api"
+    elif operation_name.casefold().endswith(".tool"):
+        operation_type, interface = "tool_execution", "tool"
+    semantic = {
+        "witdem.framework.id": "haystack",
+        "witdem.execution.source": "haystack",
+    }
+    if operation_type:
+        semantic.update(
+            {
+                "witdem.operation.type": operation_type,
+                "witdem.operation.interface": interface,
+            }
+        )
+    return semantic
+
+
 def _require_supported_haystack() -> None:
     try:
         installed = package_version("haystack-ai")
@@ -326,14 +366,15 @@ class _ObservedTracer:
         tags: dict[str, Any] | None = None,
         parent_span: Any = None,
     ) -> Any:
+        resolved_tags = {**dict(tags or {}), **_semantic_tags(operation_name, tags or {})}
         observed_parent = parent_span if isinstance(parent_span, _ObservedSpan) else self._active_span.get()
         if observed_parent is not None:
-            observed_parent.observe_child(operation_name, tags or {})
-        with self._tracer.trace(operation_name, tags=tags, parent_span=parent_span) as span:
+            observed_parent.observe_child(operation_name, resolved_tags)
+        with self._tracer.trace(operation_name, tags=resolved_tags, parent_span=parent_span) as span:
             observed = _ObservedSpan(
                 span,
                 operation_name=operation_name,
-                tags=tags or {},
+                tags=resolved_tags,
                 tracer=self,
             )
             raw_id = id(span.raw_span())

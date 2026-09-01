@@ -117,7 +117,7 @@ def instrument(
                     operation_name,
                     provider=provider,
                     model=model,
-                    attributes=operation_attributes,
+                    attributes={"witdem.execution.source": "generic_python", **dict(operation_attributes or {})},
                 ) as operation:
                     result = await function(*args, **kwargs)
                     _record_result(operation, result, observe_result)
@@ -134,7 +134,7 @@ def instrument(
                 operation_name,
                 provider=provider,
                 model=model,
-                attributes=operation_attributes,
+                attributes={"witdem.execution.source": "generic_python", **dict(operation_attributes or {})},
             ) as operation:
                 result = function(*args, **kwargs)
                 _record_result(operation, result, observe_result)

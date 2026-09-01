@@ -12,7 +12,7 @@ from witdem.analytics.core import Operation
 OPERATION_TAXONOMY_VERSION = "1"
 MEASUREMENT_REGISTRY_VERSION = "1"
 
-OperationFamily = Literal["orchestration", "inference", "knowledge", "media", "action", "quality", "custom"]
+OperationFamily = str
 
 OPERATION_FAMILIES: dict[str, OperationFamily] = {
     "workflow": "orchestration",
@@ -23,25 +23,82 @@ OPERATION_FAMILIES: dict[str, OperationFamily] = {
     "text_generation": "inference",
     "multimodal_generation": "inference",
     "embedding": "inference",
+    "reranking": "inference",
+    "classification": "inference",
+    "moderation": "inference",
+    "structured_extraction": "inference",
     "retrieval": "knowledge",
-    "reranking": "knowledge",
+    "vector_search": "knowledge",
+    "keyword_search": "knowledge",
+    "hybrid_search": "knowledge",
     "search": "knowledge",
+    "indexing": "knowledge",
+    "document_loading": "knowledge",
+    "graph_query": "knowledge",
+    "database_query": "tools",
+    "function_execution": "tools",
+    "api_request": "tools",
     "ocr": "media",
     "document_processing": "media",
     "image_generation": "media",
     "image_edit": "media",
     "image_understanding": "media",
     "audio_transcription": "media",
+    "speech_recognition": "media",
     "speech_synthesis": "media",
     "audio_generation": "media",
     "audio_understanding": "media",
     "video_generation": "media",
     "video_edit": "media",
     "video_understanding": "media",
-    "tool": "action",
-    "code_execution": "action",
+    "tool": "tools",
+    "tool_execution": "tools",
+    "api_call": "tools",
+    "code_execution": "tools",
+    "browser_action": "external_action",
+    "database_write": "external_action",
+    "mcp_connection": "mcp",
+    "mcp_server": "mcp",
+    "mcp_tool_call": "mcp",
+    "mcp_resource_read": "mcp",
+    "mcp_prompt_retrieval": "mcp",
+    "mcp_capability_discovery": "mcp",
+    "planning": "agent_control",
+    "delegation": "agent_control",
+    "handoff": "agent_control",
+    "routing": "agent_control",
+    "reflection": "agent_control",
+    "retry": "agent_control",
+    "loop": "agent_control",
+    "branch": "orchestration",
+    "join": "orchestration",
+    "fan_out": "orchestration",
+    "checkpoint": "orchestration",
+    "state_transition": "orchestration",
+    "human_interrupt": "orchestration",
     "guardrail": "quality",
     "evaluation": "quality",
+    "judging": "quality",
+    "validation": "quality",
+    "policy_check": "quality",
+    "grounding_check": "quality",
+    "memory_read": "memory",
+    "memory_write": "memory",
+    "memory_consolidation": "memory",
+    "memory_summarization": "memory",
+    "memory_eviction": "memory",
+    "approval": "human_work",
+    "rejection": "human_work",
+    "correction": "human_work",
+    "escalation": "human_work",
+    "feedback": "human_work",
+    "email": "external_action",
+    "ticket_creation": "external_action",
+    "deployment": "external_action",
+    "payment": "external_action",
+    "parsing": "data_movement",
+    "transformation": "data_movement",
+    "batch_ingestion": "data_movement",
 }
 
 OTEL_OPERATION_TYPES = {
@@ -56,7 +113,15 @@ OTEL_OPERATION_TYPES = {
     "retrieval": "retrieval",
     "retrieve": "retrieval",
     "rerank": "reranking",
+    "classification": "classification",
+    "classify": "classification",
+    "moderation": "moderation",
     "search": "search",
+    "vector_search": "vector_search",
+    "keyword_search": "keyword_search",
+    "hybrid_search": "hybrid_search",
+    "indexing": "indexing",
+    "document_loading": "document_loading",
     "ocr": "ocr",
     "image_generation": "image_generation",
     "image_edit": "image_edit",
@@ -69,6 +134,16 @@ OTEL_OPERATION_TYPES = {
     "video_edit": "video_edit",
     "video_understanding": "video_understanding",
     "execute_tool": "tool",
+    "tool_execution": "tool_execution",
+    "api_call": "api_call",
+    "code_execution": "code_execution",
+    "browser_action": "browser_action",
+    "database_write": "database_write",
+    "evaluation": "evaluation",
+    "judging": "judging",
+    "validation": "validation",
+    "guardrail": "guardrail",
+    "policy_check": "policy_check",
     "invoke_agent": "agent",
     "invoke_workflow": "workflow",
 }
@@ -86,10 +161,60 @@ OPENINFERENCE_OPERATION_TYPES = {
     "PROMPT": "prompt",
 }
 
-VALID_INTERFACES = frozenset(
-    {"model_api", "tool", "framework", "datastore", "search_service", "local", "external_api", "unknown"}
+# Adapter metadata uses operation vocabulary, never participant names.  These
+# aliases are deliberately shared across integrations so a callback does not
+# need provider-specific classification rules.
+ADAPTER_OPERATION_TYPES = {
+    **OTEL_OPERATION_TYPES,
+    "embed": "embedding",
+    "aembedding": "embedding",
+    "reranking": "reranking",
+    "vectorsearch": "vector_search",
+    "keywordsearch": "keyword_search",
+    "hybridsearch": "hybrid_search",
+    "load_documents": "document_loading",
+    "tool": "tool_execution",
+}
+
+_METADATA_TYPE_KEYS = (
+    "witdem.adapter.operation.type",
+    "call_type",
+    "litellm.call_type",
+    "rpc.method",
 )
-VALID_ROLES = frozenset({"application", "evaluator", "guardrail", "system"})
+
+_BOUNDED_NAME_MARKERS = (
+    ("hybrid_search", "hybrid_search"),
+    ("hybridsearch", "hybrid_search"),
+    ("vector_search", "vector_search"),
+    ("vectorsearch", "vector_search"),
+    ("keyword_search", "keyword_search"),
+    ("keywordsearch", "keyword_search"),
+    ("embedder", "embedding"),
+    ("embedding", "embedding"),
+    ("retriever", "retrieval"),
+    ("retrieval", "retrieval"),
+    ("reranker", "reranking"),
+    ("reranking", "reranking"),
+    ("moderation", "moderation"),
+    ("classifier", "classification"),
+    ("document_loader", "document_loading"),
+)
+
+VALID_FAMILIES = frozenset(
+    {
+        "orchestration", "inference", "knowledge", "tools", "mcp", "agent_control",
+        "media", "quality", "memory", "human_work", "external_action", "data_movement",
+        "action", "custom",
+    }
+)
+VALID_INTERFACES = frozenset(
+    {
+        "model_api", "tool", "framework", "datastore", "vector_database", "search_service",
+        "mcp", "library", "local", "external_api", "browser", "human", "unknown",
+    }
+)
+VALID_ROLES = frozenset({"application", "model", "tool", "agent", "evaluator", "guardrail", "system", "human"})
 VALID_MODALITIES = frozenset({"text", "structured", "document", "vector", "image", "audio", "video"})
 
 
@@ -133,7 +258,27 @@ MEASUREMENT_REGISTRY: dict[str, dict[str, MeasurementDefinition]] = {
     },
     "retrieval": {
         "queries": MeasurementDefinition("queries", "query", requirement="required"),
+        "candidates": MeasurementDefinition("candidates", "document"),
         "documents.output": MeasurementDefinition("documents.output", "document", requirement="required"),
+        "results": MeasurementDefinition("results", "document"),
+        "top_k": MeasurementDefinition("top_k", "document", "latest"),
+    },
+    "vector_search": {
+        "queries": MeasurementDefinition("queries", "query", requirement="required"),
+        "candidates": MeasurementDefinition("candidates", "document"),
+        "results": MeasurementDefinition("results", "document", requirement="required"),
+        "top_k": MeasurementDefinition("top_k", "document", "latest"),
+    },
+    "keyword_search": {
+        "queries": MeasurementDefinition("queries", "query", requirement="required"),
+        "results": MeasurementDefinition("results", "document", requirement="required"),
+        "top_k": MeasurementDefinition("top_k", "document", "latest"),
+    },
+    "hybrid_search": {
+        "queries": MeasurementDefinition("queries", "query", requirement="required"),
+        "candidates": MeasurementDefinition("candidates", "document"),
+        "results": MeasurementDefinition("results", "document", requirement="required"),
+        "top_k": MeasurementDefinition("top_k", "document", "latest"),
     },
     "reranking": {
         "candidates.input": MeasurementDefinition("candidates.input", "candidate", requirement="required"),
@@ -144,6 +289,7 @@ MEASUREMENT_REGISTRY: dict[str, dict[str, MeasurementDefinition]] = {
         "results.output": MeasurementDefinition("results.output", "result", requirement="required"),
     },
     "ocr": {
+        "documents.input": MeasurementDefinition("documents.input", "document"),
         "pages.processed": MeasurementDefinition("pages.processed", "page", requirement="required"),
         "bytes.input": MeasurementDefinition("bytes.input", "byte"),
         "characters.output": MeasurementDefinition("characters.output", "character"),
@@ -195,11 +341,28 @@ MEASUREMENT_REGISTRY: dict[str, dict[str, MeasurementDefinition]] = {
         "video.seconds_input": MeasurementDefinition("video.seconds_input", "second", requirement="required"),
         "frames.input": MeasurementDefinition("frames.input", "frame"),
     },
-    "tool": {"tool.calls": MeasurementDefinition("tool.calls", "call", requirement="required")},
+    "tool": {
+        "tool.calls": MeasurementDefinition("tool.calls", "call", requirement="required"),
+        "retries": MeasurementDefinition("retries", "retry"),
+        "successes": MeasurementDefinition("successes", "call"),
+        "failures": MeasurementDefinition("failures", "call"),
+    },
+    "tool_execution": {
+        "tool.calls": MeasurementDefinition("tool.calls", "call", requirement="required"),
+        "retries": MeasurementDefinition("retries", "retry"),
+        "successes": MeasurementDefinition("successes", "call"),
+        "failures": MeasurementDefinition("failures", "call"),
+    },
     "code_execution": {
         "code.executions": MeasurementDefinition("code.executions", "execution", requirement="required")
     },
-    "evaluation": {"evaluations": MeasurementDefinition("evaluations", "evaluation", requirement="required")},
+    "evaluation": {
+        "evaluations": MeasurementDefinition("evaluations", "evaluation", requirement="required"),
+        "score": MeasurementDefinition("score", "score", "average"),
+        "target": MeasurementDefinition("target", "score", "latest"),
+        "passes": MeasurementDefinition("passes", "evaluation"),
+        "failures": MeasurementDefinition("failures", "evaluation"),
+    },
 }
 
 ATTRIBUTE_MEASUREMENTS = {
@@ -238,6 +401,9 @@ ATTRIBUTE_MEASUREMENTS = {
     "gen_ai.usage.output_frames": ("frames.output", "frame"),
     "queries": ("queries", "query"),
     "documents_output": ("documents.output", "document"),
+    "candidates": ("candidates", "document"),
+    "results": ("results", "document"),
+    "top_k": ("top_k", "document"),
     "candidates_input": ("candidates.input", "candidate"),
     "candidates_output": ("candidates.output", "candidate"),
     "items_input": ("items.input", "item"),
@@ -294,6 +460,30 @@ def _strings(value: Any) -> list[str]:
     return []
 
 
+def _canonical_adapter_type(value: Any) -> str | None:
+    candidate = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    return ADAPTER_OPERATION_TYPES.get(candidate)
+
+
+def _bounded_metadata_type(operation: Operation) -> str | None:
+    """Infer semantics only from class/function vocabulary, never identity."""
+
+    attributes = operation.attributes
+    evidence = " ".join(
+        str(attributes.get(key) or "")
+        for key in (
+            "code.function.name",
+            "code.function",
+            "haystack.component.fully_qualified_type",
+            "witdem.component.class",
+            "witdem.function.name",
+        )
+    )
+    # Span names are allowed only when they contain an explicit operation word.
+    evidence = f"{evidence} {operation.name}".casefold().replace("-", "_").replace(" ", "_")
+    return next((operation_type for marker, operation_type in _BOUNDED_NAME_MARKERS if marker in evidence), None)
+
+
 def operation_identity(operation: Operation) -> dict[str, Any]:
     """Return a versioned identity using explicit semantic attributes only."""
 
@@ -301,17 +491,34 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
     explicit_type = str(attributes.get("witdem.operation.type") or "").strip().casefold()
     otel_name = str(attributes.get("gen_ai.operation.name") or "").strip().casefold()
     oi_kind = str(attributes.get("openinference.span.kind") or attributes.get("openinference.kind") or "").upper()
-    operation_type = explicit_type or OTEL_OPERATION_TYPES.get(otel_name) or OPENINFERENCE_OPERATION_TYPES.get(oi_kind)
+    adapter_type = next(
+        (
+            canonical
+            for key in _METADATA_TYPE_KEYS
+            if attributes.get(key)
+            if (canonical := _canonical_adapter_type(attributes.get(key))) is not None
+        ),
+        None,
+    )
+    operation_type = (
+        explicit_type
+        or OTEL_OPERATION_TYPES.get(otel_name)
+        or OPENINFERENCE_OPERATION_TYPES.get(oi_kind)
+        or adapter_type
+        or _bounded_metadata_type(operation)
+    )
     if not operation_type:
         operation_type = {
             "workflow": "workflow",
             "pipeline": "workflow",
             "agent": "agent",
             "component": "component",
-            "model": "text_generation",
             "tool": "tool",
-        }.get(operation.kind, "x.witdem.unclassified")
-    family: OperationFamily = OPERATION_FAMILIES.get(operation_type, "custom")
+        }.get(operation.kind, "unknown")
+    explicit_family = str(attributes.get("witdem.operation.family") or "").strip().casefold()
+    family: OperationFamily = (
+        explicit_family if explicit_family in VALID_FAMILIES else OPERATION_FAMILIES.get(operation_type, "custom")
+    )
     interface = str(attributes.get("witdem.operation.interface") or "").strip().casefold()
     if interface not in VALID_INTERFACES:
         interface = (
@@ -392,6 +599,7 @@ def operation_measurements(
             }
     implied_count = {
         "tool": ("tool.calls", "call"),
+        "tool_execution": ("tool.calls", "call"),
         "code_execution": ("code.executions", "execution"),
         "evaluation": ("evaluations", "evaluation"),
     }.get(operation_type)

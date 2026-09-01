@@ -95,18 +95,23 @@ class WitdemTraceProcessor:
                     attributes={"openai_agents.span_kind": kind},
                 ),
             )
-        runtime_kind = {
-            "AgentSpanData": "agent",
-            "TaskSpanData": "workflow",
-            "TurnSpanData": "agent_step",
-            "HandoffSpanData": "handoff",
-            "GuardrailSpanData": "guardrail",
-        }.get(kind, "component")
+        runtime_kind, family, operation_type = {
+            "AgentSpanData": ("agent", "agent_control", "agent"),
+            "TaskSpanData": ("workflow", "orchestration", "workflow"),
+            "TurnSpanData": ("agent_step", "agent_control", "planning"),
+            "HandoffSpanData": ("handoff", "agent_control", "handoff"),
+            "GuardrailSpanData": ("guardrail", "quality", "guardrail"),
+        }.get(kind, ("component", "orchestration", "component"))
         return cast(
             AbstractContextManager[Any],
             self.witdem.operation(
                 f"openai_agents.{name}",
                 kind=runtime_kind,
+                family=family,
+                operation_type=operation_type,
+                interface="framework",
+                framework_id="openai_agents",
+                execution_source="openai_agents",
                 attributes={"openai_agents.span_kind": kind},
             ),
         )

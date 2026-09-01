@@ -1265,7 +1265,7 @@ export function OperationHealthChart({ items, height = 260 }: { items: Operation
 
 const humanizeOperationType = (value: string) => {
   if (value === "component") return "Workflow step";
-  if (value === "x.witdem.unclassified") return "Observed operation";
+  if (value === "unknown" || value === "x.witdem.unclassified") return "Other / Unknown";
   return value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 };
 

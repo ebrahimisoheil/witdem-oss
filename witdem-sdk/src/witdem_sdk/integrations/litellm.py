@@ -17,6 +17,19 @@ from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 from witdem_sdk import configure
 from witdem_sdk.integrations._common import ResultReporter, settings
 
+_CALL_SEMANTICS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
+    "chat": ("text_generation", ("text",), ("text",)),
+    "completion": ("text_generation", ("text",), ("text",)),
+    "text_completion": ("text_generation", ("text",), ("text",)),
+    "embedding": ("embedding", ("text",), ("vector",)),
+    "embeddings": ("embedding", ("text",), ("vector",)),
+    "aembedding": ("embedding", ("text",), ("vector",)),
+    "rerank": ("reranking", ("text", "document"), ("document",)),
+    "reranking": ("reranking", ("text", "document"), ("document",)),
+    "moderation": ("moderation", ("text",), ("structured",)),
+    "ocr": ("ocr", ("document",), ("text",)),
+}
+
 
 def _value(value: Any, name: str, default: Any = None) -> Any:
     if isinstance(value, Mapping):
@@ -121,6 +134,14 @@ def _set_response_attributes(span: Span, kwargs: Mapping[str, Any], response: An
         if isinstance(observed, (int, float)) and not isinstance(observed, bool):
             span.set_attribute(target, observed)
     usage_info = _usage_info(response)
+    response_data = _value(response, "data")
+    if isinstance(response_data, (list, tuple)):
+        span.set_attribute("gen_ai.usage.output_vectors", len(response_data))
+        span.set_attribute("gen_ai.usage.input_items", len(response_data))
+        if response_data:
+            first_vector = _value(response_data[0], "embedding")
+            if isinstance(first_vector, (list, tuple)):
+                span.set_attribute("gen_ai.usage.vector_dimensions", len(first_vector))
     pages_processed = usage_info.get("pages_processed")
     if isinstance(pages_processed, (int, float)) and not isinstance(pages_processed, bool):
         span.set_attribute("witdem.operation.type", "ocr")
@@ -207,16 +228,24 @@ class WitdemLiteLLMCallback:
     def log_pre_api_call(self, model: str, messages: Any, kwargs: Mapping[str, Any]) -> None:
         del messages
         provider = _provider(model, kwargs)
+        params = _mapping(kwargs.get("litellm_params"))
+        call_type = str(kwargs.get("call_type") or params.get("call_type") or "chat").casefold()
         span = self._tracer.start_span(
-            "litellm.chat",
+            f"litellm.{call_type}",
             kind=SpanKind.CLIENT,
             start_time=_nanoseconds(kwargs.get("start_time")),
         )
-        params = _mapping(kwargs.get("litellm_params"))
-        call_type = str(kwargs.get("call_type") or params.get("call_type") or "chat").casefold()
-        operation_name = "ocr" if call_type == "ocr" else "chat"
-        span.set_attribute("gen_ai.operation.name", operation_name)
-        span.set_attribute("witdem.operation.type", "ocr" if operation_name == "ocr" else "text_generation")
+        explicit_type = kwargs.get("witdem.operation.type") or _litellm_metadata(kwargs).get("witdem.operation.type")
+        semantics = _CALL_SEMANTICS.get(call_type)
+        if semantics is not None:
+            operation_type, input_modalities, output_modalities = semantics
+            span.set_attribute("gen_ai.operation.name", "embeddings" if operation_type == "embedding" else call_type)
+            span.set_attribute("witdem.operation.type", str(explicit_type or operation_type))
+            span.set_attribute("witdem.operation.input_modalities", input_modalities)
+            span.set_attribute("witdem.operation.output_modalities", output_modalities)
+        elif explicit_type:
+            span.set_attribute("witdem.operation.type", str(explicit_type))
+        span.set_attribute("witdem.adapter.operation.type", call_type)
         span.set_attribute("witdem.operation.interface", "model_api")
         span.set_attribute("witdem.operation.role", "application")
         span.set_attribute("gen_ai.provider.name", provider)

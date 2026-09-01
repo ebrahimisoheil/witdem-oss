@@ -409,6 +409,9 @@ export type OperationFact = {
   vendor_id?: string | null;
   runtime_id?: string | null;
   framework_id?: string | null;
+  implementation_id?: string | null;
+  execution_source?: string | null;
+  parent_operation_id?: string | null;
   duration_seconds: number;
   status: string;
   attributes: Record<string, unknown>;
@@ -423,6 +426,7 @@ export type OperationTypeSummary = {
   interfaces: string[];
   providers: string[];
   models: string[];
+  implementations: string[];
   measurements: Record<string, number>;
 };
 export type OperationSummary = {

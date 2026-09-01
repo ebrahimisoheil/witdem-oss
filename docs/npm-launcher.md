@@ -5,7 +5,7 @@ Witdem container. It does not use `postinstall`, install a host daemon, or edit
 the current project.
 
 ```bash
-npx -y witdem@stable-0-1 up
+npx -y witdem@latest up
 ```
 
 It starts the receiver, ELT worker, and dashboard, waits for health, and opens
@@ -14,12 +14,12 @@ It starts the receiver, ELT worker, and dashboard, waits for health, and opens
 ## Lifecycle
 
 ```bash
-npx -y witdem@stable-0-1 status
-npx -y witdem@stable-0-1 logs receiver
-npx -y witdem@stable-0-1 logs --follow worker
-npx -y witdem@stable-0-1 open
-npx -y witdem@stable-0-1 update --check
-npx -y witdem@stable-0-1 down
+npx -y witdem@latest status
+npx -y witdem@latest logs receiver
+npx -y witdem@latest logs --follow worker
+npx -y witdem@latest open
+npx -y witdem@latest update --check
+npx -y witdem@latest down
 ```
 
 `down` preserves the named volume or explicit data directory. Use `--json` on
@@ -28,7 +28,7 @@ status and update checks for automation.
 ## Ports, data, and isolation
 
 ```bash
-npx -y witdem@stable-0-1 up \
+npx -y witdem@latest up \
   --dashboard-port 18501 \
   --receiver-port 14318 \
   --data-dir /srv/witdem/team-a \

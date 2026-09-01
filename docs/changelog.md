@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.2.1
+
+- Added an extensible, versioned AI operation taxonomy that keeps operation type separate from interface, provider, implementation, framework, and role.
+- Added first-class direct OpenAI SDK instrumentation for Responses, Chat Completions, embeddings, synchronous and asynchronous calls, streaming usage, and tool-call identifiers.
+- Preserved nested provider operations inside LangGraph nodes and expanded canonical measurements across retrieval, tools, quality, media, memory, human work, orchestration, and custom operations.
+- Verified direct Anthropic and OpenAI SDK calls, with and without LangGraph, against the CUAD contract-review workload using live provider APIs.
+- Updated the dashboard to display unfamiliar operation families and types without requiring provider-specific UI changes.
+
 ## 0.1.4
 
 - Fixed the worker container's false-negative health status under DuckDB lock contention.

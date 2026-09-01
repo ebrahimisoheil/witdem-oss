@@ -320,12 +320,13 @@ def _operation_facts(
                 )
     classifications: list[dict[str, Any]] = []
     measurements: list[dict[str, Any]] = []
+    operation_id_by_span = {operation.span_id: operation.operation_id for operation in operations if operation.span_id}
     for operation in operations:
         identity = operation_identity(operation)
         assigned_node_id, declared_type, expected, optional = operation_nodes.get(
             operation.operation_id, (None, None, [], [])
         )
-        if declared_type and identity["type"] in {"component", "x.witdem.unclassified"}:
+        if declared_type and identity["type"] in {"component", "unknown", "x.witdem.unclassified"}:
             identity = {**identity, "type": declared_type, "family": OPERATION_FAMILIES.get(declared_type, "custom")}
         if declared_type and identity["type"] != declared_type:
             expected = []
@@ -355,6 +356,13 @@ def _operation_facts(
                 "vendor_id": _explicit_attribute(attributes, "witdem.vendor.id", "model_vendor"),
                 "runtime_id": _explicit_attribute(attributes, "witdem.runtime.id", "runtime"),
                 "framework_id": _explicit_attribute(attributes, "witdem.framework.id", "framework"),
+                "implementation_id": _explicit_attribute(attributes, "witdem.implementation.id", "implementation"),
+                "execution_source": _explicit_attribute(
+                    attributes, "witdem.execution.source", "witdem.client.library", "otel.scope.name"
+                ),
+                "parent_operation_id": (
+                    operation_id_by_span.get(operation.parent_span_id) if operation.parent_span_id else None
+                ),
                 "duration_seconds": duration,
                 "status": operation.status,
                 "attributes": {
@@ -813,7 +821,7 @@ def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict
         measured_by_operation[str(measurement.get("operation_id") or "")].append(measurement)
     groups: dict[str, dict[str, Any]] = {}
     for operation in operations:
-        operation_type = str(operation.get("operation_type") or "x.witdem.unclassified")
+        operation_type = str(operation.get("operation_type") or "unknown")
         bucket = groups.setdefault(
             operation_type,
             {
@@ -826,6 +834,7 @@ def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict
                 "interfaces": set(),
                 "providers": set(),
                 "models": set(),
+                "implementations": set(),
                 "measurements": defaultdict(float),
             },
         )
@@ -837,6 +846,7 @@ def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict
             ("interface", "interfaces"),
             ("provider_id", "providers"),
             ("model_id", "models"),
+            ("implementation_id", "implementations"),
         ):
             if operation.get(key):
                 bucket[target].add(str(operation[key]))
@@ -852,6 +862,7 @@ def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict
                 "interfaces": sorted(bucket["interfaces"]),
                 "providers": sorted(bucket["providers"]),
                 "models": sorted(bucket["models"]),
+                "implementations": sorted(bucket["implementations"]),
                 "measurements": dict(sorted(bucket["measurements"].items())),
             }
         )
@@ -885,7 +896,7 @@ def _measurement_alerts(operations: list[dict[str, Any]], measurements: list[dic
             continue
         operation = operation_map.get(str(measurement.get("operation_id") or ""), {})
         key = (
-            str(operation.get("operation_type") or "x.witdem.unclassified"),
+            str(operation.get("operation_type") or "unknown"),
             str(measurement.get("measurement_key") or "unknown"),
         )
         bucket = groups.setdefault(

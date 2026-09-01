@@ -1,7 +1,7 @@
 # CLI reference
 
 NPX and pipx expose the same lifecycle vocabulary. Use `witdem` below for a
-pipx installation or replace it with `npx -y witdem@stable-0-1` for Docker.
+pipx installation or replace it with `npx -y witdem@latest` for Docker.
 
 | Command | Purpose |
 | --- | --- |

@@ -68,6 +68,180 @@ def test_anthropic_sync_and_async_proxy_preserve_results_and_usage() -> None:
         assert observed_usage[-1]["cache_creation_tokens"] == 1
 
 
+def test_openai_sync_and_async_proxies_preserve_results_usage_and_tool_ids() -> None:
+    from witdem_sdk.integrations.openai import instrument_openai
+
+    response = SimpleNamespace(
+        model="gpt-5.4-2026-03-05",
+        usage=SimpleNamespace(
+            input_tokens=9,
+            output_tokens=3,
+            total_tokens=12,
+            input_tokens_details=SimpleNamespace(cached_tokens=4),
+            output_tokens_details=SimpleNamespace(reasoning_tokens=2),
+        ),
+        output=[SimpleNamespace(type="function_call", call_id="call_real")],
+    )
+
+    for create, invoke in (
+        (lambda **kwargs: response, lambda wrapped: wrapped.responses.create(model="gpt-5.4")),
+        (
+            (lambda: None),
+            lambda wrapped: asyncio.run(wrapped.responses.create(model="gpt-5.4")),
+        ),
+    ):
+        operation, attributes, _, observed_usage = _fake_operation()
+
+        @contextmanager
+        def model(*args: Any, _operation: Any = operation, **kwargs: Any):
+            yield _operation
+
+        if create() is None:
+
+            async def async_create(**kwargs: Any) -> Any:
+                return response
+
+            responses = SimpleNamespace(create=async_create)
+        else:
+            responses = SimpleNamespace(create=create)
+        wrapped = instrument_openai(SimpleNamespace(responses=responses), witdem=SimpleNamespace(model=model))
+        assert invoke(wrapped) is response
+        assert attributes["gen_ai.tool.call.id"] == "call_real"
+        assert observed_usage[-1] == {
+            "input_tokens": 9,
+            "output_tokens": 3,
+            "total_tokens": 12,
+            "cache_read_tokens": 4,
+            "reasoning_tokens": 2,
+        }
+
+
+def test_openai_embeddings_emit_canonical_vector_measurements() -> None:
+    from witdem_sdk.integrations.openai import instrument_openai
+
+    response = SimpleNamespace(
+        model="text-embedding-3-small",
+        usage=SimpleNamespace(prompt_tokens=5, total_tokens=5),
+        data=[SimpleNamespace(embedding=[0.1, 0.2, 0.3])],
+    )
+    operation, _, _, observed_usage = _fake_operation()
+    observed_context: dict[str, Any] = {}
+
+    @contextmanager
+    def canonical_operation(name: str, **kwargs: Any):
+        observed_context.update({"name": name, **kwargs})
+        yield operation
+
+    client = SimpleNamespace(embeddings=SimpleNamespace(create=lambda **kwargs: response))
+    wrapped = instrument_openai(client, witdem=SimpleNamespace(operation=canonical_operation))
+
+    assert wrapped.embeddings.create(model="text-embedding-3-small", input=["contract"]) is response
+    assert observed_context["operation_type"] == "embedding"
+    assert observed_context["provider_id"] == "openai"
+    assert observed_context["execution_source"] == "openai_sdk"
+    assert observed_usage[-1] == {
+        "input_tokens": 5,
+        "total_tokens": 5,
+        "meters": {"vectors.output": 1, "vector.dimensions": 3},
+    }
+
+
+def test_openai_sync_stream_stays_open_and_records_final_response_event() -> None:
+    from witdem_sdk.integrations.openai import instrument_openai
+
+    completed = SimpleNamespace(
+        type="response.completed",
+        response=SimpleNamespace(
+            model="gpt-5.4-2026-03-05",
+            usage=SimpleNamespace(input_tokens=8, output_tokens=2, total_tokens=10),
+            output=[SimpleNamespace(type="function_call", call_id="call_stream")],
+        ),
+    )
+    operation, attributes, _, observed_usage = _fake_operation()
+    lifecycle: list[str] = []
+
+    @contextmanager
+    def model(*args: Any, **kwargs: Any):
+        lifecycle.append("entered")
+        try:
+            yield operation
+        finally:
+            lifecycle.append("exited")
+
+    stream = iter((SimpleNamespace(type="response.output_text.delta"), completed))
+    client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: stream))
+    wrapped = instrument_openai(client, witdem=SimpleNamespace(model=model))
+
+    observed_stream = wrapped.responses.create(model="gpt-5.4", stream=True)
+    assert lifecycle == ["entered"]
+    assert list(observed_stream)[-1] is completed
+    assert lifecycle == ["entered", "exited"]
+    assert observed_usage[-1] == {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10}
+    assert attributes["gen_ai.tool.call.id"] == "call_stream"
+
+
+def test_openai_async_stream_stays_open_and_records_final_chat_chunk() -> None:
+    from witdem_sdk.integrations.openai import instrument_openai
+
+    final_chunk = SimpleNamespace(
+        model="gpt-5.4-2026-03-05",
+        usage=SimpleNamespace(prompt_tokens=6, completion_tokens=4, total_tokens=10),
+        choices=[],
+    )
+    operation, _, _, observed_usage = _fake_operation()
+    lifecycle: list[str] = []
+
+    @contextmanager
+    def model(*args: Any, **kwargs: Any):
+        lifecycle.append("entered")
+        try:
+            yield operation
+        finally:
+            lifecycle.append("exited")
+
+    class AsyncStream:
+        def __init__(self) -> None:
+            self._items = iter((SimpleNamespace(model="gpt-5.4", usage=None), final_chunk))
+            self.closed = False
+
+        def __aiter__(self) -> AsyncStream:
+            return self
+
+        async def __anext__(self) -> Any:
+            try:
+                return next(self._items)
+            except StopIteration as error:
+                raise StopAsyncIteration from error
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    native_stream = AsyncStream()
+
+    async def create(**kwargs: Any) -> AsyncStream:
+        return native_stream
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+    wrapped = instrument_openai(client, witdem=SimpleNamespace(model=model))
+
+    async def consume() -> list[Any]:
+        stream = await wrapped.chat.completions.create(
+            model="gpt-5.4",
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        assert lifecycle == ["entered"]
+        return [chunk async for chunk in stream]
+
+    chunks = asyncio.run(consume())
+    assert chunks[-1] is final_chunk
+    assert native_stream.closed is True
+    assert lifecycle == ["entered", "exited"]
+    assert observed_usage[-1] == {"input_tokens": 6, "output_tokens": 4, "total_tokens": 10}
+
+
 def test_openai_agents_registration_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("agents")
     import agents
@@ -116,6 +290,39 @@ def test_openai_processor_correlates_each_native_trace_independently(monkeypatch
         ("agent.trace.started", "execution-b"),
         ("agent.trace.completed", "execution-b"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("span_kind", "family", "operation_type"),
+    [
+        ("HandoffSpanData", "agent_control", "handoff"),
+        ("GuardrailSpanData", "quality", "guardrail"),
+        ("TaskSpanData", "orchestration", "workflow"),
+    ],
+)
+def test_openai_agents_control_spans_emit_canonical_semantics(
+    span_kind: str, family: str, operation_type: str
+) -> None:
+    from witdem_sdk.integrations.openai_agents import WitdemTraceProcessor
+
+    observed: dict[str, Any] = {}
+
+    @contextmanager
+    def operation(name: str, **kwargs: Any):
+        observed.update({"name": name, **kwargs})
+        yield SimpleNamespace()
+
+    data = type(span_kind, (), {"name": operation_type})()
+    manager = WitdemTraceProcessor(SimpleNamespace(operation=operation))._operation_manager(
+        SimpleNamespace(span_data=data)
+    )
+    with manager:
+        pass
+
+    assert observed["family"] == family
+    assert observed["operation_type"] == operation_type
+    assert observed["interface"] == "framework"
+    assert observed["framework_id"] == "openai_agents"
 
 
 def test_claude_agent_observer_emits_aggregate_model_usage_and_real_tool_id() -> None:
@@ -207,10 +414,14 @@ def test_langchain_callbacks_cover_usage_retrievers_and_async(monkeypatch: pytes
 
     spans = {span.name: span for span in exporter.get_finished_spans()}
     assert spans["langchain.retriever"].attributes["witdem.runtime.kind"] == "retriever"
+    assert spans["langchain.retriever"].attributes["witdem.operation.type"] == "retrieval"
+    assert spans["langchain.retriever"].attributes["witdem.operation.interface"] == "library"
     assert spans["langchain.chat_model"].attributes["gen_ai.usage.input_tokens"] == 5
+    assert spans["langchain.chat_model"].attributes["witdem.operation.type"] == "text_generation"
+    assert spans["langchain.chat_model"].attributes["gen_ai.operation.name"] == "chat"
     assert spans["langchain.chat_model"].attributes["gen_ai.provider.name"] == "openai"
     assert spans["langchain.chat_model"].attributes["gen_ai.response.model"] == "model-a-snapshot"
-    assert "langchain.tool.lookup" in spans
+    assert spans["langchain.tool.lookup"].attributes["witdem.operation.type"] == "tool_execution"
 
 
 def test_langchain_callbacks_extract_native_gemini_usage(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -270,6 +481,9 @@ def test_langgraph_marks_nodes_and_steps(monkeypatch: pytest.MonkeyPatch) -> Non
     span = exporter.get_finished_spans()[0]
     assert span.name == "research"
     assert span.attributes["witdem.runtime.kind"] == "graph_node"
+    assert span.attributes["witdem.operation.type"] == "component"
+    assert span.attributes["witdem.framework.id"] == "langgraph"
+    assert span.attributes["witdem.execution.source"] == "langgraph"
     assert span.attributes["langgraph.step"] == 2
 
 

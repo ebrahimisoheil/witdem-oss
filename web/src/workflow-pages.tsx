@@ -193,7 +193,7 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
   const [selectedType, setSelectedType] = useState<string | null>(null);
   if (loading) return <LoadingPage />;
   if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
-  const semanticTypes = data.summary.types.filter((item) => item.family !== "orchestration" && item.type !== "x.witdem.unclassified");
+  const semanticTypes = data.summary.types.filter((item) => item.family !== "orchestration");
   const semanticTypeIds = new Set(semanticTypes.map((item) => item.type));
   const semanticOperations = data.operations.filter((operation) => semanticTypeIds.has(operation.operation_type));
   const semanticOperationIds = new Set(semanticOperations.map((operation) => operation.operation_id));
@@ -203,7 +203,24 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
   const missingMeters = semanticMeasurements.filter((measurement) => measurement.measurement_status === "missing").length;
   const applicableMeters = measuredMeters + missingMeters;
   const meterCoverage = applicableMeters ? measuredMeters / applicableMeters : null;
-  const selectedOperations = semanticOperations.filter((operation) => !selectedType || operation.operation_type === selectedType).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
+  const selectedOperationIds = new Set(
+    semanticOperations
+      .filter((operation) => !selectedType || operation.operation_type === selectedType)
+      .map((operation) => operation.operation_id),
+  );
+  if (selectedType) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const operation of semanticOperations) {
+        if (operation.parent_operation_id && selectedOperationIds.has(operation.parent_operation_id) && !selectedOperationIds.has(operation.operation_id)) {
+          selectedOperationIds.add(operation.operation_id);
+          changed = true;
+        }
+      }
+    }
+  }
+  const selectedOperations = semanticOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
   const selectedLabel = selectedType ? operationLabel(selectedType) : "All operation types";
   const stepActivity = data.summary.types.find((item) => item.type === "component");
   const workflowRuns = data.summary.types.find((item) => item.type === "workflow");
@@ -212,7 +229,7 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
       <InsightCard label="Semantic operations" value={formatNumber(semanticOperations.length)} note={`${formatNumber(executionCount)} executions · ${formatNumber(semanticTypes.length)} operation types`} />
       <InsightCard label="Direct failures" value={formatNumber(semanticOperations.filter((operation) => ["error", "failed"].includes(operation.status)).length)} note="Failures in AI, knowledge, media, action, or quality work" tone={semanticOperations.some((operation) => ["error", "failed"].includes(operation.status)) ? "attention" : "good"} />
       <InsightCard label="Usage coverage" value={meterCoverage == null ? "Not applicable" : `${Math.round(meterCoverage * 100)}%`} note={`${formatNumber(measuredMeters)} measured · ${formatNumber(missingMeters)} missing applicable meters`} tone={missingMeters ? "attention" : "good"} />
-      <InsightCard label="Participants" value={formatNumber(new Set(semanticOperations.flatMap((operation) => [operation.provider_id, operation.model_id]).filter(Boolean)).size)} note="Explicitly reported providers and models" />
+      <InsightCard label="Participants" value={formatNumber(new Set(semanticOperations.flatMap((operation) => [operation.provider_id, operation.model_id, operation.implementation_id]).filter(Boolean)).size)} note="Explicitly reported providers, models, and implementations" />
     </div>
     {(stepActivity || workflowRuns) ? <Panel title="Workflow coordination" note="Context from framework spans. These wrappers describe how work was coordinated; they are not model, OCR, retrieval, or tool calls.">
       <div className="grid gap-3 md:grid-cols-2">
@@ -222,15 +239,15 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
     </Panel> : null}
     <div className="grid gap-4 xl:grid-cols-2">
       <Panel title="Where work happened" note="Semantic operation types only. Switch between volume, active time, cost, tokens, and operation-specific meters."><OperationActivityChart items={semanticTypes} onSelect={setSelectedType} /></Panel>
-      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by explicitly reported provider or model."><ParticipantOperationChart operations={semanticOperations} measurements={semanticMeasurements} /></Panel>
+      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by explicitly reported participant identity."><ParticipantOperationChart operations={semanticOperations} measurements={semanticMeasurements} /></Panel>
     </div>
     <Panel title="Operation profile" note="Actual AI, knowledge, media, action, and quality work. Select a card to inspect supporting operations.">
       <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{semanticTypes.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
     </Panel>
-    <Panel title={`Observed operations · ${selectedLabel}`} note="Longest operations first. Open an execution to inspect the operation in its workflow path.">
+    <Panel title={`Observed operations · ${selectedLabel}`} note={selectedType ? "Selected operations and their nested child work. Open an execution to inspect the full path." : "Longest operations first. Open an execution to inspect the operation in its workflow path."}>
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
         <div className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 bg-[#f5f3f6] px-3 py-2 text-[9px] font-semibold uppercase tracking-[.1em] text-[#847e86]"><span>Operation / node</span><span>Participant</span><span>Elapsed</span><span>Status</span></div>
-        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operation.status === "error" || operation.status === "failed" ? "font-semibold text-red-700" : "text-[#27754c]"}>{operation.status === "unset" ? "Observed" : operation.status}</div></a>)}
+        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.implementation_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operation.status === "error" || operation.status === "failed" ? "font-semibold text-red-700" : "text-[#27754c]"}>{operation.status === "unset" ? "Observed" : operation.status}</div></a>)}
       </div>
       {!selectedOperations.length ? <Empty>No operations match this type.</Empty> : null}
     </Panel>
@@ -286,19 +303,19 @@ function OperationActivityChart({ items, onSelect }: { items: OperationTypeSumma
 }
 
 function ParticipantOperationChart({ operations, measurements }: { operations: OperationFact[]; measurements: OperationMeasurement[] }) {
-  const [dimension, setDimension] = useState<"provider" | "model">("provider");
+  const [dimension, setDimension] = useState<"provider" | "model" | "implementation">("provider");
   const [metric, setMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
   const rows = participantOperationRows(operations, measurements, dimension).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
-  return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
+  return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model", "implementation"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model", implementation: "Implementation" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
 }
 
 type ParticipantOperationRow = { id: string; calls: number; time: number; cost: number | null; tokens: number | null };
-export function participantOperationRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model") {
+export function participantOperationRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model" | "implementation") {
   const measurementByOperation = new Map<string, OperationMeasurement[]>();
   measurements.filter((item) => item.measurement_status === "measured").forEach((item) => measurementByOperation.set(item.operation_id, [...(measurementByOperation.get(item.operation_id) || []), item]));
   const grouped = new Map<string, ParticipantOperationRow>();
   operations.forEach((operation) => {
-    const id = dimension === "provider" ? operation.provider_id : operation.model_id;
+    const id = dimension === "provider" ? operation.provider_id : dimension === "model" ? operation.model_id : operation.implementation_id;
     if (!id) return;
     const row = grouped.get(id) || { id, calls: 0, time: 0, cost: null, tokens: null };
     row.calls += 1;
@@ -313,14 +330,19 @@ export function participantOperationRows(operations: OperationFact[], measuremen
 }
 
 function OperationTypeCard({ item, active, onClick }: { item: OperationTypeSummary; active: boolean; onClick: () => void }) {
-  const important = [["cost.usd", "Cost"], ["tokens.total", "Tokens"], ["pages.processed", "Pages"], ["documents.returned", "Documents"], ["vectors.output", "Vectors"]] as const;
-  const usage = important.filter(([key]) => item.measurements[key] != null).slice(0, 3);
+  const preferred = ["cost.usd", "tokens.total", "pages.processed", "documents.output", "results", "vectors.output"];
+  const measurementKeys = Object.keys(item.measurements).sort((left, right) => {
+    const leftRank = preferred.indexOf(left);
+    const rightRank = preferred.indexOf(right);
+    return (leftRank < 0 ? preferred.length : leftRank) - (rightRank < 0 ? preferred.length : rightRank) || left.localeCompare(right);
+  }).slice(0, 3);
+  const usage = measurementKeys.map((key) => [key, operationFamilyLabel(key.replaceAll(".", "_"))] as const);
   return <button type="button" onClick={onClick} className={`flex h-full min-w-0 flex-col rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
     <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0"><div className="truncate text-[13px] font-semibold">{operationLabel(item.type)}</div><div className="mt-0.5 truncate text-[9px] text-[#817b83]">{operationFamilyLabel(item.family)} · {operationInterfaceLabel(item.interfaces, item.family)}</div></div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${item.failed ? "bg-red-50 text-red-700" : "bg-[#eef8f2] text-[#27754c]"}`}>{item.failed ? `${item.failed} failed` : "Healthy"}</span></div>
     <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Operations" value={formatNumber(item.operations)} /><CardCell label="Active time" value={seconds(item.active_seconds)} /></div>
     {usage.length ? <div className={`mt-2 grid gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed] ${usage.length === 1 ? "grid-cols-1" : usage.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>{usage.map(([key, label]) => <CardCell key={key} label={label} value={key === "cost.usd" ? money(item.measurements[key]) : formatNumber(item.measurements[key])} />)}</div> : <div className="mt-2 text-[9px] text-[#89838b]">Usage meters not applicable</div>}
-    {item.providers.length || item.models.length ? <div className="mt-2 grid gap-2 border-t border-[#ece9ed] pt-2 sm:grid-cols-[.7fr_1.3fr]">
-      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Providers</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{item.providers.join(", ") || "Not reported"}</div></div>
+    {item.providers.length || item.models.length || item.implementations.length ? <div className="mt-2 grid gap-2 border-t border-[#ece9ed] pt-2 sm:grid-cols-[.7fr_1.3fr]">
+      <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Participants</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{[...item.providers, ...item.implementations].join(", ") || "Not reported"}</div></div>
       <div className="min-w-0"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Models</div><div className="mt-0.5 break-words text-[9px] leading-4 text-[#5f5962]">{item.models.join(", ") || "Not reported"}</div></div>
     </div> : null}
   </button>;
@@ -328,7 +350,7 @@ function OperationTypeCard({ item, active, onClick }: { item: OperationTypeSumma
 
 const operationFamilyLabel = (family: string) => family.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 const operationInterfaceLabel = (interfaces: string[], family: string) => {
-  const labels: Record<string, string> = { model_api: "Provider API", tool: "Tool interface", framework: "Framework", datastore: "Datastore", search_service: "Search service", local: "Application", external_api: "External API" };
+  const labels: Record<string, string> = { model_api: "Provider API", mcp: "MCP", tool: "Tool interface", framework: "Framework", library: "Library", datastore: "Datastore", vector_database: "Vector database", search_service: "Search service", local: "Application", external_api: "External API", browser: "Browser", human: "Human" };
   const resolved = interfaces.filter((value) => value !== "unknown").map((value) => labels[value] || operationFamilyLabel(value));
   if (resolved.length) return resolved.join(", ");
   return family === "orchestration" ? "Framework" : "Interface not reported";
@@ -382,7 +404,7 @@ function CompactFact({ label, value, tone = "default" }: { label: string; value:
 
 const operationLabel = (value: string) => {
   if (value === "component") return "Workflow step";
-  if (value === "x.witdem.unclassified") return "Observed operation";
+  if (value === "unknown" || value === "x.witdem.unclassified") return "Other / Unknown";
   if (value === "ocr") return "OCR";
   return value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 };

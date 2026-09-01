@@ -314,6 +314,9 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             vendor_id VARCHAR,
             runtime_id VARCHAR,
             framework_id VARCHAR,
+            implementation_id VARCHAR,
+            execution_source VARCHAR,
+            parent_operation_id VARCHAR,
             duration_seconds DOUBLE,
             status VARCHAR,
             attributes VARCHAR
@@ -393,6 +396,13 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     ):
         connection.execute(f'ALTER TABLE workflow_execution_nodes ADD COLUMN IF NOT EXISTS "{column}" BIGINT')
     connection.execute('ALTER TABLE operation_measurement_facts ADD COLUMN IF NOT EXISTS "attempt" BIGINT')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "implementation_id" VARCHAR'
+    )
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "execution_source" VARCHAR')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "parent_operation_id" VARCHAR'
+    )
     connection.execute('ALTER TABLE participant_execution_facts ADD COLUMN IF NOT EXISTS "vendor_id" VARCHAR')
 
 
@@ -689,8 +699,13 @@ def publish_transformed_bundle(
                     template_hash = str(association[1]) if association else None
                     for fact in operation_classifications:
                         connection.execute(
-                            "INSERT INTO operation_classification_facts VALUES "
-                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "INSERT INTO operation_classification_facts "
+                            "(operation_id, execution_id, workflow_id, template_hash, node_id, taxonomy_version, "
+                            "family, operation_type, subtype, interface, role, input_modalities, output_modalities, "
+                            "provider_id, model_id, gateway_id, vendor_id, runtime_id, framework_id, "
+                            "implementation_id, execution_source, parent_operation_id, duration_seconds, "
+                            "status, attributes) VALUES "
+                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [
                                 fact.get("operation_id"),
                                 execution_id,
@@ -711,6 +726,9 @@ def publish_transformed_bundle(
                                 fact.get("vendor_id"),
                                 fact.get("runtime_id"),
                                 fact.get("framework_id"),
+                                fact.get("implementation_id"),
+                                fact.get("execution_source"),
+                                fact.get("parent_operation_id"),
                                 fact.get("duration_seconds"),
                                 fact.get("status"),
                                 json.dumps(fact.get("attributes") or {}, sort_keys=True),
@@ -1083,8 +1101,13 @@ def store_operation_facts(
                 )
             for fact in classifications:
                 connection.execute(
-                    """INSERT INTO operation_classification_facts VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    """INSERT INTO operation_classification_facts (
+                        operation_id, execution_id, workflow_id, template_hash, node_id, taxonomy_version,
+                        family, operation_type, subtype, interface, role, input_modalities, output_modalities,
+                        provider_id, model_id, gateway_id, vendor_id, runtime_id, framework_id,
+                        implementation_id, execution_source, parent_operation_id, duration_seconds, status, attributes
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )""",
                     [
                         fact.get("operation_id"),
@@ -1106,6 +1129,9 @@ def store_operation_facts(
                         fact.get("vendor_id"),
                         fact.get("runtime_id"),
                         fact.get("framework_id"),
+                        fact.get("implementation_id"),
+                        fact.get("execution_source"),
+                        fact.get("parent_operation_id"),
                         fact.get("duration_seconds"),
                         fact.get("status"),
                         json.dumps(fact.get("attributes") or {}, sort_keys=True, default=str),

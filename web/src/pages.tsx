@@ -241,7 +241,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     unknown: "#7a8290",
   };
   const outcomeColors = contractOutcomeColors(d.outcome_breakdown, d.contracts);
-  const semanticOperationTypes = d.operation_health.types.filter((item) => item.family !== "orchestration" && item.type !== "x.witdem.unclassified");
+  const semanticOperationTypes = d.operation_health.types.filter((item) => item.family !== "orchestration");
   const semanticOperationCount = semanticOperationTypes.reduce((total, item) => total + item.operations, 0);
   const semanticOperationFailures = semanticOperationTypes.reduce((total, item) => total + item.failed, 0);
   const excludedCoordinationCount = d.operation_health.total_operations - semanticOperationCount;

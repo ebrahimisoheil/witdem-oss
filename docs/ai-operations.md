@@ -4,28 +4,56 @@ Witdem normalizes AI work into a vendor-neutral, versioned analytics contract. O
 
 ## Operation identity
 
-Every observed operation keeps independent dimensions:
+Every observed operation keeps independent dimensions. Operation type says
+what happened; interface says how it was invoked; provider/implementation say
+who performed it; execution source/framework say where it ran:
 
-- `family`: orchestration, inference, knowledge, media, action, quality, or custom;
+- `family`: an extensible grouping such as inference, knowledge, tools, MCP,
+  agent control, orchestration, media, quality, memory, human work, external
+  action, data movement, or custom;
 - `type`: a well-known type or `x.<namespace>.<name>` extension;
 - `subtype`: the source operation name, retained without interpretation;
-- `interface`: model API, tool, framework, datastore, search service, local code, external API, or unknown;
-- `role`: application, evaluator, guardrail, or system;
+- `interface`: model API, MCP, tool, framework, library, datastore, search
+  service, local code, external API, browser, human, or unknown;
+- `role`: application, model, tool, agent, evaluator, guardrail, system, or human;
 - input and output modalities: text, structured data, document, vector, image, audio, or video.
 
 Provider, gateway, model, model vendor, runtime, and framework are separate explicit identities. Witdem never derives a provider from a model-name prefix. A Mistral model reached through OpenRouter is therefore represented as an OpenRouter provider and a Mistral model only when those facts were reported.
 
-The initial type registry includes workflow, agent, chain, component, prompt, text and multimodal generation, embedding, retrieval, reranking, search, OCR, document processing, image generation/edit/understanding, audio transcription/synthesis/generation/understanding, video generation/edit/understanding, tool, code execution, guardrail, and evaluation.
+The registry is deliberately open. Its initial vocabulary covers inference,
+knowledge/search, tools, MCP boundaries, agent control, orchestration, media,
+quality, memory, human work, external actions, and data movement. Dashboard
+cards are generated from the observed canonical facts, so adding a custom type
+does not require provider-specific UI code.
+
+MCP is normally an interface, not the semantic type. For example, an MCP tool
+call may contain a retrieval operation, whose child operations are an embedding
+and vector search. Likewise, a generation span requesting a tool remains the
+parent of the tool execution rather than absorbing the downstream work.
 
 Unknown future operations remain queryable as extensions:
 
 ```python
 with witdem.operation(
     "special transform",
-    type="x.acme.special_transform",
+    family="custom",
+    operation_type="contract_conflict_analysis",
     interface="local",
 ) as operation:
     operation.measure("items.output", 12, unit="item")
+```
+
+The same boundary is usable as a decorator:
+
+```python
+@witdem.operation(
+    family="knowledge",
+    operation_type="retrieval",
+    subtype="hybrid_search",
+    interface="mcp",
+)
+def retrieve_contracts(query):
+    ...
 ```
 
 ## Typed measurements

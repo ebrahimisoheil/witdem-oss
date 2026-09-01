@@ -12,7 +12,7 @@ witdem logs worker
 witdem logs dashboard
 ```
 
-Use the same commands after `npx -y witdem@stable-0-1` for Docker installations.
+Use the same commands after `npx -y witdem@latest` for Docker installations.
 
 ## A port is occupied
 
