@@ -131,6 +131,42 @@ def test_control_and_work_planes_do_not_depend_on_framework_or_interface() -> No
     assert retrieval_identity["model_applicability"] == "not_applicable"
 
 
+def test_mcp_protocol_methods_preserve_semantics_and_interface() -> None:
+    started = datetime(2026, 8, 30, tzinfo=timezone.utc)
+
+    def identity(method: str) -> dict[str, object]:
+        return operation_identity(
+            Operation(
+                operation_id=f"mcp-{method}",
+                execution_id="run-mcp",
+                kind="operation",
+                name=f"mcp send {method}",
+                started_at=started,
+                ended_at=started + timedelta(seconds=1),
+                attributes={
+                    "mcp.method.name": method,
+                    "otel.instrumentation_scope": {"name": "mcp-python-sdk"},
+                },
+            )
+        )
+
+    connection = identity("initialize")
+    assert connection["family"] == "mcp"
+    assert connection["type"] == "mcp_connection"
+    assert connection["subtype"] == "initialize"
+    assert connection["interface"] == "mcp"
+    assert connection["role"] == "control"
+    assert connection["plane"] == "control"
+    assert identity("tools/list")["type"] == "capability_discovery"
+    assert identity("tools/list")["plane"] == "control"
+    assert identity("resources/read")["type"] == "resource_read"
+    assert identity("prompts/get")["type"] == "prompt_retrieval"
+    assert identity("tools/call")["family"] == "tools"
+    assert identity("tools/call")["type"] == "tool"
+    assert identity("tools/call")["interface"] == "mcp"
+    assert identity("tools/call")["role"] == "tool"
+
+
 def test_operation_summary_excludes_containers_and_preserves_linked_child_activity() -> None:
     operations = [
         {
@@ -364,6 +400,30 @@ def test_execution_summary_keeps_model_identity_for_non_generation_model_apis() 
     assert provider is not None and provider[0] == "provider-a"
     assert model is not None and model[2:4] == ("provider-a", "embedder-a")
     assert _token_eligible(operation) is True
+
+
+def test_execution_summary_counts_canonical_mcp_tool_calls() -> None:
+    started = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    operation = Operation(
+        operation_id="mcp-tool-call",
+        execution_id="run-mcp",
+        kind="operation",
+        name="mcp send tools call",
+        started_at=started,
+        ended_at=started + timedelta(seconds=1),
+        attributes={"mcp.method.name": "tools/call"},
+    )
+
+    rows = build_serving_rows(
+        Execution(execution_id="run-mcp", runtime_id="mcp", status="completed"),
+        [operation],
+        [],
+        [],
+        transformed_at=started,
+        transform_version="test",
+    )
+
+    assert rows["execution_facts"][0]["tool_calls"] == 1
 
 
 def test_metadata_only_sanitization_keeps_counts_and_removes_payloads() -> None:

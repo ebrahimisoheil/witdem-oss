@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.2.3
+
+- Added native MCP protocol normalization for connection initialization, capability discovery, resource reads, prompt retrieval, and tool execution.
+- Preserved MCP as the invocation interface while retaining the semantic operation family, type, role, provider, and nested downstream work.
+- Counted canonical MCP tool executions in run summaries even when telemetry arrives as generic OpenTelemetry operations.
+
 ## 0.2.2
 
 - Separated execution containers, control-plane orchestration, and work-plane operations so workflow roots no longer appear as unknown AI operations.

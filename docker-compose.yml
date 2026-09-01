@@ -2,7 +2,7 @@ name: witdem-analytics
 
 services:
   witdem:
-    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-analytics:0.2.2}
+    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-analytics:0.2.3}
     build:
       context: .
       dockerfile: Dockerfile.witdem
@@ -25,7 +25,7 @@ services:
       retries: 10
 
   elt-worker:
-    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-analytics:0.2.2}
+    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-analytics:0.2.3}
     build:
       context: .
       dockerfile: Dockerfile.witdem
@@ -48,7 +48,7 @@ services:
       retries: 3
 
   dashboard:
-    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-analytics:0.2.2}
+    image: ${WITDEM_ANALYTICS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-analytics:0.2.3}
     build:
       context: .
       dockerfile: Dockerfile.witdem

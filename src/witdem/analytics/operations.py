@@ -63,6 +63,9 @@ OPERATION_FAMILIES: dict[str, OperationFamily] = {
     "mcp_resource_read": "mcp",
     "mcp_prompt_retrieval": "mcp",
     "mcp_capability_discovery": "mcp",
+    "capability_discovery": "mcp",
+    "resource_read": "knowledge",
+    "prompt_retrieval": "knowledge",
     "planning": "agent_control",
     "delegation": "agent_control",
     "handoff": "agent_control",
@@ -148,6 +151,14 @@ OTEL_OPERATION_TYPES = {
     "invoke_workflow": "workflow",
 }
 
+MCP_OPERATION_TYPES = {
+    "initialize": "mcp_connection",
+    "tools/list": "capability_discovery",
+    "resources/read": "resource_read",
+    "prompts/get": "prompt_retrieval",
+    "tools/call": "tool",
+}
+
 OPENINFERENCE_OPERATION_TYPES = {
     "LLM": "text_generation",
     "EMBEDDING": "embedding",
@@ -203,15 +214,37 @@ _BOUNDED_NAME_MARKERS = (
 
 VALID_FAMILIES = frozenset(
     {
-        "orchestration", "inference", "knowledge", "tools", "mcp", "agent_control",
-        "media", "quality", "memory", "human_work", "external_action", "data_movement",
-        "action", "custom",
+        "orchestration",
+        "inference",
+        "knowledge",
+        "tools",
+        "mcp",
+        "agent_control",
+        "media",
+        "quality",
+        "memory",
+        "human_work",
+        "external_action",
+        "data_movement",
+        "action",
+        "custom",
     }
 )
 VALID_INTERFACES = frozenset(
     {
-        "model_api", "tool", "framework", "datastore", "vector_database", "search_service",
-        "mcp", "library", "local", "external_api", "browser", "human", "unknown",
+        "model_api",
+        "tool",
+        "framework",
+        "datastore",
+        "vector_database",
+        "search_service",
+        "mcp",
+        "library",
+        "local",
+        "external_api",
+        "browser",
+        "human",
+        "unknown",
     }
 )
 VALID_ROLES = frozenset(
@@ -222,7 +255,7 @@ VALID_ENTITY_KINDS = frozenset({"execution", "operation", "business_event"})
 VALID_PLANES = frozenset({"control", "work", "business"})
 
 _CONTROL_FAMILIES = frozenset({"orchestration", "agent_control"})
-_CONTROL_MCP_TYPES = frozenset({"mcp_connection", "mcp_server", "mcp_capability_discovery"})
+_CONTROL_MCP_TYPES = frozenset({"mcp_connection", "mcp_server", "mcp_capability_discovery", "capability_discovery"})
 _MODEL_APPLICABLE_FAMILIES = frozenset({"inference", "media"})
 
 
@@ -498,6 +531,7 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
     attributes = operation.attributes
     explicit_type = str(attributes.get("witdem.operation.type") or "").strip().casefold()
     otel_name = str(attributes.get("gen_ai.operation.name") or "").strip().casefold()
+    mcp_method = str(attributes.get("mcp.method.name") or "").strip().casefold()
     oi_kind = str(attributes.get("openinference.span.kind") or attributes.get("openinference.kind") or "").upper()
     adapter_type = next(
         (
@@ -521,16 +555,21 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
     operation_type = (
         explicit_type
         or OTEL_OPERATION_TYPES.get(otel_name)
+        or MCP_OPERATION_TYPES.get(mcp_method)
         or OPENINFERENCE_OPERATION_TYPES.get(oi_kind)
         or adapter_type
         or _bounded_metadata_type(operation)
     )
     if not operation_type:
-        operation_type = ({
-            "workflow": "workflow",
-            "pipeline": "workflow",
-            "agent": "agent",
-        }.get(runtime_kind) if entity_kind == "execution" else None) or {
+        operation_type = (
+            {
+                "workflow": "workflow",
+                "pipeline": "workflow",
+                "agent": "agent",
+            }.get(runtime_kind)
+            if entity_kind == "execution"
+            else None
+        ) or {
             "workflow": "workflow",
             "pipeline": "workflow",
             "agent": "agent",
@@ -544,7 +583,9 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
     interface = str(attributes.get("witdem.operation.interface") or "").strip().casefold()
     if interface not in VALID_INTERFACES:
         interface = (
-            "tool"
+            "mcp"
+            if mcp_method
+            else "tool"
             if operation.kind == "tool"
             else "model_api"
             if family in {"inference", "media"}
@@ -562,26 +603,28 @@ def operation_identity(operation: Operation) -> dict[str, Any]:
         if family in _CONTROL_FAMILIES or operation_type in _CONTROL_MCP_TYPES
         else "work"
     )
-    role = str(
-        attributes.get("witdem.operation.role")
-        or ("control" if plane == "control" else "application")
-    ).strip().casefold()
+    role = (
+        str(
+            attributes.get("witdem.operation.role")
+            or ("tool" if mcp_method == "tools/call" else None)
+            or ("control" if plane == "control" else "application")
+        )
+        .strip()
+        .casefold()
+    )
     if role not in VALID_ROLES:
         role = "application"
-    model_reported = any(
-        attributes.get(key)
-        for key in ("gen_ai.response.model", "gen_ai.request.model", "model")
-    )
-    model_applicability = (
-        "applicable" if model_reported or family in _MODEL_APPLICABLE_FAMILIES else "not_applicable"
-    )
+    model_reported = any(attributes.get(key) for key in ("gen_ai.response.model", "gen_ai.request.model", "model"))
+    model_applicability = "applicable" if model_reported or family in _MODEL_APPLICABLE_FAMILIES else "not_applicable"
     return {
         "taxonomy_version": OPERATION_TAXONOMY_VERSION,
         "entity_kind": entity_kind,
         "plane": plane,
         "family": family,
         "type": operation_type,
-        "subtype": str(attributes.get("witdem.operation.subtype") or otel_name or oi_kind or operation.name),
+        "subtype": str(
+            attributes.get("witdem.operation.subtype") or otel_name or mcp_method or oi_kind or operation.name
+        ),
         "interface": interface,
         "role": role,
         "model_applicability": model_applicability,
