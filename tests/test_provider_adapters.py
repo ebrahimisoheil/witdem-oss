@@ -21,15 +21,17 @@ def test_provider_adapters_run_per_operation_in_mixed_execution() -> None:
 
     normalized, adapters = normalize_provider_spans(spans)
 
-    assert adapters == ("anthropic", "deepseek", "mistral", "openai")
+    assert adapters == ("anthropic", "mistral", "openai")
     assert [row["attributes"].get("witdem.provider_adapter.name") for row in normalized] == [
         "openai",
         "anthropic",
-        "deepseek",
+        None,
         "mistral",
         None,
     ]
     assert normalized[-1]["attributes"]["custom"] == "preserved"
+    assert normalized[2]["attributes"]["model"] == "deepseek-v4-flash"
+    assert "provider" not in normalized[2]["attributes"]
     assert normalized[0]["attributes"]["witdem.operation.kind"] == "model"
 
 

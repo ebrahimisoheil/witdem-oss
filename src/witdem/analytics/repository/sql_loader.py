@@ -8,6 +8,8 @@ from pathlib import Path
 
 _QUERY_ROOT = Path(__file__).resolve().parents[1] / "queries"
 _PLACEHOLDER = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+
+
 class QueryNotFoundError(FileNotFoundError):
     """Raised when a named analytics query does not exist."""
 

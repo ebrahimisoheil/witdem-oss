@@ -7,7 +7,7 @@ The integration uses the OpenAI Agents SDK's supported trace-processor registrat
 ## Installation
 
 ```bash
-python -m pip install "witdem-sdk[openai]==0.3.0"
+python -m pip install "witdem-sdk[openai]"
 export WITDEM_ENDPOINT=http://localhost:4318
 export OPENAI_API_KEY=...
 ```
@@ -35,12 +35,12 @@ The wrapper supports synchronous and async functions, owns processor registratio
 
 Runnable examples:
 
-- [`examples/openai/basic_agent`](../../examples/openai/basic_agent): one agent and tool
-- [`examples/openai/multi_agent`](../../examples/openai/multi_agent): native handoff
+- [`examples/openai/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/basic_agent): one agent and tool
+- [`examples/openai/multi_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/multi_agent): native handoff
 
 ## Limitations
 
-- This adapter targets OpenAI Agents SDK tracing, not every call made through the base `openai` Python client. Wrap direct client calls with native operations or the generic provider helper.
+- This adapter targets OpenAI Agents SDK tracing. Use the separate [direct OpenAI SDK integration](openai.md) for Responses, Chat Completions, or embeddings calls.
 - Content capture is disabled by default.
 - Cost requires provider-reported money or recognized model and usage evidence.
 - Native SDK trace fields can change before a 1.0 release; the supported dependency range remains `<1`.

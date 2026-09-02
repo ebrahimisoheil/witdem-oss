@@ -183,9 +183,9 @@ def test_shared_mapping_preserves_provider_reported_cost_provenance() -> None:
             },
         )
     )
-    operation = graph_from_spans(
-        [span], execution_id="execution", runtime="provider", telemetry_path="sdk"
-    ).operations[0]
+    operation = graph_from_spans([span], execution_id="execution", runtime="provider", telemetry_path="sdk").operations[
+        0
+    ]
     assert operation.attributes["cost_usd"] == pytest.approx(0.0123)
     assert operation.attributes["cost_source"] == "provider_reported"
 
@@ -202,13 +202,9 @@ def test_shared_mapping_preserves_the_root_execution_name() -> None:
         )
     )
 
-    graph = graph_from_spans(
-        [span], execution_id="chinook-run", runtime="langgraph", telemetry_path="otel"
-    )
+    graph = graph_from_spans([span], execution_id="chinook-run", runtime="langgraph", telemetry_path="otel")
 
-    assert graph.execution.attributes["witdem.execution.name"] == (
-        "Chinook support · LangGraph · acct-e1"
-    )
+    assert graph.execution.attributes["witdem.execution.name"] == ("Chinook support · LangGraph · acct-e1")
 
 
 def test_shared_mapping_prices_dated_gpt_4o_mini_response_model() -> None:
@@ -271,6 +267,19 @@ def test_unknown_model_keeps_cost_unavailable_with_a_specific_reason() -> None:
     operation = graph_from_spans([span], execution_id="execution", runtime="test", telemetry_path="otel").operations[0]
     assert operation.attributes.get("cost_usd") is None
     assert operation.attributes["cost_unavailable_reason"] == "unknown_model"
+
+
+def test_non_model_span_does_not_invent_a_cost_unavailable_reason() -> None:
+    span = OTelEnvelopeNormalizer().normalize(
+        _span(
+            "component",
+            "fallback_generator",
+            attributes={"witdem.operation.type": "text_generation"},
+        )
+    )
+    operation = graph_from_spans([span], execution_id="execution", runtime="test", telemetry_path="otel").operations[0]
+
+    assert "cost_unavailable_reason" not in operation.attributes
 
 
 def test_configured_runtime_comes_from_otel_resource() -> None:

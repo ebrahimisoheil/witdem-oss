@@ -4,29 +4,37 @@ This guide takes one application execution from code to the local Witdem dashboa
 
 ## Prerequisites
 
-- Docker with Compose for the recommended backend path
+- Docker with Compose for the NPX path, or Python 3.10+ with pipx for native operation
 - Python 3.10 or newer for the SDK and examples
 - An existing AI application or one of the checked-in examples
 - The API key required by the provider you choose
 
 ## 1. Start Witdem
 
+Choose one:
+
 ```bash
-npx -y witdem@0.3.0 up
+# Docker-managed
+npx -y witdem@latest up
+
+# Native Python, without Node or Docker
+pipx install witdem-analytics
+witdem up
 ```
 
 Verify both public services:
 
 ```bash
-npx -y witdem@0.3.0 status
+npx -y witdem@latest status  # NPX
+witdem status                # pipx
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
 
 The receiver is at `http://localhost:4318`; the dashboard is at `http://localhost:8501`.
-The launcher uses the container release matching its npm version and preserves
-data in the `witdem-data` Docker volume. See [Running Witdem with
-npx](npm-launcher.md) for lifecycle and port options.
+NPX uses the container matching its package version and a persistent named
+volume. pipx runs the same three services as validated background processes
+and stores data under the platform data directory. See [Operations](operations.md).
 
 ## 2. Choose an integration
 
@@ -35,6 +43,7 @@ npx](npm-launcher.md) for lifecycle and port options.
 | Haystack 3 | [Using Witdem with Haystack](integrations/haystack.md) | `haystack` |
 | LangGraph | [Using Witdem with LangGraph](integrations/langgraph.md) | `langgraph` |
 | LangChain | [Using Witdem with LangChain](integrations/langchain.md) | `langchain` |
+| Direct OpenAI SDK | [Using Witdem with the direct OpenAI SDK](integrations/openai.md) | `openai` |
 | OpenAI Agents | [Using Witdem with OpenAI Agents](integrations/openai-agents.md) | `openai` |
 | Anthropic Messages or Claude Agent SDK | [Using Witdem with Anthropic](integrations/anthropic.md) | `anthropic` for Messages |
 | Hugging Face smolagents | [Using Witdem with smolagents](integrations/smolagents.md) | `smolagents` |
@@ -46,7 +55,7 @@ npx](npm-launcher.md) for lifecycle and port options.
 Install the SDK with the framework extra selected above:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.3.0"
+python -m pip install "witdem-sdk[haystack]"
 ```
 
 Replace `haystack` with the extra in the table. The provider-specific packages remain dependencies of your application.
@@ -139,14 +148,12 @@ Open `http://localhost:8501/runs` and check:
 
 The ELT worker processes ingestion asynchronously. A new run can take a short moment to become queryable. If it does not appear, use [Troubleshooting](troubleshooting.md#no-runs-appear).
 
-## Python-only backend
-
-For development without Docker:
+## Stop without deleting data
 
 ```bash
-cd Witdem-Analytics
-uv sync
-uv run witdem dev --open
+npx -y witdem@latest down  # NPX
+witdem down                # pipx
 ```
 
-This starts the receiver and dashboard together. Docker remains the recommended path because it also runs the continuous ELT worker as an explicit service.
+Both paths preserve the corpus. Use `witdem dev` only for foreground platform
+development, not as the normal native installation lifecycle.

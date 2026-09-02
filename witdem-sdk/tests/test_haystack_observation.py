@@ -144,6 +144,8 @@ def test_observes_each_model_in_sync_and_async_multi_provider_pipelines(asynchro
         "claude-haiku-4-5-20251001",
     }
     assert sum(span.attributes["gen_ai.usage.total_tokens"] for span in model_spans) == 23
+    assert {span.attributes["witdem.operation.type"] for span in model_spans} == {"text_generation"}
+    assert {span.attributes["witdem.framework.id"] for span in model_spans} == {"haystack"}
 
 
 def test_names_agent_steps_from_observed_tool_children_and_terminal_model_step() -> None:
@@ -164,10 +166,13 @@ def test_names_agent_steps_from_observed_tool_children_and_terminal_model_step()
         ):
             pass
 
-    with tracer.trace("haystack.agent.step", tags={"haystack.agent.step": 1}) as final_step, tracer.trace(
-        "haystack.agent.step.llm",
-        tags={},
-        parent_span=final_step,
+    with (
+        tracer.trace("haystack.agent.step", tags={"haystack.agent.step": 1}) as final_step,
+        tracer.trace(
+            "haystack.agent.step.llm",
+            tags={},
+            parent_span=final_step,
+        ),
     ):
         pass
 
@@ -175,6 +180,10 @@ def test_names_agent_steps_from_observed_tool_children_and_terminal_model_step()
     assert recorder.spans[0].attributes["witdem.agent.step.tools"] == ("list_metadata_fields",)
     assert recorder.spans[3].attributes["witdem.agent.step.name"] == "final_answer"
     assert recorder.spans[3].attributes["witdem.agent.step.action"] == "final_answer"
+    tool_span = next(span for span in recorder.spans if span.name == "haystack.agent.step.tool")
+    model_span = next(span for span in recorder.spans if span.name == "haystack.agent.step.llm")
+    assert tool_span.attributes["witdem.operation.type"] == "tool_execution"
+    assert model_span.attributes["witdem.operation.type"] == "text_generation"
 
 
 def test_names_agent_steps_when_haystack_relies_on_the_active_parent_context() -> None:

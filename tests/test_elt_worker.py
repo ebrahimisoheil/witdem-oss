@@ -174,9 +174,10 @@ def test_duckle_worker_publishes_canonical_and_serving_rows(monkeypatch, tmp_pat
     assert run_pending(rebuild=True)["status"] == "ready"
     second_connection = duckdb.connect(str(database), read_only=True)
     try:
-        assert second_connection.execute(
-            "SELECT outcome_id, timestamp FROM outcomes ORDER BY outcome_id"
-        ).fetchall() == first_timestamps
+        assert (
+            second_connection.execute("SELECT outcome_id, timestamp FROM outcomes ORDER BY outcome_id").fetchall()
+            == first_timestamps
+        )
         assert second_connection.execute("SELECT COUNT(*) FROM serving.execution_facts").fetchone() == (1,)
     finally:
         second_connection.close()

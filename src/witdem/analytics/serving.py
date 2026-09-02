@@ -9,6 +9,7 @@ from typing import Any
 
 from witdem.analytics.core import Evaluation, Event, Execution, Link, Operation, Outcome
 from witdem.analytics.identity import display_execution, display_model, display_operation, model_value
+from witdem.analytics.operations import operation_identity
 from witdem.analytics.runtime import NormalizedExecutionGraph, derive_repeated_patterns
 
 SERVING_DDL = """
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS serving.execution_facts (
     decision_correct BOOLEAN,
     product_goal_reported BOOLEAN,
     product_goal_achieved BOOLEAN,
+    assurance_status VARCHAR,
     artifact_valid BOOLEAN,
     evidence_sufficient BOOLEAN,
     closest_blocker VARCHAR,
@@ -230,8 +232,22 @@ def build_serving_rows(
     patterns, repeated_ids, extra_time, extra_tokens, extra_cost = _repeat_details(graph)
     operation_by_id = {operation.operation_id: operation for operation in operations}
     ordered = sorted(operations, key=lambda item: item.started_at.isoformat() if item.started_at else "")
-    model_operations = [operation for operation in operations if operation.kind == "model"]
-    tool_operations = [operation for operation in operations if operation.kind == "tool"]
+    model_operations = [
+        operation
+        for operation in operations
+        if operation.kind == "model"
+        or (model_value(operation) is not None and operation_identity(operation)["family"] in {"inference", "media"})
+    ]
+    model_identity_operations = [operation for operation in operations if model_value(operation) is not None]
+    tool_operations = [
+        operation
+        for operation in operations
+        if operation.kind == "tool"
+        or (
+            operation_identity(operation)["entity_kind"] == "operation"
+            and operation_identity(operation)["type"] in {"tool", "tool_execution"}
+        )
+    ]
     failures = [operation for operation in operations if operation.status == "error"]
     goal: dict[str, Any] = {}
     application_outcome: str | None = None
@@ -397,7 +413,7 @@ def build_serving_rows(
         )
         or None,
         "provider_adapters": execution_attributes.get("witdem.provider_adapters"),
-        "models": ", ".join(sorted({display_model(operation) for operation in model_operations})) or None,
+        "models": ", ".join(sorted({display_model(operation) for operation in model_identity_operations})) or None,
         "workflows": ", ".join(
             sorted(
                 {display_operation(operation) for operation in operations if operation.kind in {"workflow", "pipeline"}}
@@ -415,6 +431,7 @@ def build_serving_rows(
         "decision_correct": goal.get("decision_correct"),
         "product_goal_reported": bool(goal),
         "product_goal_achieved": goal.get("product_goal_achieved"),
+        "assurance_status": goal.get("assurance_status"),
         "artifact_valid": goal.get("artifact_valid"),
         "evidence_sufficient": goal.get("decision_evidence_sufficient"),
         "closest_blocker": goal.get("closest_blocker"),

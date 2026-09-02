@@ -99,9 +99,7 @@ def test_build_catalog_marks_only_changed_rate_with_refresh_date() -> None:
 def test_source_policy_and_packaged_catalog_cover_the_same_models() -> None:
     raw = yaml.safe_load(files("witdem.pricing").joinpath("sources.yaml").read_text(encoding="utf-8"))
     configured = {
-        (provider["provider"], model["model"])
-        for provider in raw["providers"]
-        for model in provider["models"]
+        (provider["provider"], model["model"]) for provider in raw["providers"] for model in provider["models"]
     }
 
     assert configured == set(BUILT_IN_CATALOG.entries)

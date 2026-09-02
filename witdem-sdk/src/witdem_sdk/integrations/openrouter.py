@@ -238,7 +238,12 @@ class _CreateProxy:
             self._operation_name,
             provider="openrouter",
             model=model,
-            attributes={"witdem.gateway.name": "openrouter", "witdem.capture_content": False},
+            attributes={
+                "witdem.gateway.name": "openrouter",
+                "witdem.execution.source": "openrouter_sdk",
+                "witdem.client.library": "openai",
+                "witdem.capture_content": False,
+            },
         )
         operation = context.__enter__()
         try:
@@ -262,7 +267,12 @@ class _AsyncCreateProxy(_CreateProxy):
             self._operation_name,
             provider="openrouter",
             model=model,
-            attributes={"witdem.gateway.name": "openrouter", "witdem.capture_content": False},
+            attributes={
+                "witdem.gateway.name": "openrouter",
+                "witdem.execution.source": "openrouter_sdk",
+                "witdem.client.library": "openai",
+                "witdem.capture_content": False,
+            },
         )
         operation = context.__enter__()
         try:
@@ -313,10 +323,7 @@ class _ClientProxy:
 def instrument_openrouter(client: Any, *, witdem: Any) -> Any:
     """Return a content-safe proxy for an OpenAI-compatible OpenRouter client."""
 
-    if not (
-        (hasattr(client, "chat") and hasattr(client.chat, "completions"))
-        or hasattr(client, "responses")
-    ):
+    if not ((hasattr(client, "chat") and hasattr(client.chat, "completions")) or hasattr(client, "responses")):
         raise TypeError("OpenRouter instrumentation expects an OpenAI-compatible client")
     return _ClientProxy(client, witdem)
 

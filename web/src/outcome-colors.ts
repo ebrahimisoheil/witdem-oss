@@ -45,5 +45,6 @@ export function contractOutcomeColors(
   for (const [name, tone] of declaredTones) {
     if (!conflictingTones.has(name)) colors[name] = toneColors[tone];
   }
+
   return colors;
 }

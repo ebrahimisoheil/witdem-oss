@@ -5,6 +5,9 @@ service:
   runtime: product-factory
 telemetry:
   capture_content: false
+workflows:
+  - id: company-qualification
+    definition: workflows/company-qualification.yaml
 contracts:
   - name: company_qualification
     mode: reported

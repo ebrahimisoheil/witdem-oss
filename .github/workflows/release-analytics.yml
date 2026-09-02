@@ -3,36 +3,68 @@ name: Release Witdem platform
 on:
   push:
     tags: ["analytics-v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing immutable analytics release tag to recover"
+        required: true
+        type: string
+      resume_publication:
+        description: "Resume after Python and container publication"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   packages: write
 
 env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22.16.0"
-  NPM_VERSION: "11.4.1"
+  NPM_VERSION: "11.19.1"
   UV_VERSION: "0.12.5"
   PIP_VERSION: "26.2.1"
   BUILD_VERSION: "1.5.0"
   TWINE_VERSION: "7.0.0"
+  NPM_DIST_TAG: "latest"
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   preflight:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.resume_publication != true }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
+      sdk_version: ${{ steps.release.outputs.sdk_version }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_commit: ${{ steps.release.outputs.release_commit }}
     steps:
+      - name: Require an immutable analytics tag
+        run: |
+          case "$RELEASE_TAG" in
+            analytics-v*) ;;
+            *) echo "Recovery requires an analytics-v* tag, found: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          git ls-remote --exit-code \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
       - id: release
         run: |
-          python scripts/release/verify.py --component platform --tag "$GITHUB_REF_NAME" --require-clean
+          python scripts/release/verify.py --component platform --tag "$RELEASE_TAG" --require-clean
           version=$(python -c 'import json; print(json.load(open("release.json"))["platform_version"])')
+          sdk_version=$(python -c 'import json; print(json.load(open("release.json"))["sdk_version"])')
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=$sdk_version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - run: python scripts/release/check_pypi.py witdem-analytics "${{ steps.release.outputs.version }}"
+      - run: python scripts/release/check_pypi.py witdem-sdk "${{ steps.release.outputs.sdk_version }}" --must-exist
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -60,6 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.preflight.outputs.release_tag }}
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
@@ -96,6 +129,41 @@ jobs:
           /tmp/witdem-wheel/bin/pip install dist/*.whl
           /tmp/witdem-wheel/bin/witdem version
           /tmp/witdem-wheel/bin/witdem doctor --port 14318 --dashboard-port 18501
+      - name: pipx native clean-start release gate
+        run: |
+          python -m pip install pipx
+          export PIPX_HOME="$RUNNER_TEMP/pipx-home"
+          export PIPX_BIN_DIR="$RUNNER_TEMP/pipx-bin"
+          export WITDEM_UPDATE_CHECK=0
+          data_dir="$RUNNER_TEMP/witdem-native-data"
+          python -m pipx install --backend pip dist/*.whl
+          "$PIPX_BIN_DIR/witdem" up --no-open --data-dir "$data_dir" --receiver-port 14328 --dashboard-port 18511
+          "$PIPX_BIN_DIR/witdem" status --data-dir "$data_dir" --receiver-port 14328 --dashboard-port 18511 --json
+          curl -fsS -X POST http://127.0.0.1:14328/sdk/v1/records \
+            -H 'content-type: application/json' \
+            -d '{"version":"1.0","kind":"outcome","event_id":"native-smoke-event","execution_id":"native-smoke","name":"execution.completed","value":"success","attributes":{"runtime_id":"native-smoke"}}'
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:14328/ingestion/v1/executions/native-smoke | grep -q '"status":"ready"' && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18511/api/v1/runs/native-smoke >/dev/null
+          "$PIPX_BIN_DIR/witdem" logs --data-dir "$data_dir" receiver >/dev/null
+          cp "$data_dir/run/services.json" "$RUNNER_TEMP/native-pids.json"
+          "$PIPX_BIN_DIR/witdem" down --data-dir "$data_dir" --receiver-port 14328 --dashboard-port 18511
+          "$PIPX_BIN_DIR/witdem" up --no-open --data-dir "$data_dir" --receiver-port 14328 --dashboard-port 18511
+          curl -fsS http://127.0.0.1:18511/api/v1/runs/native-smoke >/dev/null
+          "$PIPX_BIN_DIR/witdem" down --data-dir "$data_dir" --receiver-port 14328 --dashboard-port 18511
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          state = json.loads(Path(os.environ["RUNNER_TEMP"]).joinpath("native-pids.json").read_text())
+          for service in state["services"].values():
+              try:
+                  os.kill(int(service["pid"]), 0)
+              except OSError:
+                  continue
+              raise SystemExit(f"orphan Witdem process: {service['pid']}")
+          PY
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-container-and-npm:
@@ -104,6 +172,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.preflight.outputs.release_tag }}
           fetch-depth: 0
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -122,7 +191,7 @@ jobs:
           provenance: mode=max
           tags: |
             ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/witdem-analytics:sha-${{ needs.preflight.outputs.release_commit }}
       - name: Compose smoke test published image
         env:
           WITDEM_ANALYTICS_IMAGE: ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}
@@ -146,11 +215,186 @@ jobs:
           npm ci --ignore-scripts
           npm run check
           npm test
-          npm pack --dry-run
+          npm pack --silent > "$RUNNER_TEMP/npm-tarball-name"
       - name: Confirm the matching public image is pullable
         run: |
           docker logout ghcr.io
           docker manifest inspect ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }} >/dev/null
+      - name: NPX Docker clean-start release gate
+        env:
+          WITDEM_UPDATE_CHECK: "0"
+        run: |
+          tarball="npm/$(cat "$RUNNER_TEMP/npm-tarball-name")"
+          data_dir="$RUNNER_TEMP/witdem-npx-data"
+          package="file:$PWD/$tarball"
+          args="--image ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }} --project-name witdem-release-smoke --data-dir $data_dir --receiver-port 14338 --dashboard-port 18521"
+          npx --yes --package "$package" witdem up --no-open $args
+          npx --yes --package "$package" witdem status --json $args
+          curl -fsS -X POST http://127.0.0.1:14338/sdk/v1/records \
+            -H 'content-type: application/json' \
+            -d '{"version":"1.0","kind":"outcome","event_id":"npx-smoke-event","execution_id":"npx-smoke","name":"execution.completed","value":"success","attributes":{"runtime_id":"npx-smoke"}}'
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:14338/ingestion/v1/executions/npx-smoke | grep -q '"status":"ready"' && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18521/api/v1/runs/npx-smoke >/dev/null
+          npx --yes --package "$package" witdem logs receiver $args >/dev/null
+          npx --yes --package "$package" witdem down $args
+          npx --yes --package "$package" witdem up --no-open $args
+          curl -fsS http://127.0.0.1:18521/api/v1/runs/npx-smoke >/dev/null
+          npx --yes --package "$package" witdem down $args
+          test -z "$(docker ps -q --filter label=com.docker.compose.project=witdem-release-smoke)"
       - name: Publish npm launcher
         working-directory: npm
-        run: npm publish --access public
+        run: npm publish --access public --tag "$NPM_DIST_TAG"
+
+  publish-release-manifest:
+    needs: [preflight, publish-python, publish-container-and-npm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.release_tag }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --locked --no-dev
+      - name: Verify all public artifacts before manifest publication
+        run: |
+          python scripts/release/check_pypi.py witdem-analytics "${{ needs.preflight.outputs.version }}" --must-exist
+          python scripts/release/check_pypi.py witdem-sdk "${{ needs.preflight.outputs.sdk_version }}" --must-exist
+          npm view "witdem@${{ needs.preflight.outputs.version }}" version
+          docker manifest inspect "ghcr.io/${{ github.repository_owner }}/witdem-analytics:${{ needs.preflight.outputs.version }}" >/dev/null
+      - name: Build signed release manifest
+        env:
+          WITDEM_RELEASE_SIGNING_KEY: ${{ secrets.WITDEM_RELEASE_SIGNING_KEY }}
+        run: |
+          uv run python scripts/release/build_manifest.py \
+            --repository "${{ github.repository }}" \
+            --output witdem-release.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from witdem.update import verify_manifest
+
+          verify_manifest(json.loads(Path("witdem-release.json").read_text()))
+          print("Signed release manifest matches the embedded public key.")
+          PY
+      - name: Publish authoritative manifest last
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ needs.preflight.outputs.release_tag }}" >/dev/null 2>&1 || \
+            gh release create "${{ needs.preflight.outputs.release_tag }}" --generate-notes
+          gh release upload "${{ needs.preflight.outputs.release_tag }}" witdem-release.json --clobber
+
+  resume-publication:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.resume_publication == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an existing immutable analytics tag
+        run: |
+          case "$RELEASE_TAG" in
+            analytics-v*) ;;
+            *) echo "Recovery requires an analytics-v* tag, found: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          git ls-remote --exit-code \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null
+      - name: Check out audited recovery controller
+        uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 0
+      - name: Check out immutable release source
+        uses: actions/checkout@v4
+        with:
+          path: release-source
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - id: resumed-release
+        name: Verify release identity and partial publication state
+        run: |
+          cd release-source
+          python scripts/release/verify.py \
+            --component platform \
+            --tag "$RELEASE_TAG" \
+            --require-clean
+          version=$(python -c 'import json; print(json.load(open("release.json"))["platform_version"])')
+          sdk_version=$(python -c 'import json; print(json.load(open("release.json"))["sdk_version"])')
+          controller_version=$(python -c 'import json; print(json.load(open("../controller/release.json"))["platform_version"])')
+          test "$version" = "$controller_version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=$sdk_version" >> "$GITHUB_OUTPUT"
+          python scripts/release/check_pypi.py witdem-analytics "$version" --must-exist
+          python scripts/release/check_pypi.py witdem-sdk "$sdk_version" --must-exist
+          docker manifest inspect \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/witdem-analytics:${version}" >/dev/null
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global "npm@${NPM_VERSION}"
+      - name: Revalidate the tagged npm launcher
+        working-directory: release-source/npm
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npm test
+          npm pack --silent
+      - name: Publish npm and restore the release channel
+        working-directory: release-source/npm
+        env:
+          VERSION: ${{ steps.resumed-release.outputs.version }}
+        run: |
+          if npm view "witdem@${VERSION}" version >/dev/null 2>&1; then
+            test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
+            test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
+          else
+            npm publish --access public --tag "$NPM_DIST_TAG"
+          fi
+          test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
+          test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      - name: Verify every public artifact
+        working-directory: controller
+        env:
+          VERSION: ${{ steps.resumed-release.outputs.version }}
+          SDK_VERSION: ${{ steps.resumed-release.outputs.sdk_version }}
+        run: |
+          python scripts/release/check_pypi.py witdem-analytics "$VERSION" --must-exist
+          python scripts/release/check_pypi.py witdem-sdk "$SDK_VERSION" --must-exist
+          test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
+          test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
+          docker manifest inspect \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/witdem-analytics:${VERSION}" >/dev/null
+      - name: Build signed release manifest
+        working-directory: controller
+        env:
+          WITDEM_RELEASE_SIGNING_KEY: ${{ secrets.WITDEM_RELEASE_SIGNING_KEY }}
+        run: |
+          uv sync --locked --no-dev
+          uv run python scripts/release/build_manifest.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --output witdem-release.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from witdem.update import verify_manifest
+
+          verify_manifest(json.loads(Path("witdem-release.json").read_text()))
+          print("Signed release manifest matches the embedded public key.")
+          PY
+      - name: Publish manifest and GitHub release
+        working-directory: controller
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+          gh release upload "$RELEASE_TAG" witdem-release.json --clobber
+          gh release view "$RELEASE_TAG" --json tagName,assets

@@ -155,6 +155,28 @@ def test_anthropic_instrument_injects_one_client_for_the_whole_workload(client: 
     assert len(client.operations) == 2
 
 
+def test_openai_instrument_injects_one_client_for_the_whole_workload(client: _FakeWitdem) -> None:
+    from witdem_sdk.integrations.openai import instrument
+
+    response = SimpleNamespace(
+        model="gpt-5.4-2026-03-05",
+        usage=SimpleNamespace(input_tokens=3, output_tokens=2, total_tokens=5),
+        output=[],
+    )
+    openai = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: response))
+
+    def workload(observed_client: Any) -> str:
+        observed_client.responses.create(model="gpt-5.4")
+        observed_client.responses.create(model="gpt-5.4")
+        return "done"
+
+    observed = instrument(workload, client=openai, service_name="service")
+
+    assert observed() == "done"
+    assert client.executions == 1
+    assert len(client.operations) == 2
+
+
 def test_openai_agents_instrument_owns_registration(client: _FakeWitdem, monkeypatch: pytest.MonkeyPatch) -> None:
     from witdem_sdk.integrations import openai_agents
 

@@ -73,6 +73,7 @@ def _json_dict(value: Any) -> dict[str, Any]:
         return {}
     return dict(parsed) if isinstance(parsed, Mapping) else {}
 
+
 #: The six live analytics tables this module owns (docs/architecture.md). This is
 #: a subset of ``experiments.synthetic_corpus.ANALYTICS_TABLES`` -- the live
 #: service never writes ``expected_derived_insights``, which is a synthetic
@@ -228,6 +229,156 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         definitions = ", ".join(_definition(column) for column in columns)
         connection.execute(f'CREATE TABLE IF NOT EXISTS "{table}" ({definitions})')
     connection.execute(SERVING_DDL)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_templates (
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            name VARCHAR,
+            definition VARCHAR,
+            source VARCHAR,
+            registered_at TIMESTAMP,
+            PRIMARY KEY (workflow_id, template_hash)
+        );
+        CREATE TABLE IF NOT EXISTS execution_workflows (
+            execution_id VARCHAR PRIMARY KEY,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            match_source VARCHAR,
+            matched_at TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS workflow_execution_projections (
+            execution_id VARCHAR PRIMARY KEY,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            projector_version VARCHAR,
+            projection VARCHAR,
+            projected_at TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS workflow_execution_nodes (
+            execution_id VARCHAR,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            node_id VARCHAR,
+            state VARCHAR,
+            attempts BIGINT,
+            duration_seconds DOUBLE,
+            known_cost DOUBLE,
+            total_tokens DOUBLE,
+            providers VARCHAR,
+            models VARCHAR,
+            evidence VARCHAR,
+            cost_eligible_operations BIGINT,
+            cost_measured_operations BIGINT,
+            token_eligible_operations BIGINT,
+            token_measured_operations BIGINT,
+            PRIMARY KEY (execution_id, node_id)
+        );
+        CREATE TABLE IF NOT EXISTS participant_execution_facts (
+            execution_id VARCHAR,
+            dimension VARCHAR,
+            participant_id VARCHAR,
+            label VARCHAR,
+            provider_id VARCHAR,
+            model_id VARCHAR,
+            model_family VARCHAR,
+            vendor_id VARCHAR,
+            calls BIGINT,
+            active_seconds DOUBLE,
+            call_durations VARCHAR,
+            measured_cost DOUBLE,
+            total_tokens DOUBLE,
+            cost_eligible_operations BIGINT,
+            cost_measured_operations BIGINT,
+            token_eligible_operations BIGINT,
+            token_measured_operations BIGINT,
+            PRIMARY KEY (execution_id, dimension, participant_id)
+        );
+        CREATE TABLE IF NOT EXISTS operation_classification_facts (
+            operation_id VARCHAR PRIMARY KEY,
+            execution_id VARCHAR,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            node_id VARCHAR,
+            taxonomy_version VARCHAR,
+            entity_kind VARCHAR,
+            plane VARCHAR,
+            family VARCHAR,
+            operation_type VARCHAR,
+            subtype VARCHAR,
+            interface VARCHAR,
+            role VARCHAR,
+            model_applicability VARCHAR,
+            input_modalities VARCHAR,
+            output_modalities VARCHAR,
+            provider_id VARCHAR,
+            model_id VARCHAR,
+            gateway_id VARCHAR,
+            vendor_id VARCHAR,
+            runtime_id VARCHAR,
+            framework_id VARCHAR,
+            implementation_id VARCHAR,
+            execution_source VARCHAR,
+            parent_operation_id VARCHAR,
+            duration_seconds DOUBLE,
+            status VARCHAR,
+            attributes VARCHAR
+        );
+        CREATE TABLE IF NOT EXISTS operation_measurement_facts (
+            operation_id VARCHAR,
+            execution_id VARCHAR,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            node_id VARCHAR,
+            registry_version VARCHAR,
+            measurement_key VARCHAR,
+            value DOUBLE,
+            unit VARCHAR,
+            aggregation VARCHAR,
+            scope VARCHAR,
+            measurement_status VARCHAR,
+            provenance VARCHAR,
+            applicability_source VARCHAR,
+            attempt BIGINT,
+            PRIMARY KEY (operation_id, measurement_key)
+        );
+        CREATE TABLE IF NOT EXISTS evaluation_campaigns (
+            campaign_id VARCHAR PRIMARY KEY,
+            suite_id VARCHAR,
+            workflow_id VARCHAR,
+            template_hash VARCHAR,
+            dataset_id VARCHAR,
+            dataset_version VARCHAR,
+            candidate_version VARCHAR,
+            baseline_version VARCHAR,
+            status VARCHAR,
+            started_at TIMESTAMP,
+            ended_at TIMESTAMP,
+            attributes VARCHAR
+        );
+        CREATE TABLE IF NOT EXISTS evaluation_case_results (
+            result_id VARCHAR PRIMARY KEY,
+            campaign_id VARCHAR,
+            case_id VARCHAR,
+            execution_id VARCHAR,
+            subject_type VARCHAR,
+            subject_id VARCHAR,
+            evaluation_key VARCHAR,
+            definition_version VARCHAR,
+            value VARCHAR,
+            label VARCHAR,
+            score DOUBLE,
+            passed BOOLEAN,
+            target VARCHAR,
+            direction VARCHAR,
+            evaluator_type VARCHAR,
+            evaluator_id VARCHAR,
+            evidence VARCHAR,
+            observed_at TIMESTAMP,
+            attributes VARCHAR
+        );
+        """
+    )
     # Additive serving migrations keep existing local databases rebuildable.
     for column, sql_type in (
         ("providers", "VARCHAR"),
@@ -236,11 +387,31 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         ("workflows", "VARCHAR"),
         ("operation_count", "BIGINT"),
         ("source_ingest_ids", "VARCHAR"),
+        ("assurance_status", "VARCHAR"),
     ):
         connection.execute(f'ALTER TABLE serving.execution_facts ADD COLUMN IF NOT EXISTS "{column}" {sql_type}')
+    connection.execute('ALTER TABLE serving.operation_facts ADD COLUMN IF NOT EXISTS "provider_adapter" VARCHAR')
+    for column in (
+        "cost_eligible_operations",
+        "cost_measured_operations",
+        "token_eligible_operations",
+        "token_measured_operations",
+    ):
+        connection.execute(f'ALTER TABLE workflow_execution_nodes ADD COLUMN IF NOT EXISTS "{column}" BIGINT')
+    connection.execute('ALTER TABLE operation_measurement_facts ADD COLUMN IF NOT EXISTS "attempt" BIGINT')
     connection.execute(
-        'ALTER TABLE serving.operation_facts ADD COLUMN IF NOT EXISTS "provider_adapter" VARCHAR'
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "implementation_id" VARCHAR'
     )
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "execution_source" VARCHAR')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "parent_operation_id" VARCHAR'
+    )
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "entity_kind" VARCHAR')
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "plane" VARCHAR')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "model_applicability" VARCHAR'
+    )
+    connection.execute('ALTER TABLE participant_execution_facts ADD COLUMN IF NOT EXISTS "vendor_id" VARCHAR')
 
 
 def _row_from_model(model: Execution | Operation | Link | Event | Evaluation | Outcome, table: str) -> dict[str, Any]:
@@ -291,7 +462,7 @@ def _insert_mappings(connection: duckdb.DuckDBPyConnection, table: str, rows: Se
     column_list = ", ".join(f'"{column}"' for column in columns)
     placeholders = ", ".join("?" for _ in columns)
     connection.executemany(
-        f'INSERT INTO {table} ({column_list}) VALUES ({placeholders})',
+        f"INSERT INTO {table} ({column_list}) VALUES ({placeholders})",
         [[row.get(column) for column in columns] for row in rows],
     )
 
@@ -463,6 +634,7 @@ def upsert_graph(execution: Execution, operations: list[Operation], links: list[
                     _insert_one(connection, "executions", execution_row)
                     _insert_many(connection, "operations", operation_rows)
                     _insert_many(connection, "links", link_rows)
+                    _match_configured_workflow(connection, execution)
                     connection.commit()
                 except Exception:
                     connection.rollback()
@@ -476,6 +648,9 @@ def publish_transformed_bundle(
     operations: list[Operation],
     links: list[Link],
     semantics: list[Event | Evaluation | Outcome],
+    *,
+    operation_classifications: Sequence[Mapping[str, Any]] = (),
+    operation_measurements: Sequence[Mapping[str, Any]] = (),
 ) -> None:
     """Atomically replace one execution's canonical and serving projection."""
 
@@ -507,6 +682,14 @@ def publish_transformed_bundle(
                         connection.execute(f'DELETE FROM "{table}" WHERE execution_id = ?', [execution_id])
                     for table in LIVE_TABLES:
                         _insert_many(connection, table, canonical_rows[table])
+                    _match_configured_workflow(connection, execution)
+                    association = connection.execute(
+                        "SELECT workflow_id, template_hash FROM execution_workflows WHERE execution_id = ?",
+                        [execution_id],
+                    ).fetchone()
+                    for semantic in semantics:
+                        if isinstance(semantic, Event) and semantic.name == "workflow.definition":
+                            _register_definition_event(connection, execution_id, semantic.payload)
                     for table in (
                         "execution_facts",
                         "operation_facts",
@@ -516,6 +699,76 @@ def publish_transformed_bundle(
                     ):
                         connection.execute(f'DELETE FROM serving."{table}" WHERE execution_id = ?', [execution_id])
                         _insert_mappings(connection, f'serving."{table}"', serving_rows[table])
+                    connection.execute("DELETE FROM operation_measurement_facts WHERE execution_id = ?", [execution_id])
+                    connection.execute(
+                        "DELETE FROM operation_classification_facts WHERE execution_id = ?", [execution_id]
+                    )
+                    workflow_id = str(association[0]) if association else None
+                    template_hash = str(association[1]) if association else None
+                    for fact in operation_classifications:
+                        connection.execute(
+                            "INSERT INTO operation_classification_facts "
+                            "(operation_id, execution_id, workflow_id, template_hash, node_id, taxonomy_version, "
+                            "entity_kind, plane, family, operation_type, subtype, interface, role, "
+                            "model_applicability, "
+                            "input_modalities, output_modalities, "
+                            "provider_id, model_id, gateway_id, vendor_id, runtime_id, framework_id, "
+                            "implementation_id, execution_source, parent_operation_id, duration_seconds, "
+                            "status, attributes) VALUES "
+                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            [
+                                fact.get("operation_id"),
+                                execution_id,
+                                workflow_id,
+                                template_hash,
+                                None,
+                                fact.get("taxonomy_version"),
+                                fact.get("entity_kind") or "operation",
+                                fact.get("plane") if "plane" in fact else "work",
+                                fact.get("family"),
+                                fact.get("operation_type"),
+                                fact.get("subtype"),
+                                fact.get("interface"),
+                                fact.get("role"),
+                                fact.get("model_applicability") or "not_applicable",
+                                json.dumps(fact.get("input_modalities") or []),
+                                json.dumps(fact.get("output_modalities") or []),
+                                fact.get("provider_id"),
+                                fact.get("model_id"),
+                                fact.get("gateway_id"),
+                                fact.get("vendor_id"),
+                                fact.get("runtime_id"),
+                                fact.get("framework_id"),
+                                fact.get("implementation_id"),
+                                fact.get("execution_source"),
+                                fact.get("parent_operation_id"),
+                                fact.get("duration_seconds"),
+                                fact.get("status"),
+                                json.dumps(fact.get("attributes") or {}, sort_keys=True),
+                            ],
+                        )
+                    for fact in operation_measurements:
+                        connection.execute(
+                            "INSERT INTO operation_measurement_facts VALUES "
+                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            [
+                                fact.get("operation_id"),
+                                execution_id,
+                                workflow_id,
+                                template_hash,
+                                None,
+                                fact.get("registry_version"),
+                                fact.get("measurement_key"),
+                                fact.get("value"),
+                                fact.get("unit"),
+                                fact.get("aggregation"),
+                                fact.get("scope"),
+                                fact.get("measurement_status"),
+                                fact.get("provenance"),
+                                fact.get("applicability_source"),
+                                fact.get("attempt"),
+                            ],
+                        )
                     connection.commit()
                 except Exception:
                     connection.rollback()
@@ -629,5 +882,401 @@ def upsert_semantic(record: Event | Evaluation | Outcome) -> None:
                     f'INSERT OR REPLACE INTO "{table}" ({column_list}) VALUES ({placeholders})',
                     [row.get(column) for column in columns],
                 )
+                if isinstance(record, Event) and record.name == "workflow.definition":
+                    _register_definition_event(connection, record.execution_id, record.payload)
         finally:
             _release_connection()
+
+
+def _store_workflow_definition(
+    connection: duckdb.DuckDBPyConnection,
+    definition: Any,
+    *,
+    source: str,
+) -> None:
+    from witdem.workflows import WorkflowDefinition, compile_definition
+
+    validated = (
+        definition if isinstance(definition, WorkflowDefinition) else WorkflowDefinition.model_validate(definition)
+    )
+    connection.execute(
+        "INSERT OR REPLACE INTO workflow_templates "
+        "(workflow_id, template_hash, name, definition, source, registered_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            validated.id,
+            validated.template_hash,
+            validated.name,
+            json.dumps(validated.model_dump(mode="json", by_alias=True), sort_keys=True),
+            source,
+            utc_now(),
+        ],
+    )
+    compile_definition(validated)
+
+
+def _associate_workflow(
+    connection: duckdb.DuckDBPyConnection,
+    execution_id: str,
+    workflow_id: str,
+    template_hash: str,
+    source: str,
+) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO execution_workflows "
+        "(execution_id, workflow_id, template_hash, match_source, matched_at) VALUES (?, ?, ?, ?, ?)",
+        [execution_id, workflow_id, template_hash, source, utc_now()],
+    )
+
+
+def store_workflow_projection(path: str | Path, projection: Mapping[str, Any]) -> None:
+    """Atomically replace one rebuildable workflow execution projection."""
+
+    from witdem.workflows import WORKFLOW_PROJECTOR_VERSION
+
+    database_path = Path(path).expanduser()
+    workflow = dict(projection.get("workflow") or {})
+    execution = dict(projection.get("execution") or {})
+    execution_id = str(execution.get("execution_id") or "")
+    workflow_id = str(workflow.get("id") or "")
+    template_hash = str(workflow.get("template_hash") or "")
+    if not execution_id or not workflow_id or not template_hash:
+        raise ValueError("workflow projection requires execution, workflow, and template identifiers")
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            connection.execute("DELETE FROM workflow_execution_nodes WHERE execution_id = ?", [execution_id])
+            connection.execute("DELETE FROM workflow_execution_projections WHERE execution_id = ?", [execution_id])
+            connection.execute(
+                "INSERT INTO workflow_execution_projections VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    execution_id,
+                    workflow_id,
+                    template_hash,
+                    WORKFLOW_PROJECTOR_VERSION,
+                    json.dumps(dict(projection), sort_keys=True, default=str),
+                    utc_now(),
+                ],
+            )
+            for node in projection.get("nodes", []):
+                if not isinstance(node, Mapping):
+                    continue
+                connection.execute(
+                    "INSERT INTO workflow_execution_nodes "
+                    "(execution_id, workflow_id, template_hash, node_id, state, attempts, duration_seconds, "
+                    "known_cost, total_tokens, providers, models, evidence, cost_eligible_operations, "
+                    "cost_measured_operations, token_eligible_operations, token_measured_operations) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        execution_id,
+                        workflow_id,
+                        template_hash,
+                        str(node.get("id") or ""),
+                        str(node.get("state") or "inactive"),
+                        int(node.get("attempts") or 0),
+                        node.get("duration_seconds"),
+                        node.get("known_cost"),
+                        node.get("total_tokens"),
+                        json.dumps(node.get("providers") or []),
+                        json.dumps(node.get("models") or []),
+                        json.dumps(
+                            {
+                                "observations": node.get("observations") or [],
+                                "model_calls": node.get("model_calls") or [],
+                            },
+                            sort_keys=True,
+                            default=str,
+                        ),
+                        int(node.get("cost_eligible_operations") or 0),
+                        int(node.get("cost_measured_operations") or 0),
+                        int(node.get("token_eligible_operations") or 0),
+                        int(node.get("token_measured_operations") or 0),
+                    ],
+                )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
+def delete_workflow_projections(path: str | Path, execution_ids: Sequence[str]) -> None:
+    """Remove disposable replays that no longer have a YAML association."""
+
+    identifiers = sorted({str(execution_id) for execution_id in execution_ids if str(execution_id)})
+    if not identifiers:
+        return
+    database_path = Path(path).expanduser()
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            placeholders = ", ".join("?" for _ in identifiers)
+            connection.execute(
+                f"DELETE FROM workflow_execution_nodes WHERE execution_id IN ({placeholders})",
+                identifiers,
+            )
+            connection.execute(
+                f"DELETE FROM workflow_execution_projections WHERE execution_id IN ({placeholders})",
+                identifiers,
+            )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
+def store_participant_facts(path: str | Path, execution_ids: Sequence[str], facts: Sequence[Mapping[str, Any]]) -> None:
+    """Atomically replace rebuildable direct-attribution facts."""
+
+    database_path = Path(path).expanduser()
+    selected = sorted(set(execution_ids))
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            if selected:
+                placeholders = ", ".join("?" for _ in selected)
+                connection.execute(
+                    f"DELETE FROM participant_execution_facts WHERE execution_id IN ({placeholders})",
+                    selected,
+                )
+            for fact in facts:
+                connection.execute(
+                    """INSERT INTO participant_execution_facts (
+                        execution_id, dimension, participant_id, label, provider_id,
+                        model_id, model_family, vendor_id, calls, active_seconds,
+                        call_durations, measured_cost, total_tokens,
+                        cost_eligible_operations, cost_measured_operations,
+                        token_eligible_operations, token_measured_operations
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    [
+                        fact.get("execution_id"),
+                        fact.get("dimension"),
+                        fact.get("participant_id"),
+                        fact.get("label"),
+                        fact.get("provider_id"),
+                        fact.get("model_id"),
+                        fact.get("model_family"),
+                        fact.get("vendor_id"),
+                        fact.get("calls"),
+                        fact.get("active_seconds"),
+                        json.dumps(fact.get("call_durations") or []),
+                        fact.get("measured_cost"),
+                        fact.get("total_tokens"),
+                        fact.get("cost_eligible_operations"),
+                        fact.get("cost_measured_operations"),
+                        fact.get("token_eligible_operations"),
+                        fact.get("token_measured_operations"),
+                    ],
+                )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
+def store_operation_facts(
+    path: str | Path,
+    execution_ids: Sequence[str],
+    classifications: Sequence[Mapping[str, Any]],
+    measurements: Sequence[Mapping[str, Any]],
+) -> None:
+    """Atomically replace rebuildable operation classifications and meters."""
+
+    database_path = Path(path).expanduser()
+    selected = sorted(set(execution_ids))
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            if selected:
+                placeholders = ", ".join("?" for _ in selected)
+                connection.execute(
+                    f"DELETE FROM operation_measurement_facts WHERE execution_id IN ({placeholders})",
+                    selected,
+                )
+                connection.execute(
+                    f"DELETE FROM operation_classification_facts WHERE execution_id IN ({placeholders})",
+                    selected,
+                )
+            for fact in classifications:
+                connection.execute(
+                    """INSERT INTO operation_classification_facts (
+                        operation_id, execution_id, workflow_id, template_hash, node_id, taxonomy_version,
+                        entity_kind, plane, family, operation_type, subtype, interface, role, model_applicability,
+                        input_modalities, output_modalities,
+                        provider_id, model_id, gateway_id, vendor_id, runtime_id, framework_id,
+                        implementation_id, execution_source, parent_operation_id, duration_seconds, status, attributes
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )""",
+                    [
+                        fact.get("operation_id"),
+                        fact.get("execution_id"),
+                        fact.get("workflow_id"),
+                        fact.get("template_hash"),
+                        fact.get("node_id"),
+                        fact.get("taxonomy_version"),
+                        fact.get("entity_kind") or "operation",
+                        fact.get("plane") if "plane" in fact else "work",
+                        fact.get("family"),
+                        fact.get("operation_type"),
+                        fact.get("subtype"),
+                        fact.get("interface"),
+                        fact.get("role"),
+                        fact.get("model_applicability") or "not_applicable",
+                        json.dumps(fact.get("input_modalities") or []),
+                        json.dumps(fact.get("output_modalities") or []),
+                        fact.get("provider_id"),
+                        fact.get("model_id"),
+                        fact.get("gateway_id"),
+                        fact.get("vendor_id"),
+                        fact.get("runtime_id"),
+                        fact.get("framework_id"),
+                        fact.get("implementation_id"),
+                        fact.get("execution_source"),
+                        fact.get("parent_operation_id"),
+                        fact.get("duration_seconds"),
+                        fact.get("status"),
+                        json.dumps(fact.get("attributes") or {}, sort_keys=True, default=str),
+                    ],
+                )
+            for fact in measurements:
+                connection.execute(
+                    """INSERT INTO operation_measurement_facts VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )""",
+                    [
+                        fact.get("operation_id"),
+                        fact.get("execution_id"),
+                        fact.get("workflow_id"),
+                        fact.get("template_hash"),
+                        fact.get("node_id"),
+                        fact.get("registry_version"),
+                        fact.get("measurement_key"),
+                        fact.get("value"),
+                        fact.get("unit"),
+                        fact.get("aggregation"),
+                        fact.get("scope"),
+                        fact.get("measurement_status"),
+                        fact.get("provenance"),
+                        fact.get("applicability_source"),
+                        fact.get("attempt"),
+                    ],
+                )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
+def store_evaluation_campaign(path: str | Path, campaign: Any, results: Sequence[Any]) -> None:
+    """Atomically import one validated, rebuildable offline campaign."""
+
+    database_path = Path(path).expanduser()
+    with _file_lock(database_path):
+        connection = duckdb.connect(str(database_path))
+        try:
+            ensure_schema(connection)
+            connection.execute("BEGIN")
+            connection.execute("DELETE FROM evaluation_case_results WHERE campaign_id = ?", [campaign.campaign_id])
+            connection.execute("DELETE FROM evaluation_campaigns WHERE campaign_id = ?", [campaign.campaign_id])
+            connection.execute(
+                "INSERT INTO evaluation_campaigns VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    campaign.campaign_id,
+                    campaign.suite_id,
+                    campaign.workflow_id,
+                    campaign.template_hash,
+                    campaign.dataset_id,
+                    campaign.dataset_version,
+                    campaign.candidate_version,
+                    campaign.baseline_version,
+                    campaign.status,
+                    campaign.started_at,
+                    campaign.ended_at,
+                    json.dumps(campaign.attributes, sort_keys=True, default=str),
+                ],
+            )
+            for result in results:
+                connection.execute(
+                    "INSERT INTO evaluation_case_results VALUES "
+                    "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        result.stable_id(),
+                        result.campaign_id,
+                        result.case_id,
+                        result.execution_id,
+                        result.subject_type,
+                        result.subject_id or result.case_id,
+                        result.evaluation_key,
+                        result.definition_version,
+                        json.dumps(result.value, sort_keys=True, default=str),
+                        result.label,
+                        result.score,
+                        result.passed,
+                        json.dumps(result.target, sort_keys=True, default=str),
+                        result.direction,
+                        result.evaluator_type,
+                        result.evaluator_id,
+                        json.dumps(result.evidence, sort_keys=True),
+                        result.observed_at,
+                        json.dumps(result.attributes, sort_keys=True, default=str),
+                    ],
+                )
+            connection.execute("COMMIT")
+            connection.execute("CHECKPOINT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
+def _match_configured_workflow(connection: duckdb.DuckDBPyConnection, execution: Execution) -> None:
+    from witdem.workflows import load_registry
+
+    registry = load_registry()
+    definition = registry.match(execution.model_dump(mode="json"))
+    if definition is None:
+        return
+    _store_workflow_definition(connection, definition, source="project_config")
+    explicit = bool(execution.attributes.get("witdem.workflow.id"))
+    _associate_workflow(
+        connection,
+        execution.execution_id,
+        definition.id,
+        definition.template_hash,
+        "sdk_explicit" if explicit else "configured_match",
+    )
+
+
+def _register_definition_event(
+    connection: duckdb.DuckDBPyConnection,
+    execution_id: str,
+    payload: Mapping[str, Any],
+) -> None:
+    definition = payload.get("definition")
+    if not isinstance(definition, Mapping):
+        return
+    from witdem.workflows import WorkflowDefinition
+
+    validated = WorkflowDefinition.model_validate(definition)
+    _store_workflow_definition(connection, validated, source="sdk")
+    _associate_workflow(connection, execution_id, validated.id, validated.template_hash, "sdk_definition")

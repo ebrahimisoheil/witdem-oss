@@ -56,11 +56,7 @@ def _per_million(value: Any, *, key: str, model: str) -> int | float:
 
 
 def _comparable(entry: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: entry.get(key)
-        for key in ("aliases", *_PRICE_FIELDS, "pricing", "source")
-        if key in entry
-    }
+    return {key: entry.get(key) for key in ("aliases", *_PRICE_FIELDS, "pricing", "source") if key in entry}
 
 
 def _pricing_dimensions(upstream: dict[str, Any]) -> dict[str, Any]:

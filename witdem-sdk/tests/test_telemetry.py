@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -119,6 +120,76 @@ def test_execution_model_and_tool_emit_canonical_attributes(monkeypatch: Any) ->
     assert model.attributes["gen_ai.usage.provisioned_unit_seconds"] == 2.5
     assert tool.attributes["gen_ai.tool.name"] == "search"
     assert tool.attributes["gen_ai.cost.usd"] == 0.0
+    assert any(item["key"] == "tokens.input" for item in json.loads(model.attributes["witdem.measurements"]))
+    assert any(item["key"] == "tool.calls" for item in json.loads(tool.attributes["witdem.measurements"]))
+
+
+def test_generic_operation_supports_context_and_decorator_forms() -> None:
+    spans: list[Any] = []
+
+    class CapturingProcessor(SpanProcessor):
+        def on_start(self, span: Any, parent_context: Any = None) -> None:
+            return None
+
+        def on_end(self, span: Any) -> None:
+            spans.append(span)
+
+    client = witdem_sdk.Witdem.__new__(witdem_sdk.Witdem)
+    client._provider = TracerProvider()
+    client._provider.add_span_processor(CapturingProcessor())
+    client._tracer = client._provider.get_tracer("operation-test")
+
+    with client.operation(
+        "precedent_retrieval",
+        family="knowledge",
+        operation_type="retrieval",
+        subtype="hybrid_search",
+        interface="mcp",
+        provider_id="contract-server",
+        implementation_id="lancedb",
+        framework_id="haystack",
+        role="tool",
+    ) as operation:
+        operation.measure("results", 3, unit="document")
+
+    @client.operation(family="knowledge", operation_type="retrieval", interface="library")
+    def retrieve() -> str:
+        return "ok"
+
+    assert retrieve() == "ok"
+    explicit = next(span for span in spans if span.name == "precedent_retrieval")
+    decorated = next(span for span in spans if span.name == "retrieve")
+    assert explicit.attributes["witdem.operation.family"] == "knowledge"
+    assert explicit.attributes["witdem.operation.type"] == "retrieval"
+    assert explicit.attributes["witdem.operation.interface"] == "mcp"
+    assert explicit.attributes["witdem.implementation.id"] == "lancedb"
+    assert explicit.attributes["witdem.framework.id"] == "haystack"
+    assert decorated.attributes["witdem.operation.type"] == "retrieval"
+
+
+def test_evaluation_campaign_and_case_context_add_identity(monkeypatch: Any) -> None:
+    client = witdem_sdk.Witdem.__new__(witdem_sdk.Witdem)
+    observed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        witdem_sdk,
+        "evaluation",
+        lambda name, **kwargs: observed.update({"name": name, **kwargs}),
+    )
+
+    with client.evaluation_campaign(
+        "campaign-1",
+        suite_id="quality",
+        dataset_id="contracts",
+        dataset_version="1",
+        candidate_version="candidate-a",
+    ), client.evaluation_case("case-1"):
+        client.evaluation("accuracy", score=0.9, attributes={"passed": True}, execution_id="run-1")
+
+    attributes = observed["attributes"]
+    assert attributes["witdem.evaluation.campaign_id"] == "campaign-1"
+    assert attributes["witdem.evaluation.case_id"] == "case-1"
+    assert attributes["witdem.evaluation.dataset_id"] == "contracts"
+    assert attributes["passed"] is True
 
 
 def test_anthropic_integration_captures_provider_tool_use_id() -> None:
@@ -128,6 +199,7 @@ def test_anthropic_integration_captures_provider_tool_use_id() -> None:
     from witdem_sdk.integrations.anthropic import instrument_anthropic
 
     attributes: dict[str, Any] = {}
+    model_request: dict[str, Any] = {}
     operation = SimpleNamespace(
         span=SimpleNamespace(
             set_attribute=lambda key, value: attributes.__setitem__(key, value),
@@ -139,6 +211,7 @@ def test_anthropic_integration_captures_provider_tool_use_id() -> None:
 
     @contextmanager
     def model(*args: Any, **kwargs: Any):
+        model_request.update(kwargs)
         yield operation
 
     response = SimpleNamespace(
@@ -152,6 +225,8 @@ def test_anthropic_integration_captures_provider_tool_use_id() -> None:
     assert wrapped.messages.create(model="claude-haiku-4-5") is response
     assert attributes["gen_ai.tool.call.id"] == "toolu_provider_123"
     assert attributes["witdem.anthropic.tool_use.ids"] == ["toolu_provider_123"]
+    assert model_request["provider"] == "anthropic"
+    assert model_request["attributes"]["witdem.execution.source"] == "anthropic_sdk"
 
 
 def test_closing_one_client_does_not_shutdown_the_reusable_global_provider(monkeypatch: Any) -> None:

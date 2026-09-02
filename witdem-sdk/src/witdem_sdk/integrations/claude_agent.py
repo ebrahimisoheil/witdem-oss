@@ -46,6 +46,8 @@ class ClaudeAgentObserver:
     def _record_model(self, response_model: str, usage: Any) -> None:
         attributes: dict[str, Any] = {
             "integration": "claude_agent_sdk",
+            "witdem.execution.source": "claude_agent_sdk",
+            "witdem.framework.id": "claude_agent_sdk",
             "witdem.usage.scope": "execution_total",
         }
         if self._capture_content:

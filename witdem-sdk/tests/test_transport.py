@@ -139,10 +139,19 @@ def test_flush_timeout_uses_environment_default(monkeypatch: pytest.MonkeyPatch)
     assert transport._flush_timeout(0.25) == 0.25
 
 
+def test_request_timeout_and_queue_wait_are_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WITDEM_SDK_REQUEST_TIMEOUT", "12.5")
+    monkeypatch.setenv("WITDEM_SDK_QUEUE_WAIT", "0.75")
+
+    assert transport._request_timeout() == 12.5
+    assert transport._queue_wait() == 0.75
+
+
 def test_queue_full_warning_is_rate_limited(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     class FullCapacity:
-        def acquire(self, *, blocking: bool) -> bool:
-            assert blocking is False
+        def acquire(self, *, blocking: bool = True, timeout: float | None = None) -> bool:
+            assert blocking is True
+            assert timeout == 0.1
             return False
 
     monkeypatch.setattr(transport, "_capacity", FullCapacity())

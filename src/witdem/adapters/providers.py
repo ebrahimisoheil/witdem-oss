@@ -29,18 +29,6 @@ _PROVIDER_ALIASES = {
     "ollama": "ollama",
 }
 
-_MODEL_PREFIXES = {
-    "gpt-": "openai",
-    "o1": "openai",
-    "o3": "openai",
-    "o4": "openai",
-    "claude-": "anthropic",
-    "deepseek-": "deepseek",
-    "mistral-": "mistral",
-    "ministral-": "mistral",
-    "codestral-": "mistral",
-}
-
 
 def _first(attributes: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
@@ -55,11 +43,6 @@ def _provider(attributes: Mapping[str, Any]) -> tuple[str | None, str | None]:
     if observed is not None:
         canonical = _PROVIDER_ALIASES.get(str(observed).strip().casefold().replace("-", "_"))
         return canonical or str(observed).strip().casefold(), "observed_attribute"
-    model = _first(attributes, "gen_ai.response.model", "gen_ai.request.model", "model", "llm.model_name")
-    lowered = str(model or "").casefold()
-    for prefix, provider in _MODEL_PREFIXES.items():
-        if lowered.startswith(prefix):
-            return provider, "model_prefix"
     return None, None
 
 

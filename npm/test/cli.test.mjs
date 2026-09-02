@@ -25,6 +25,8 @@ test("ports, image, and browser behavior are configurable", () => {
     "--image",
     "example.test/witdem:dev",
     "--no-open",
+    "--data-dir",
+    "/tmp/witdem-test",
   ]);
   assert.deepEqual(
     {
@@ -32,12 +34,14 @@ test("ports, image, and browser behavior are configurable", () => {
       receiverPort: options.receiverPort,
       image: options.image,
       open: options.open,
+      dataDir: options.dataDir,
     },
     {
       dashboardPort: "18501",
       receiverPort: "14318",
       image: "example.test/witdem:dev",
       open: false,
+      dataDir: "/tmp/witdem-test",
     },
   );
 });
@@ -54,6 +58,8 @@ test("compose receives explicit immutable launcher settings", () => {
   assert.equal(env.WITDEM_IMAGE, DEFAULT_IMAGE);
   assert.equal(env.WITDEM_DASHBOARD_PORT, "18501");
   assert.equal(env.WITDEM_RECEIVER_PORT, "4318");
+  assert.equal(env.WITDEM_DATA_TYPE, "volume");
+  assert.equal(env.WITDEM_DATA_SOURCE, "witdem-data");
   assert.equal(env.WITDEM_API_KEY, "secret");
   assert.deepEqual(composeArgs(["ps"]), [
     "compose",

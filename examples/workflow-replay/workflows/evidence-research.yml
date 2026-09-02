@@ -1,0 +1,78 @@
+version: 1
+id: evidence-research
+name: Evidence research
+description: A Haystack research pipeline with parallel retrieval, convergence, validation retries, and fallback.
+framework: haystack
+match:
+  runtime_names: [haystack/evidence-research]
+
+stages:
+  - id: intake
+    name: Intake
+    nodes:
+      - id: classify
+        name: Classify request
+        kind: component
+        match:
+          names: [classify, request_classifier]
+
+  - id: evidence
+    name: Gather evidence
+    depends_on: [intake]
+    nodes:
+      - id: web_research
+        name: Web research
+        kind: component
+        match: {names: [web_research]}
+        depends_on:
+          - {node: classify, type: branch, route: research}
+
+      - id: document_research
+        name: Document research
+        kind: component
+        match: {names: [document_research]}
+        depends_on:
+          - {node: classify, type: branch, route: research}
+
+      - id: join_evidence
+        name: Join evidence
+        kind: component
+        match: {names: [join_evidence]}
+        depends_on: [web_research, document_research]
+
+  - id: answer
+    name: Produce answer
+    depends_on: [evidence]
+    nodes:
+      - id: draft
+        name: Draft answer
+        kind: component
+        match: {names: [draft_answer]}
+        depends_on: [join_evidence]
+
+      - id: validate
+        name: Validate answer
+        kind: component
+        match: {names: [validate_answer]}
+        depends_on: [draft]
+        retry:
+          via: repair
+          max_attempts: 2
+
+      - id: repair
+        name: Repair answer
+        kind: component
+        match: {names: [repair_answer]}
+        depends_on:
+          - {node: validate, type: branch, route: invalid}
+
+      - id: safe_fallback
+        name: Safe fallback
+        kind: component
+        match: {names: [safe_fallback]}
+        depends_on:
+          - {node: validate, type: fallback, route: exhausted}
+
+outcomes:
+  - {id: answered, name: Answer delivered, from: [validate]}
+  - {id: safe_failure, name: Safe fallback delivered, from: [safe_fallback]}

@@ -54,4 +54,21 @@ describe("contractOutcomeColors", () => {
 
     expect(contractOutcomeColors({ done: 2 }, contracts).done).toBe("#2f6fed");
   });
+
+  it("does not infer application semantics from runtime-like labels", () => {
+    expect(contractOutcomeColors({ completed: 3, failed: 1 }, []).completed).toBe("#2f6fed");
+  });
+
+  it("colors only the application outcome declared as successful", () => {
+    const contracts: ContractDefinition[] = [{
+      contract_hash: "approval",
+      run_count: 2,
+      result: { values: { accepted: { tone: "success" } } },
+    }];
+
+    expect(contractOutcomeColors({ completed: 1, accepted: 1 }, contracts)).toMatchObject({
+      completed: "#2f6fed",
+      accepted: "#16864b",
+    });
+  });
 });

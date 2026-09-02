@@ -3,11 +3,66 @@
 Start with service health:
 
 ```bash
-docker compose ps
+witdem status
+witdem doctor
 curl -f http://localhost:4318/readiness
 curl -f http://localhost:8501/health
-docker compose logs --tail=200 witdem elt-worker dashboard
+witdem logs receiver
+witdem logs worker
+witdem logs dashboard
 ```
+
+Use the same commands after `npx -y witdem@latest` for Docker installations.
+
+## A port is occupied
+
+Both launchers fail before partial startup and name the occupied receiver or
+dashboard port. Stop the owning process or choose isolated ports:
+
+```bash
+witdem up --receiver-port 14318 --dashboard-port 18501 --data-dir /tmp/witdem-isolated
+```
+
+## Native status reports stale processes
+
+Native status validates the PID, process start token, exact Witdem command,
+and health endpoint. It will not signal an unrelated process that reused an
+old PID. Run `witdem down` to remove stale metadata, then `witdem up`. Data and
+logs remain intact.
+
+## A workflow manifest is corrupt or stale
+
+```bash
+witdem workflow compile --check
+witdem workflow compile --force
+```
+
+Startup also replaces a corrupt or stale manifest atomically from YAML. If
+historical workflow analytics need regeneration, stop active ingestion and run
+`witdem workflow rebuild`; immutable corpus records are preserved.
+
+## A projection rebuild fails
+
+The maintenance lock prevents competing projection work from racing the
+rebuild. Ingestion uses a separate short-lived durable-write lock, so ordinary
+ELT does not stall telemetry; stop application traffic before an explicit
+rebuild when you need one exact corpus snapshot. Inspect `witdem logs worker`,
+fix the reported YAML, disk, or Duckle error, then rerun `witdem workflow
+compile --check` and `witdem workflow rebuild`. Failed corpus batches retain
+their error and can be retried; do not delete `corpus/`.
+
+## Update registry is unavailable
+
+An unavailable registry or invalid signature never blocks startup. Use the
+last verified result with `witdem update --check --offline`, retry with
+`--refresh`, or set `WITDEM_UPDATE_CHECK=0`. Witdem never treats an unverified
+manifest as an update.
+
+## SDK and backend are incompatible
+
+Run `witdem update --check` and `witdem doctor`. Compatibility is based on the
+semantic protocol, not only which package is newest. Apply the exact backend
+and per-application SDK commands printed by the checker.
 
 ## No runs appear
 
@@ -23,7 +78,7 @@ docker compose logs --tail=200 witdem elt-worker dashboard
 2. If `WITDEM_API_KEY` protects the receiver, use the same key in the application.
 3. Use a high-level integration wrapper or explicitly open `witdem.execution(...)`.
 4. Let the wrapper/context manager close normally. For a long-lived low-level client, call `witdem.flush()` and inspect `witdem.delivery_status()` before process exit.
-5. Check `uv run witdem elt status` or the `elt-worker` logs.
+5. Check `witdem elt status` or `witdem logs worker`.
 
 ## The root run appears but child steps do not
 
@@ -47,7 +102,7 @@ docker compose logs --tail=200 witdem elt-worker dashboard
 
 Cost requires provider-reported money or all of: provider, model, token usage, and a matching catalog entry.
 
-Inspect the run for provider, model, input/output tokens, and cost-unavailable reason. Compare the model string with [`src/witdem/pricing/catalog.yaml`](../src/witdem/pricing/catalog.yaml). Configure `WITDEM_PRICING_FILE` for other models or negotiated rates.
+Inspect the run for provider, model, input/output tokens, and cost-unavailable reason. Compare the model string with [`src/witdem/pricing/catalog.yaml`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/src/witdem/pricing/catalog.yaml). Configure `WITDEM_PRICING_FILE` for other models or negotiated rates.
 
 Azure deployment names, Bedrock models, Vertex models, and Ollama models are not priced by the bundled catalog in this release.
 
@@ -98,14 +153,15 @@ This can be correct: execution health and product success are separate. Inspect 
 ```bash
 curl -f http://localhost:8501/health
 curl -f http://localhost:8501/api/v1/meta
-docker compose logs --tail=200 dashboard elt-worker
+witdem logs dashboard
+witdem logs worker
 ```
 
-Use the dashboard's global refresh after the ELT worker marks a new execution ready. If the API is healthy but assets look stale after source changes, rebuild the dashboard image:
-
-```bash
-docker compose up -d --build dashboard
-```
+Use the dashboard's global refresh after the ELT worker marks a new execution
+ready. If assets look stale after an upgrade, reload once to receive the
+versioned asset, then verify `witdem version` and `witdem update --check`.
+Building dashboard assets is a contributor workflow, not an end-user recovery
+step.
 
 ## Dependency conflict
 
@@ -114,7 +170,7 @@ Use a clean virtual environment and install one framework extra. In particular, 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install "witdem-sdk[haystack]==0.3.0"
+python -m pip install "witdem-sdk[haystack]"
 python -m pip check
 ```
 

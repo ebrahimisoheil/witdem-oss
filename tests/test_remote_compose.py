@@ -21,6 +21,23 @@ def test_remote_profile_keeps_ingestion_and_dashboard_behind_tls_proxy() -> None
     assert services["witdem"]["environment"]["WITDEM_API_KEY"] == "${WITDEM_API_KEY:-}"
 
 
+def test_worker_healthchecks_only_probe_process_liveness() -> None:
+    compose_files = (
+        (ROOT / "docker-compose.yml", "elt-worker"),
+        (ROOT / "npm" / "compose.yaml", "worker"),
+    )
+
+    for compose_path, worker_name in compose_files:
+        compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+        healthcheck = compose["services"][worker_name]["healthcheck"]
+        command = " ".join(healthcheck["test"])
+
+        assert "os.kill(1, 0)" in command
+        assert "duckdb" not in command.lower()
+        assert "readiness" not in command.lower()
+        assert "live.duckdb" not in command.lower()
+
+
 def test_remote_profile_preflight_rejects_missing_configuration() -> None:
     script = ROOT / "deploy" / "remote-entrypoint.sh"
     completed = subprocess.run(

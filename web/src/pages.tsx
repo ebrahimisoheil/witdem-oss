@@ -1,5 +1,6 @@
-import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { keepPreviousData } from "@tanstack/react-query";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   api,
   type ContractDefinition,
@@ -21,12 +22,15 @@ import {
   EconomicsBarChart,
   Empty,
   ErrorPage,
+  ExecutionListCard,
+  browserDateDaysAgo,
   formatNumber,
   Kpi,
   LoadingPage,
   LatencyVariabilityChart,
   money,
   NormalizedComparisonChart,
+  OperationHealthChart,
   PageHeader,
   Panel,
   percent,
@@ -39,30 +43,38 @@ import {
   GoalTradeoffChart,
   GoalRateColumns,
   StageAccumulation,
-  StatusBadge,
   useQuery,
   WorkflowBarChart,
-  WorkflowGraph,
   WorkflowStageContribution,
 } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
 
 const providerDisplayName = (value: string) => {
-  const known: Record<string, string> = {
-    anthropic: "Anthropic",
-    deepseek: "DeepSeek",
-    mistral: "Mistral",
-    ollama: "Ollama",
-    openai: "OpenAI",
-  };
-  return (
-    known[value.toLowerCase()] ||
-    value.replace(/(^|[\s_-])\p{L}/gu, (match) => match.toUpperCase())
-  );
+  return value.replace(/(^|[\s_-])\p{L}/gu, (match) => match.toUpperCase());
 };
 
 const routeParam = (name: string) =>
   typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get(name) || "";
+
+const useViewportAnchor = (isFetching: boolean) => {
+  const anchor = useRef<{ element: HTMLElement; top: number } | null>(null);
+  const preserve = useCallback((update: () => void) => {
+    const element = document.activeElement;
+    if (element instanceof HTMLElement) {
+      anchor.current = { element, top: element.getBoundingClientRect().top };
+    }
+    update();
+  }, []);
+  useLayoutEffect(() => {
+    if (isFetching || !anchor.current) return;
+    const current = anchor.current;
+    anchor.current = null;
+    if (!current.element.isConnected) return;
+    const delta = current.element.getBoundingClientRect().top - current.top;
+    if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "instant" });
+  }, [isFetching]);
+  return preserve;
+};
 
 export function OverviewPage() {
   const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
@@ -70,26 +82,28 @@ export function OverviewPage() {
   const q = useQuery({
     queryKey: ["overview", "portfolio", filterValues],
     queryFn: () => api.overview(filters),
+    placeholderData: keepPreviousData,
   });
   const models = useQuery({
     queryKey: ["compare", "overview", "model", filterValues],
     queryFn: () => api.compare("model", filters),
+    placeholderData: keepPreviousData,
   });
   const providers = useQuery({
     queryKey: ["compare", "overview", "provider", filterValues],
     queryFn: () => api.compare("provider", filters),
+    placeholderData: keepPreviousData,
   });
+  const preserveViewport = useViewportAnchor(q.isFetching || models.isFetching || providers.isFetching);
   if (q.isLoading || models.isLoading || providers.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (models.error) return <ErrorPage error={models.error} />;
   if (providers.error) return <ErrorPage error={providers.error} />;
   const d = q.data!;
   const assurance = d.assurance_summary;
-  const runtimeAttention =
-    d.execution.failed_runs + d.execution.recovered_runs + d.execution.running_runs;
-  const completionRate = d.execution.total_runs
-    ? (d.execution.successful_runs + d.execution.recovered_runs) / d.execution.total_runs
-    : 0;
+  const runtimeAttention = d.execution.attention_runs;
+  const completionRate = d.execution.runtime_success_rate;
+  const costIncomplete = d.costs.cost.partial_runs + d.costs.cost.missing_runs > 0;
   return (
     <>
       <PageHeader
@@ -100,7 +114,7 @@ export function OverviewPage() {
       <SharedFilterBar
         metadata={d.metadata}
         values={filterValues}
-        onChange={setFilterValues}
+        onChange={(values) => preserveViewport(() => setFilterValues(values))}
         includeGoal={false}
       />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_.72fr_.48fr]">
@@ -113,7 +127,7 @@ export function OverviewPage() {
             </div>
             <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <div><div className="text-2xl font-semibold text-[#7ee0aa]">{formatNumber(assurance.assured_runs)}</div><div className="text-[#bdb5cf]">assured</div></div>
-              <div><div className="text-2xl font-semibold text-[#ffc267]">{formatNumber(assurance.attention_runs)}</div><div className="text-[#bdb5cf]">achieved · attention</div></div>
+              <div><div className="text-2xl font-semibold text-[#ffc267]">{formatNumber(assurance.attention_runs + assurance.unassessed_runs)}</div><div className="text-[#bdb5cf]">assurance attention</div></div>
             </div>
           </div>
           <a href="/goal-performance" className="mt-6 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Explore goal performance →</a>
@@ -131,24 +145,24 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="mt-5 grid grid-cols-3 gap-2 border-t border-[#ecebe6] pt-4 text-xs">
-            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">average elapsed</div></div>
-            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">cost / run</div></div>
-            <div><div className="font-semibold text-[#333]">{percent(d.execution.cost_coverage)}</div><div className="mt-1 text-[#777]">cost coverage</div></div>
+            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">avg / terminal run</div></div>
+            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">complete measured / applicable run</div></div>
+            <div><div className="font-semibold text-[#333]">{percent(d.costs.cost.coverage)}</div><div className="mt-1 text-[#777]">applicable cost coverage</div></div>
           </div>
           <a href="/system-health" className="mt-5 inline-flex text-xs font-semibold text-[#603bd1]">Explore system health →</a>
         </section>
         <section className="flex min-w-0 flex-col rounded-2xl border border-[#ded7f3] bg-[#f8f5ff] p-6 shadow-[0_8px_30px_rgba(62,42,112,.06)]">
-          <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">Total spent</div>
+          <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">{costIncomplete ? "Known subtotal" : "Measured spend"}</div>
           <div className="mt-3 break-words text-4xl font-semibold tracking-[-.04em] text-[#2f2450]">
             {money(d.costs.measured_cost)}
           </div>
           <div className="mt-2 text-sm leading-5 text-[#716a7f]">
-            measured spend in the selected population
+            {formatNumber(d.costs.cost.applicable_runs)} of {formatNumber(d.execution.total_runs)} runs contained billable activity
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#e5def6] pt-4 text-xs">
             <div>
-              <div className="font-semibold text-[#3e3458]">{percent(d.execution.cost_coverage)}</div>
-              <div className="mt-1 text-[#817a8d]">cost coverage</div>
+              <div className="font-semibold text-[#3e3458]">{percent(d.costs.cost.coverage)}</div>
+              <div className="mt-1 text-[#817a8d]">of applicable runs</div>
             </div>
             <div>
               <div className="font-semibold text-[#3e3458]">{money(d.costs.measured_cost_per_run)}</div>
@@ -158,6 +172,7 @@ export function OverviewPage() {
           <a href="/system-health" className="mt-auto pt-5 text-xs font-semibold text-[#603bd1]">Inspect spend →</a>
         </section>
       </div>
+      {(d.operation_health.failed_operations > 0 || d.operation_measurement_alerts.length > 0) ? <a href="/issues" className="mt-3 flex items-center justify-between rounded-xl border border-[#ead9c8] bg-[#fff9f1] px-4 py-2.5 text-xs text-[#805527]"><span><strong>{formatNumber(d.operation_health.failed_operations)} operation failures</strong>{d.operation_measurement_alerts.length ? ` · ${formatNumber(d.operation_measurement_alerts.length)} required measurement gaps` : ""}</span><span className="font-semibold">Inspect issues →</span></a> : null}
       <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-stretch">
         <Panel
           className="xl:col-span-7"
@@ -180,10 +195,10 @@ export function OverviewPage() {
         </div>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Panel className="h-full" title="Model goal trade-offs" note="Business-goal achievement versus measured cost. Bubble size is run volume; select a model to drill down.">
+        <Panel className="h-full" title="Run-cohort success versus model cost" note="Shared run outcomes for runs involving each model versus that model’s directly attributed cost; this is not causal model attribution.">
           <GoalTradeoffChart items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { model: item.label }))} />
         </Panel>
-        <Panel className="h-full" title="Model latency distribution" note="Typical latency and tail risk are operational signals. Select a model to inspect System Health.">
+        <Panel className="h-full" title="Model call latency distribution" note="Direct model-call p50 and p95 latency. Select a model to inspect System Health.">
           <LatencyVariabilityChart height={360} items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/system-health", { model: item.label }))} />
         </Panel>
       </div>
@@ -191,8 +206,8 @@ export function OverviewPage() {
         <Panel className="h-full" title="Runtime state mix" note="Completed, recovered, failed, and still-running executions.">
           <RuntimeDonutChart height={310} data={d.runtime_breakdown} colors={{ completed: "#24a267", recovered: "#168e89", failed: "#d95858", running: "#2477e6", unknown: "#9aa1ad" }} />
         </Panel>
-        <Panel className="h-full" title="Provider goal outcomes" note="Achievement and decision correctness by provider. Select a column to drill down.">
-          <GoalRateColumns height={310} items={providers.data!.items.map((item) => ({ ...item, label: providerDisplayName(item.label) }))} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { provider: item.label.toLowerCase() }))} />
+        <Panel className="h-full" title="Provider goal outcomes" note="Achievement and decision correctness for runs involving each provider.">
+          <GoalRateColumns height={310} items={providers.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { provider: item.provider_id || item.label }))} />
         </Panel>
         <Panel className="h-full" title="Provider share of measured spend" note="Operational spend composition for the same population. Select a segment to inspect System Health.">
           <ProviderSpendChart height={310} items={d.providers} breakdown="provider" onSelect={(item) => window.location.assign(drilldownHref("/system-health", { provider: item.label }))} />
@@ -212,9 +227,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
   const startDate =
     range === "all"
       ? undefined
-      : new Date(Date.now() - Number(range) * 86_400_000)
-          .toISOString()
-          .slice(0, 10);
+      : browserDateDaysAgo(Number(range));
   const filters: DashboardFilters = {
     contract_hash: contractHash || undefined,
     provider: provider || undefined,
@@ -222,14 +235,33 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     status: status || undefined,
     start_date: startDate,
   };
+  const drilldownBase = {
+    contract_hash: contractHash || undefined,
+    provider: provider || undefined,
+    model: model || undefined,
+    status: status || undefined,
+    range: range === "all" ? undefined : range,
+  };
+  const runsHref = (extra: Record<string, string | number | boolean | null | undefined> = {}) =>
+    drilldownHref("/runs", { ...drilldownBase, ...extra });
   const q = useQuery({
     queryKey: ["overview", contractHash, provider, model, status, range],
     queryFn: () => api.overview(filters),
+    placeholderData: keepPreviousData,
   });
   const goalComparison = useQuery({
     queryKey: ["compare", "goal-performance", breakdown, contractHash, provider, model, status, range],
     queryFn: () => api.compare(breakdown, filters),
     enabled: mode === "goals",
+    placeholderData: keepPreviousData,
+  });
+  const preserveViewport = useViewportAnchor(q.isFetching || goalComparison.isFetching);
+  const updateFilter = (key: string, value: string, setter: (next: string) => void) => preserveViewport(() => {
+    setter(value);
+    const url = new URL(window.location.href);
+    if (!value || value === "all") url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+    window.history.replaceState(window.history.state, "", url);
   });
   if (q.isLoading || (mode === "goals" && goalComparison.isLoading)) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
@@ -242,10 +274,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
   const breakdownItems =
     breakdown === "model"
       ? d.models
-      : d.providers.map((item) => ({
-          ...item,
-          label: providerDisplayName(item.label),
-        }));
+      : d.providers;
   const breakdownLabel = breakdown === "model" ? "Model" : "Provider";
   const goalNote = `${formatNumber(d.goals.achieved_runs)} of ${formatNumber(d.goals.reported_runs)} reported goals achieved`;
   const runtimeColors = {
@@ -256,6 +285,10 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     unknown: "#7a8290",
   };
   const outcomeColors = contractOutcomeColors(d.outcome_breakdown, d.contracts);
+  const semanticOperationTypes = d.operation_health.types.filter((item) => item.family !== "orchestration");
+  const semanticOperationCount = semanticOperationTypes.reduce((total, item) => total + item.operations, 0);
+  const semanticOperationFailures = semanticOperationTypes.reduce((total, item) => total + item.failed, 0);
+  const excludedCoordinationCount = d.operation_health.total_operations - semanticOperationCount;
   return (
     <>
       <PageHeader
@@ -269,29 +302,30 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       />
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-white p-3">
           <span className="mr-1 text-xs font-semibold text-[#555]">Filter this view</span>
-          <FilterSelect value={contractHash} onChange={setContractHash} label="All business goals">
+          <FilterSelect value={contractHash} onChange={(value) => updateFilter("contract_hash", value, setContractHash)} label="All business goals">
             {metadata.contracts.map((item) => (
               <option key={item.contract_hash} value={item.contract_hash}>
                 {item.product_goal?.name || item.contract_name || "Business goal"}
               </option>
             ))}
           </FilterSelect>
-          <FilterSelect value={provider} onChange={setProvider} label="All providers">
+          <FilterSelect value={provider} onChange={(value) => updateFilter("provider", value, setProvider)} label="All providers">
             {(metadata.filters.provider || []).map((value) => (
               <option key={value} value={value}>{providerDisplayName(value)}</option>
             ))}
           </FilterSelect>
-          <FilterSelect value={model} onChange={setModel} label="All models">
+          <FilterSelect value={model} onChange={(value) => updateFilter("model", value, setModel)} label="All models">
             {(metadata.filters.model || []).map((value) => (
               <option key={value} value={value}>{value}</option>
             ))}
           </FilterSelect>
-          <FilterSelect value={status} onChange={setStatus} label="All runtime states">
+          <FilterSelect value={status} onChange={(value) => updateFilter("status", value, setStatus)} label="All runtime states">
             <option value="completed">Completed or recovered</option>
+            <option value="recovered">Recovered</option>
             <option value="failed">Failed</option>
             <option value="running">Running</option>
           </FilterSelect>
-          <FilterSelect value={range} onChange={setRange} label="All time" includeEmpty={false}>
+          <FilterSelect value={range} onChange={(value) => updateFilter("range", value, setRange)} label="All time" includeEmpty={false}>
             <option value="1">Last 24 hours</option>
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
@@ -301,42 +335,55 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       {mode === "health" ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Kpi label="Runs" value={formatNumber(d.execution.total_runs)} />
+            <Kpi label="Runs" value={formatNumber(d.execution.total_runs)} href={runsHref()} />
             <Kpi
               label="Runtime completion"
-              value={percent((d.execution.successful_runs + d.execution.recovered_runs) / d.execution.total_runs)}
-              note={`${formatNumber(d.execution.recovered_runs)} recovered`}
+              value={percent(d.execution.runtime_success_rate)}
+              note={`${formatNumber(d.execution.successful_runs + d.execution.recovered_runs)} of ${formatNumber(d.execution.terminal_runs)} terminal runs`}
               tone="good"
+              href={runsHref({ status: "completed" })}
             />
             <Kpi
               label="Needs attention"
-              value={formatNumber(d.execution.failed_runs + d.execution.recovered_runs + d.execution.running_runs)}
+              value={formatNumber(d.execution.attention_runs)}
               note={`${formatNumber(d.execution.failed_runs)} failed · ${formatNumber(d.execution.recovered_runs)} recovered`}
               tone={d.execution.failed_runs ? "warn" : "neutral"}
+              href={runsHref({ has_failure: true })}
             />
-            <Kpi label="Average elapsed" value={seconds(d.execution.avg_duration_seconds)} />
+            <Kpi label="Average elapsed" value={seconds(d.execution.avg_duration_seconds)} href={runsHref()} />
             <Kpi
               label="Measured cost / run"
               value={money(d.costs.measured_cost_per_run)}
-              note={`${formatNumber(Math.round(d.execution.cost_coverage * d.execution.total_runs))} of ${formatNumber(d.execution.total_runs)} measured`}
+              note={`${formatNumber(d.costs.cost.complete_runs)} complete of ${formatNumber(d.costs.cost.applicable_runs)} applicable`}
+              href={runsHref({ cost_status: "complete" })}
             />
           </div>
           <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
             <Panel title="Runtime health" note="Did each agent finish, recover, fail, or remain running?">
-              <BreakdownBar data={d.runtime_breakdown} colors={runtimeColors} />
+              <BreakdownBar data={d.runtime_breakdown} colors={runtimeColors} hrefFor={(runtimeStatus) => runsHref({ status: runtimeStatus })} />
             </Panel>
-            <AttentionPanel data={d} />
+            <AttentionPanel data={d} runsHref={runsHref} />
           </div>
           <Panel className="mt-4" title="Workflow volume and reliability" note="Where work is completing, recovering, or breaking.">
-            <WorkflowBarChart items={d.workflows} />
+            <WorkflowBarChart items={d.workflows} onSelect={(item, runtimeStatus) => window.location.assign(runsHref({ workflow: item.label, status: runtimeStatus }))} />
           </Panel>
-          <Panel className="mt-4" title="Where work accumulates" note="Workflow stages ranked by observed time, tokens, or measured cost.">
-            <StageAccumulation items={d.stages} />
+          <Panel className="mt-4" title="Where work accumulates" note="Declared YAML steps ranked by deduplicated active wall time, directly attributed tokens, or measured cost.">
+            <StageAccumulation items={d.stages} hrefFor={(item) => runsHref({ stage: item.label })} />
+          </Panel>
+          <Panel className="mt-4" title="Operation health" note={`Semantic AI, knowledge, media, action, and quality work. ${formatNumber(excludedCoordinationCount)} coordination or unclassified spans are excluded.`}>
+            <div className="grid gap-4 xl:grid-cols-[1.45fr_.55fr]">
+              <OperationHealthChart items={semanticOperationTypes} height={230} onSelect={(item, failedOnly) => window.location.assign(runsHref({ operation_type: item.type, operation_status: failedOnly ? "failed" : undefined }))} />
+              <div className="grid content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                <a href={runsHref()} className="flex h-full flex-col rounded-lg border border-[#e8e5e9] bg-[#fbfbf9] p-3 transition hover:border-[#cfc6ef] hover:bg-[#f7f4ff]"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Semantic activity</div><div className="mt-1 text-xl font-semibold">{formatNumber(semanticOperationCount)}</div><div className="mt-1 text-[10px] text-[#777178]">across {formatNumber(semanticOperationTypes.length)} operation types</div><div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div></a>
+                <a href={runsHref({ operation_status: "failed" })} className={`flex h-full flex-col rounded-lg border p-3 transition hover:brightness-[.98] ${semanticOperationFailures ? "border-red-200 bg-red-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Direct failures</div><div className={`mt-1 text-xl font-semibold ${semanticOperationFailures ? "text-red-700" : ""}`}>{formatNumber(semanticOperationFailures)}</div><div className="mt-1 text-[10px] text-[#777178]">failed semantic operations</div><div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div></a>
+                <div className={`rounded-lg border p-3 sm:col-span-2 xl:col-span-1 ${d.operation_measurement_alerts.length ? "border-amber-200 bg-amber-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Required measurement gaps</div><div className="mt-1 text-xl font-semibold">{formatNumber(d.operation_measurement_alerts.length)}</div>{d.operation_measurement_alerts.length ? <div className="mt-2 space-y-1 text-[10px] text-[#86531d]">{d.operation_measurement_alerts.slice(0, 3).map((item) => <div key={`${item.operation_type}-${item.measurement_key}`}>{humanizeOperation(item.operation_type)} · {item.measurement_key}: {formatNumber(item.operations)}</div>)}</div> : <div className="mt-1 text-[10px] text-[#777178]">No required meters are missing.</div>}</div>
+              </div>
+            </div>
           </Panel>
           <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-[#e4e2da] bg-white px-4 py-3 text-xs text-[#666]">
             <span className="font-semibold text-[#333]">Telemetry coverage</span>
-            <span>Cost: {formatNumber(Math.round(d.execution.cost_coverage * d.execution.total_runs))} of {formatNumber(d.execution.total_runs)} runs</span>
-            <span>Tokens: {formatNumber(d.costs.token_runs)} of {formatNumber(d.execution.total_runs)} runs</span>
+            <span>Cost: {formatNumber(d.costs.cost.complete_runs)} complete · {formatNumber(d.costs.cost.partial_runs)} partial · {formatNumber(d.costs.cost.applicable_runs)} applicable of {formatNumber(d.execution.total_runs)}</span>
+            <span>Tokens: {formatNumber(d.costs.tokens.complete_runs)} complete · {formatNumber(d.costs.tokens.partial_runs)} partial · {formatNumber(d.costs.tokens.applicable_runs)} applicable</span>
             <span>Business goals: {formatNumber(d.goals.reported_runs)} of {formatNumber(d.execution.total_runs)} runs</span>
           </div>
         </>
@@ -347,36 +394,39 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               label="Goal reporting"
               value={percent(d.goals.coverage)}
               note={`${formatNumber(d.goals.reported_runs)} of ${formatNumber(d.execution.total_runs)} runs`}
+              href={runsHref({ goal_status: "reported" })}
             />
-            <Kpi label="Goal success" value={percent(d.goals.success_rate)} note={goalNote} tone="good" />
+            <Kpi label="Goal success" value={percent(d.goals.success_rate)} note={goalNote} tone="good" href={runsHref({ goal_status: "achieved" })} />
             <Kpi
               label="Assured achievements"
               value={formatNumber(d.assurance_summary.assured_runs)}
               note={`${percent(d.assurance_summary.assurance_rate)} of achieved goals`}
               tone="good"
+              href={runsHref({ goal_status: "achieved", assurance_status: "assured" })}
             />
             <Kpi
-              label="Achieved · needs attention"
-              value={formatNumber(d.assurance_summary.attention_runs)}
-              note={`${formatNumber(d.assurance_summary.unassessed_runs)} achieved but unassessed`}
-              tone={d.assurance_summary.attention_runs ? "warn" : "good"}
+              label="Assurance attention"
+              value={formatNumber(d.assurance_summary.attention_runs + d.assurance_summary.unassessed_runs)}
+              note={`${formatNumber(d.assurance_summary.attention_runs)} needs attention · ${formatNumber(d.assurance_summary.unassessed_runs)} unassessed`}
+              tone={d.assurance_summary.attention_runs + d.assurance_summary.unassessed_runs ? "warn" : "good"}
+              href={runsHref({ goal_status: "achieved", assurance_status: "needs_attention" })}
             />
-            <Kpi label="Cost / achieved goal" value={money(d.goals.cost_per_achieved_goal)} />
+            <Kpi label="Cost / achieved goal" value={money(d.goals.cost_per_achieved_goal)} note={`${formatNumber(d.goals.cost_measured_achieved_runs)} of ${formatNumber(d.goals.achieved_runs)} achieved runs measured`} href={runsHref({ goal_status: "achieved", cost_status: "complete" })} />
           </div>
           {selectedContract ? (
             <>
               <Panel className="mt-4" title="Goal assurance" note="Achievement and the strength of its declared checks for this goal.">
-                <GoalPortfolio items={d.goal_portfolio} />
+                <GoalPortfolio items={d.goal_portfolio} drilldownBase={drilldownBase} />
               </Panel>
               <div className="mt-4 grid gap-4 xl:grid-cols-2">
               <Panel title="Business results" note="These labels belong to the selected business contract; they are not runtime states.">
-                <BreakdownBar data={d.outcome_breakdown} colors={outcomeColors} />
+                <BreakdownBar data={d.outcome_breakdown} colors={outcomeColors} hrefFor={(outcome) => runsHref({ application_outcome: outcome })} />
               </Panel>
                 <Panel title="Declared checks" note="What this contract evaluated and how its reported runs scored.">
               {d.evaluations.length ? (
                 <div className="space-y-3">
                   {d.evaluations.slice(0, 6).map((evaluation) => (
-                    <div key={evaluation.key} className="rounded-lg bg-[#f7f7f3] p-3">
+                    <a key={evaluation.key} href={runsHref({ evaluation_key: evaluation.key })} className="flex min-h-32 flex-col rounded-lg bg-[#f7f7f3] p-3 transition hover:bg-[#f0ecff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-sm font-semibold">{evaluation.name}</div>
                         <Badge color="gray">{formatNumber(evaluation.reported_runs)} runs</Badge>
@@ -386,7 +436,8 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
                         {evaluation.average_score != null ? `Average: ${formatNumber(evaluation.average_score)} ${evaluation.unit || ""}` : Object.entries(evaluation.labels).map(([label, count]) => `${label}: ${count}`).join(" · ")}
                         {evaluation.target != null ? ` · Target: ${formatNumber(Number(evaluation.target))} ${evaluation.unit || ""}` : ""}
                       </div>
-                    </div>
+                      <div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View evaluated runs →</div>
+                    </a>
                   ))}
                 </div>
               ) : <Empty>No declared checks were reported for this goal.</Empty>}
@@ -397,13 +448,14 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               {d.goal_misses.length ? (
                 <div className="space-y-3">
                   {d.goal_misses.map((item) => (
-                    <div key={item.reason} className="rounded-lg bg-[#fff5f5] p-3">
+                    <a key={item.reason} href={runsHref({ goal_status: "not_achieved", blocker: item.reason })} className="flex min-h-28 flex-col rounded-lg bg-[#fff5f5] p-3 transition hover:bg-[#ffeded] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d95858]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-sm font-medium">{item.reason}</div>
                         <Badge color="red">{formatNumber(item.runs)} runs</Badge>
                       </div>
                       <div className="mt-2 text-xs text-[#777]">{seconds(item.time_seconds)} observed · {money(item.known_cost)}</div>
-                    </div>
+                      <div className="mt-auto pt-3 text-[10px] font-semibold text-[#a83f3f]">View affected runs →</div>
+                    </a>
                   ))}
                 </div>
               ) : <Empty>No reported goal misses in this view.</Empty>}
@@ -414,7 +466,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               )}
                 </Panel>
                 <Panel title="Change over time" note="Success, time, and cost for this goal under the selected filters.">
-                  <GoalTrendChart items={d.goal_trend} />
+                  <GoalTrendChart items={d.goal_trend} onSelect={(item, metric) => window.location.assign(runsHref({ range: undefined, start_date: item.date, end_date: item.date, goal_status: metric === "success" ? "reported" : "achieved", cost_status: metric === "cost" ? "complete" : undefined }))} />
                 </Panel>
               </div>
             </>
@@ -425,10 +477,10 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               </Panel>
               <div className="mt-4 grid gap-4 xl:grid-cols-[.85fr_1.15fr]">
                 <Panel title="What needs attention" note="Below-target checks and reported goal blockers, ranked for investigation.">
-                  <GoalAttentionQueue data={d} />
+                  <GoalAttentionQueue data={d} drilldownBase={drilldownBase} />
                 </Panel>
                 <Panel title="Portfolio change over time" note="Goal achievement, time, and cost across the complete selected portfolio.">
-                  <GoalTrendChart items={d.goal_trend} />
+                  <GoalTrendChart items={d.goal_trend} onSelect={(item, metric) => window.location.assign(runsHref({ range: undefined, start_date: item.date, end_date: item.date, goal_status: metric === "success" ? "reported" : "achieved", cost_status: metric === "cost" ? "complete" : undefined }))} />
                 </Panel>
               </div>
             </>
@@ -448,7 +500,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
           {(["model", "provider"] as const).map((value) => (
             <button
               key={value}
-              onClick={() => setBreakdown(value)}
+              onClick={() => preserveViewport(() => setBreakdown(value))}
               className={`rounded-md px-4 py-2 text-xs font-semibold ${
                 breakdown === value
                   ? "bg-white text-[#5a35c8] shadow-sm"
@@ -462,37 +514,37 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       </div>
       {mode === "health" ? (
         <>
-          <Panel className="mt-3" title={`${breakdownLabel} runtime reliability`} note="Completion, recovery, and failure by operational participant.">
-            <SystemBreakdownList items={breakdownItems} dimension={breakdown} destination="/system-health" />
+          <Panel className="mt-3" title={`${breakdownLabel} runtime reliability`} note="Execution outcomes for runs involving each operational participant; cost, tokens, calls, and active time remain directly attributed.">
+            <SystemBreakdownList items={breakdownItems} dimension={breakdown} destination="/runs" drilldownBase={drilldownBase} />
           </Panel>
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,.8fr)]">
-            <Panel title={`${breakdownLabel} cost versus speed`} note="Bubble size shows run volume. Hover for exact values.">
-              <CostSpeedChart items={breakdownItems} breakdown={breakdown} />
+            <Panel title={`${breakdownLabel} cost versus active time`} note="Directly attributed active time and measured spend; bubble size shows involved-run volume.">
+              <CostSpeedChart items={breakdownItems} breakdown={breakdown} onSelect={(item) => window.location.assign(runsHref({ [breakdown]: item.label }))} />
             </Panel>
             <Panel title={`${breakdownLabel} share of measured spend`} note="Share of measured spend. Hover for the exact amount.">
-              <ProviderSpendChart items={breakdownItems} breakdown={breakdown} />
+              <ProviderSpendChart items={breakdownItems} breakdown={breakdown} onSelect={(item) => window.location.assign(runsHref({ [breakdown]: item.label, cost_status: "complete" }))} />
             </Panel>
           </div>
-          <Panel className="mt-4" title={`${breakdownLabel} operational ranking`} note="Slowest and most expensive configurations in the selected system population.">
-            <EconomicsBarChart items={breakdownItems} />
+          <Panel className="mt-4" title={`${breakdownLabel} operational ranking`} note="Direct active time and measured cost for each participant.">
+            <EconomicsBarChart items={breakdownItems} onSelect={(item) => window.location.assign(runsHref({ [breakdown]: item.label }))} />
           </Panel>
         </>
       ) : (
         <>
           <div className="mt-3 grid gap-4 xl:grid-cols-2">
-            <Panel title={`Goal outcomes by ${breakdown}`} note="Achievement and decision correctness; runtime completion is intentionally excluded.">
+            <Panel title={`Goal outcomes for runs involving each ${breakdown}`} note="These are cohort outcomes, not causal attribution; runtime completion is excluded.">
               <GoalRateColumns
-                items={(goalComparison.data?.items || []).map((item) => breakdown === "provider" ? { ...item, label: providerDisplayName(item.label) } : item)}
-                onSelect={(item) => breakdown === "model" ? setModel(item.label) : setProvider(item.label.toLowerCase())}
+                items={goalComparison.data?.items || []}
+                onSelect={(item) => breakdown === "model" ? updateFilter("model", item.model_family || item.model_id || item.label, setModel) : updateFilter("provider", item.provider_id || item.label, setProvider)}
               />
             </Panel>
-            <Panel title="Goal achievement versus measured cost" note="Higher is better vertically; lower measured cost is better horizontally. Bubble size is run volume.">
-              <GoalTradeoffChart items={goalComparison.data?.items || []} />
+            <Panel title="Run-cohort goal success versus attributed cost" note="Vertical values are shared outcomes of runs involving the participant; horizontal values are directly attributed participant cost. This is not causal attribution.">
+              <GoalTradeoffChart items={goalComparison.data?.items || []} onSelect={(item) => breakdown === "model" ? updateFilter("model", item.model_family || item.model_id || item.label, setModel) : updateFilter("provider", item.provider_id || item.label, setProvider)} />
             </Panel>
           </div>
           {selectedContract && (
-            <Panel className="mt-4" title="Declared evaluation quality by participant" note="Average scores compared with targets declared by this selected business contract.">
-              <QualityComparisonChart items={goalComparison.data?.items || []} />
+            <Panel className="mt-4" title="Evaluation results for runs involving participant" note="Average final evaluation facts for each participant cohort, compared with the selected contract targets.">
+              <QualityComparisonChart items={goalComparison.data?.items || []} onSelect={(participant, evaluation) => window.location.assign(runsHref({ [breakdown]: participant, evaluation_key: evaluation }))} />
             </Panel>
           )}
         </>
@@ -511,10 +563,10 @@ export function GoalPerformancePage() {
 
 export const drilldownHref = (
   destination: string,
-  filters: { contract_hash?: string | null; model?: string; provider?: string },
+  filters: Record<string, string | number | boolean | null | undefined>,
 ) => {
   const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => value && params.set(key, value));
+  Object.entries(filters).forEach(([key, value]) => value !== null && value !== undefined && value !== "" && value !== false && params.set(key, String(value)));
   const query = params.toString();
   return query ? `${destination}?${query}` : destination;
 };
@@ -583,7 +635,7 @@ function GoalPortfolioGrid({ items }: { items: GoalPortfolioItem[] }) {
   );
 }
 
-function GoalAttentionQueue({ data }: { data: Overview }) {
+function GoalAttentionQueue({ data, drilldownBase }: { data: Overview; drilldownBase?: Record<string, string | number | boolean | null | undefined> }) {
   const checks = data.goal_portfolio
     .filter((item) => item.top_attention)
     .sort((a, b) => (b.top_attention?.attention_runs || 0) - (a.top_attention?.attention_runs || 0));
@@ -591,16 +643,16 @@ function GoalAttentionQueue({ data }: { data: Overview }) {
   return (
     <div className="space-y-2">
       {checks.slice(0, 4).map((item) => (
-        <a key={item.goal_id} href={drilldownHref("/goal-performance", { contract_hash: item.contract_hash || item.contract_hashes[0] })} className="block rounded-lg bg-[#fff7e9] p-3 hover:bg-[#fff1d8]">
+        <a key={item.goal_id} href={drilldownHref("/runs", { ...drilldownBase, contract_hash: item.contract_hash || item.contract_hashes[0], evaluation_key: item.top_attention?.key, evaluation_status: "failed" })} className="block rounded-lg bg-[#fff7e9] p-3 hover:bg-[#fff1d8]">
           <div className="flex items-start justify-between gap-3"><div className="text-sm font-semibold">{item.goal_name}</div><Badge color="yellow">{formatNumber(item.top_attention?.attention_runs)} runs</Badge></div>
           <div className="mt-1 text-xs text-[#7a5b2c]">{item.top_attention?.name}: average {formatNumber(item.top_attention?.average_score)} · target {String(item.top_attention?.target ?? "not declared")}</div>
         </a>
       ))}
       {data.goal_misses.slice(0, Math.max(2, 5 - checks.length)).map((item) => (
-        <div key={item.reason} className="rounded-lg bg-[#fff2f2] p-3">
+        <a key={item.reason} href={drilldownHref("/runs", { ...drilldownBase, goal_status: "not_achieved", blocker: item.reason })} className="block rounded-lg bg-[#fff2f2] p-3 hover:bg-[#ffebeb]">
           <div className="flex items-start justify-between gap-3"><div className="text-sm font-semibold">{item.reason}</div><Badge color="red">{formatNumber(item.runs)} runs</Badge></div>
           <div className="mt-1 text-xs text-[#846767]">{seconds(item.time_seconds)} observed · {money(item.known_cost)}</div>
-        </div>
+        </a>
       ))}
     </div>
   );
@@ -650,10 +702,12 @@ function SystemBreakdownList({
   items,
   dimension,
   destination,
+  drilldownBase,
 }: {
   items: Performance[];
   dimension: "model" | "provider";
   destination: string;
+  drilldownBase?: Record<string, string | number | boolean | null | undefined>;
 }) {
   const shown = [...items].sort((a, b) => b.runs - a.runs).slice(0, 8);
   if (!shown.length) return <Empty>No operational participants in this view.</Empty>;
@@ -665,7 +719,7 @@ function SystemBreakdownList({
         return (
           <a
             key={item.label}
-            href={drilldownHref(destination, { [dimension]: item.label })}
+            href={drilldownHref(destination, { ...drilldownBase, [dimension]: item.label })}
             className="group grid gap-2 rounded-lg border border-transparent px-2 py-2 hover:border-[#e3ddf7] hover:bg-[#faf8ff] sm:grid-cols-[minmax(140px,1fr)_minmax(150px,1.5fr)_72px_82px] sm:items-center"
           >
             <div className="min-w-0"><div className="truncate text-sm font-semibold group-hover:text-[#603bd1]">{label}</div><div className="text-[11px] text-[#777]">{formatNumber(item.runs)} runs</div></div>
@@ -679,18 +733,20 @@ function SystemBreakdownList({
   );
 }
 
-function GoalPortfolio({ items, destination, compact = false }: { items: GoalPortfolioItem[]; destination?: string; compact?: boolean }) {
+function GoalPortfolio({ items, destination, compact = false, drilldownBase }: { items: GoalPortfolioItem[]; destination?: string; compact?: boolean; drilldownBase?: Record<string, string | number | boolean | null | undefined> }) {
   if (!items.length) return <Empty>No business goals were reported in this view.</Empty>;
   return (
     <div className="space-y-3">
       {items.map((item) => {
         const total = Math.max(item.runs, 1);
+        const contract = item.contract_hash || item.contract_hashes[0];
         const segments = [
-          { label: "Assured", count: item.assured_runs, color: "bg-[#24a267]" },
-          { label: "Achieved · attention", count: item.attention_runs, color: "bg-[#ed9b2d]" },
-          { label: "Not achieved", count: item.not_achieved_runs, color: "bg-[#d95858]" },
-          { label: "Unassessed", count: item.unassessed_runs, color: "bg-[#9aa1ad]" },
+          { label: "Assured", count: item.assured_runs, color: "bg-[#24a267]", filters: { goal_status: "achieved", assurance_status: "assured" } },
+          { label: "Achieved · attention", count: item.attention_runs, color: "bg-[#ed9b2d]", filters: { goal_status: "achieved", assurance_status: "needs_attention" } },
+          { label: "Not achieved", count: item.not_achieved_runs, color: "bg-[#d95858]", filters: { goal_status: "not_achieved" } },
+          { label: "Unassessed", count: item.unassessed_runs, color: "bg-[#9aa1ad]", filters: { goal_status: "achieved", assurance_status: "unassessed" } },
         ];
+        const segmentHref = (filters: Record<string, string | undefined>) => drilldownHref("/runs", { ...drilldownBase, contract_hash: contract, ...filters });
         return (
           <div key={item.goal_id} className="rounded-xl border border-[#e9e8e2] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -708,27 +764,29 @@ function GoalPortfolio({ items, destination, compact = false }: { items: GoalPor
             </div>
             <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-[#efefeb]" aria-label={`${item.goal_name} assurance breakdown`}>
               {segments.map((segment) => segment.count > 0 && (
-                <div
+                <a
                   key={segment.label}
+                  href={segmentHref(segment.filters)}
                   title={`${segment.label}: ${segment.count}`}
-                  className={segment.color}
+                  className={`${segment.color} transition hover:brightness-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white`}
                   style={{ width: `${(segment.count / total) * 100}%` }}
                 />
               ))}
             </div>
             {!compact && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#686862]">
               {segments.map((segment) => (
-                <span key={segment.label} className="inline-flex items-center gap-1.5">
+                <a key={segment.label} href={segmentHref(segment.filters)} className="inline-flex items-center gap-1.5 rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]">
                   <span className={`size-2 rounded-sm ${segment.color}`} />
                   {segment.label} {formatNumber(segment.count)}
-                </span>
+                </a>
               ))}
               <span>Assessment coverage {percent(item.assessment_coverage)}</span>
             </div>}
             {!compact && item.top_attention && (
-              <div className="mt-3 rounded-lg bg-[#fff8ec] px-3 py-2 text-xs text-[#8a570e]">
+              <a href={segmentHref({ evaluation_key: item.top_attention.key, evaluation_status: "failed" })} className="mt-3 block rounded-lg bg-[#fff8ec] px-3 py-2 text-xs text-[#8a570e] transition hover:bg-[#fff1d8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ed9b2d]">
                 <span className="font-semibold">Needs attention:</span> {item.top_attention.name} averaged {item.top_attention.average_score == null ? "an unscored result" : formatNumber(item.top_attention.average_score)}{item.top_attention.target == null ? "" : ` against a target of ${String(item.top_attention.target)}`} and missed in {formatNumber(item.top_attention.attention_runs)} run{item.top_attention.attention_runs === 1 ? "" : "s"}.
-              </div>
+                <span className="ml-1 font-semibold">View failed checks →</span>
+              </a>
             )}
           </div>
         );
@@ -773,10 +831,70 @@ const resolvedFilters = (values: SharedFilterValues): DashboardFilters => ({
   start_date:
     values.range === "all"
       ? undefined
-      : new Date(Date.now() - Number(values.range) * 86_400_000)
-          .toISOString()
-          .slice(0, 10),
+      : browserDateDaysAgo(Number(values.range)),
 });
+
+const semanticRouteFilters = (): DashboardFilters => ({
+  start_date: routeParam("start_date") || undefined,
+  end_date: routeParam("end_date") || undefined,
+  stage: routeParam("stage") || undefined,
+  tool: routeParam("tool") || undefined,
+  goal_status: routeParam("goal_status") || undefined,
+  assurance_status: routeParam("assurance_status") || undefined,
+  application_outcome: routeParam("application_outcome") || undefined,
+  blocker: routeParam("blocker") || undefined,
+  evaluation_key: routeParam("evaluation_key") || undefined,
+  evaluation_status: routeParam("evaluation_status") || undefined,
+  cost_status: routeParam("cost_status") || undefined,
+  token_status: routeParam("token_status") || undefined,
+  operation_type: routeParam("operation_type") || undefined,
+  operation_status: routeParam("operation_status") || undefined,
+  failure_location: routeParam("failure_location") || undefined,
+  has_failure: routeParam("has_failure") === "true" || undefined,
+  has_repeated_work: routeParam("has_repeated_work") === "true" || undefined,
+});
+
+const filterLabel = (key: string, value: string) => {
+  const names: Record<string, string> = {
+    contract_hash: "Goal",
+    provider: "Provider",
+    model: "Model",
+    status: "Runtime",
+    goal_status: "Goal",
+    assurance_status: "Assurance",
+    application_outcome: "Business result",
+    blocker: "Blocker",
+    evaluation_key: "Evaluation",
+    evaluation_status: "Evaluation result",
+    cost_status: "Cost",
+    token_status: "Tokens",
+    operation_type: "Operation",
+    operation_status: "Operation status",
+    failure_location: "Failure location",
+    start_date: "From",
+    end_date: "Through",
+    has_failure: "Failure",
+    has_repeated_work: "Repeated work",
+  };
+  return `${names[key] || key}: ${value.replaceAll("_", " ")}`;
+};
+
+function ActiveFilterChips({ filters }: { filters: DashboardFilters }) {
+  const entries = Object.entries(filters).filter(([, value]) => value != null && value !== "");
+  if (!entries.length) return null;
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-[#f9f7ff] px-3 py-2 text-xs">
+      <span className="font-semibold text-[#555]">Showing</span>
+      {entries.map(([key, value]) => {
+        const params = new URLSearchParams(window.location.search);
+        params.delete(key);
+        const href = `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`;
+        return <a key={key} href={href} className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-[#5a35c8] ring-1 ring-[#d8cff3] hover:bg-[#f0ebff]">{filterLabel(key, String(value))} ×</a>;
+      })}
+      <a href={window.location.pathname} className="ml-auto font-semibold text-[#6b6470] hover:text-[#5a35c8]">Clear all</a>
+    </div>
+  );
+}
 function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { metadata: Meta; values: SharedFilterValues; onChange: (values: SharedFilterValues) => void; includeGoal?: boolean }) {
   const set = (key: keyof SharedFilterValues, value: string) => onChange({ ...values, [key]: value });
   return (
@@ -795,6 +913,7 @@ function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { m
       </FilterSelect>
       <FilterSelect value={values.status} onChange={(value) => set("status", value)} label="All runtime states">
         <option value="completed">Completed or recovered</option>
+        <option value="recovered">Recovered</option>
         <option value="failed">Failed</option>
         <option value="running">Running</option>
       </FilterSelect>
@@ -830,54 +949,92 @@ function ContractCard({ contract }: { contract: ContractDefinition }) {
   );
 }
 
-function AttentionPanel({ data }: { data: Overview }) {
+function AttentionPanel({ data, runsHref }: { data: Overview; runsHref: (extra?: Record<string, string | number | boolean | null | undefined>) => string }) {
+  const measurementMessages = measurementAttentionMessages(data);
   return (
     <Panel title="What needs attention" note="Concrete breakpoints and missing measurements.">
       {data.failures.length ? (
         <div className="space-y-3">
           {data.failures.slice(0, 6).map((failure) => (
-            <div key={failure.failure_location} className="flex items-center justify-between rounded-lg bg-[#fff5f5] p-3">
+            <a key={failure.failure_location} href={runsHref({ failure_location: failure.failure_location, has_failure: true })} className="flex items-center justify-between rounded-lg bg-[#fff5f5] p-3 transition hover:bg-[#ffeded] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d95858]">
               <div>
                 <div className="text-sm font-medium">{failure.failure_location}</div>
-                <div className="text-xs text-[#777]">{formatNumber(failure.recovered_runs)} recovered · {money(failure.known_cost)}</div>
+                <div className="text-xs text-[#777]">{formatNumber(failure.recovered_runs)} recovered · failed operation {seconds(failure.time_seconds)} · {money(failure.known_cost)}</div>
+                <div className="mt-0.5 text-[10px] text-[#999]">Affected-run exposure: {seconds(failure.affected_run_time_seconds)} · {money(failure.affected_run_cost)}</div>
               </div>
               <Badge color={failure.terminal_runs ? "red" : "green"}>
                 {failure.terminal_runs
                   ? `${formatNumber(failure.terminal_runs)} failed`
                   : `${formatNumber(failure.recovered_runs)} recovered`}
               </Badge>
-            </div>
+            </a>
           ))}
+        </div>
+      ) : measurementMessages.length ? (
+        <div className="space-y-2">
+          {measurementMessages.map((message) => <div key={message} className="rounded-lg bg-amber-50 p-3 text-sm text-[#80520e]">{message}</div>)}
         </div>
       ) : Object.keys(data.cost_unavailable).length ? (
         <div className="space-y-2">{Object.entries(data.cost_unavailable).map(([reason, count]) => <div key={reason} className="rounded-lg bg-amber-50 p-3 text-sm">{reason.replaceAll("_", " ")} · {formatNumber(count)} runs</div>)}</div>
-      ) : <Empty>No failures or missing measurements in this view.</Empty>}
+      ) : <Empty>No failures or incomplete applicable measurements in this view.</Empty>}
     </Panel>
   );
 }
 
+export function measurementAttentionMessages(data: Overview): string[] {
+  return ([
+    ["Cost", data.costs.cost],
+    ["Token", data.costs.tokens],
+  ] as const).flatMap(([label, coverage]) => {
+    if (coverage.partial_runs + coverage.missing_runs === 0) return [];
+    return [`${label} measurement is incomplete for ${formatNumber(coverage.partial_runs)} partial and ${formatNumber(coverage.missing_runs)} unmeasured applicable runs.`];
+  });
+}
+
 export function RunsPage() {
-  const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
+  const [filterValues, setFilterValues] = useState<SharedFilterValues>(() => ({
+    ...EMPTY_FILTERS,
+    contractHash: routeParam("contract_hash"),
+    provider: routeParam("provider"),
+    model: routeParam("model"),
+    status: routeParam("status"),
+    range: routeParam("range") || "all",
+  }));
   const [page, setPage] = useState(1);
-  const filters = resolvedFilters(filterValues);
+  const workflow = routeParam("workflow");
+  const workflowId = routeParam("workflow_id");
+  const unavailableReplay = routeParam("unavailable_replay");
+  const filters = { ...resolvedFilters(filterValues), ...semanticRouteFilters(), workflow: workflow || undefined, workflow_id: workflowId || undefined };
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["runs", filterValues, page], queryFn: () => api.runs(filters, page, 10) });
+  const q = useQuery({ queryKey: ["runs", workflow, workflowId, filterValues, page], queryFn: () => api.runs(filters, page, 10), placeholderData: keepPreviousData });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
   return (
     <>
       <PageHeader
-        title="Runs"
-        description="Find a run by what it did, then open its complete telemetry and business story."
+        title="All executions"
+        description="Open executions that are associated with an authored YAML workflow contract."
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => { setFilterValues(values); setPage(1); }} />
+      {unavailableReplay ? (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-[#e8dfc6] bg-[#fffaf0] px-4 py-3 text-sm">
+          <div>
+            <span className="font-semibold text-[#80520e]">No workflow replay</span>
+            <span className="ml-2 text-[#756d60]">This execution has no associated YAML workflow contract.</span>
+          </div>
+          <a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Dismiss</a>
+        </div>
+      ) : null}
+      {workflow || workflowId ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow || workflowId}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); setPage(1); })} />
+      <ActiveFilterChips filters={filters} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
       <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-[#74746e]">Page {q.data!.page} of {q.data!.pages} · {formatNumber(q.data!.count)} runs</span>
         <div className="flex gap-2">
-          <button disabled={q.data!.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
-          <button disabled={q.data!.page >= q.data!.pages} onClick={() => setPage((value) => value + 1)} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+          <button disabled={q.data!.page <= 1} onClick={() => preserveViewport(() => setPage((value) => Math.max(1, value - 1)))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+          <button disabled={q.data!.page >= q.data!.pages} onClick={() => preserveViewport(() => setPage((value) => value + 1))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Next</button>
         </div>
       </div>
     </>
@@ -887,181 +1044,18 @@ function RunsTable({ rows, count }: { rows: Run[]; count: number }) {
   return (
     <Panel
       title={`${formatNumber(count)} runs`}
-      note="Newest first · select a run to inspect its complete path"
+      note="Newest first · YAML-backed executions open their canonical workflow replay"
     >
       <div className="space-y-2">
-        {rows.map((run) => {
-          const runtime = String(run.runtime_outcome || run.status || "unknown");
-          const outcome = String(run.application_outcome || "Not reported").replaceAll("_", " ");
-          const goal =
-            run.product_goal_achieved === true
-              ? run.evidence_sufficient === false
-                ? "Achieved · attention"
-                : "Achieved"
-              : run.product_goal_achieved === false
-                ? "Not achieved"
-                : "Not reported";
-          const provider = String(run.provider || "Provider not observed");
-          const model = String(run.model || "Model not observed");
-          const measuredTokens = typeof run.total_tokens === "number";
-          const healthy = runtime.toLowerCase() === "completed" && run.product_goal_achieved === true;
-          return (
-            <Link
-              key={run.execution_id}
-              to="/runs/$executionId"
-              params={{ executionId: run.execution_id }}
-              className="group relative grid min-w-0 gap-4 overflow-hidden rounded-xl border border-[#e8e7e2] bg-white px-5 py-4 transition hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] xl:grid-cols-[minmax(360px,1fr)_200px_140px_80px_110px_110px] xl:items-center xl:gap-5"
-            >
-              <span
-                className={`absolute inset-y-0 left-0 w-1 ${healthy ? "bg-[#25a86b]" : run.product_goal_achieved === false ? "bg-[#df5a5a]" : "bg-[#f0a128]"}`}
-              />
-              <div className="min-w-0 pl-1">
-                <div className="truncate text-base font-semibold text-[#3f277f] group-hover:text-[#5c35c8]">
-                  {run.display_name || String(run.workflow || "Agent run")}
-                </div>
-                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#74746e]">
-                  <StatusBadge value={runtime} />
-                  <span className="max-w-[180px] truncate" title={provider}>{provider}</span>
-                  <span className="text-[#c2c1bb]">/</span>
-                  <span className="max-w-[300px] truncate font-medium text-[#55554f]" title={model}>{model}</span>
-                </div>
-              </div>
-              <div className="min-w-0 border-t border-[#efeee9] pt-3 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Business result</div>
-                <div className="mt-1 truncate text-sm font-semibold capitalize text-[#33332f]" title={outcome}>{outcome}</div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">Product goal</div>
-                <div className="mt-1">
-                  <Badge
-                    color={
-                      goal === "Achieved"
-                        ? "green"
-                        : goal === "Not achieved"
-                          ? "red"
-                          : goal === "Achieved · attention"
-                            ? "yellow"
-                            : "gray"
-                    }
-                  >
-                    {goal}
-                  </Badge>
-                </div>
-              </div>
-              <RunMeasure label="Elapsed" value={seconds(run.duration_seconds)} />
-              <RunMeasure label="Cost" value={money(run.known_cost)} />
-              <RunMeasure label="Tokens" value={measuredTokens ? formatNumber(run.total_tokens) : "Not measured"} />
-            </Link>
-          );
-        })}
+        {rows.map((run) => (
+          <ExecutionListCard
+            key={run.execution_id}
+            run={run}
+            href={run.canonical_url || undefined}
+          />
+        ))}
       </div>
     </Panel>
-  );
-}
-
-function RunMeasure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#92918a]">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold text-[#34342f]" title={value}>{value}</div>
-    </div>
-  );
-}
-
-export function RunPage() {
-  const { executionId } = useParams({ from: "/runs/$executionId" });
-  const q = useQuery({
-    queryKey: ["run", executionId],
-    queryFn: () => api.run(executionId),
-  });
-  if (q.isLoading) return <LoadingPage />;
-  if (q.error) return <ErrorPage error={q.error} />;
-  const d = q.data!,
-    s = d.summary;
-  const definitionRecord = d.semantic_records.find(
-    (record) => record.name === "contract.definition",
-  );
-  const definition = (definitionRecord?.attributes || {}) as Record<
-    string,
-    Record<string, unknown>
-  >;
-  const goalRecord = d.semantic_records.find(
-    (record) => record.name === "product_goal",
-  );
-  const goalAttributes = (goalRecord?.attributes || {}) as Record<
-    string,
-    unknown
-  >;
-  const decisionRecord = d.semantic_records.find(
-    (record) => record.kind === "decision",
-  );
-  const resultName = String(
-    definition.result?.name || goalAttributes.result_name || "Result",
-  );
-  const goalName = String(
-    definition.product_goal?.name ||
-      goalAttributes.product_goal_name ||
-      "Product goal",
-  );
-  const resultState =
-    s.artifact_valid === true
-      ? "Valid"
-      : s.artifact_valid === false
-        ? "Needs attention"
-        : "Not reported";
-  const decisionValue = String(
-    decisionRecord?.value || s.application_outcome || "Not reported",
-  );
-  const goalState =
-    s.product_goal_achieved === true
-      ? "Achieved"
-      : s.product_goal_achieved === false
-        ? "Not achieved"
-        : "Not reported";
-  const story = `${resultName} was ${resultState.toLowerCase()}. The run decided ${decisionValue}, and ${goalName} was ${goalState.toLowerCase()} in ${seconds(s.duration_seconds)} for ${money(s.known_cost)}.`;
-  return (
-    <>
-      <PageHeader
-        eyebrow="Run replay"
-        title={s.display_name || String(s.workflow || "Agent run")}
-        description={story}
-        action={
-          <Link to="/runs">
-            <Button variant="outline">All runs</Button>
-          </Link>
-        }
-      />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Kpi
-          label="Runtime"
-          value={String(s.runtime_outcome || s.status || "Unknown")}
-        />
-        <Kpi label={resultName} value={resultState} tone={resultState === "Valid" ? "good" : "neutral"} />
-        <Kpi label={String(definition.decision?.name || "Decision")} value={decisionValue} />
-        <Kpi label={goalName} value={goalState} tone={goalState === "Achieved" ? "good" : "warn"} />
-        <Kpi label="Elapsed" value={seconds(s.duration_seconds)} />
-        <Kpi label="Measured cost" value={money(s.known_cost)} />
-      </div>
-      <Panel
-        className="mt-4"
-        title="How this run reached its result"
-        note="Workflow telemetry and application meaning in one compact view. Open full screen to inspect the complete path."
-      >
-        <WorkflowGraph detail={d} />
-      </Panel>
-      <details className="mt-4 rounded-xl border bg-white p-5">
-        <summary className="cursor-pointer text-sm font-semibold">
-          Technical records
-        </summary>
-        <pre className="mt-4 max-h-96 overflow-auto rounded-lg bg-[#f6f6f2] p-4 text-xs">
-          {JSON.stringify(
-            { outcomes: d.outcomes, semantic_records: d.semantic_records },
-            null,
-            2,
-          )}
-        </pre>
-      </details>
-    </>
   );
 }
 
@@ -1076,15 +1070,17 @@ type SemanticRecord = Record<string, unknown> & {
 
 export const evaluationMetTarget = (record: SemanticRecord): boolean | null => {
   const attributes = record.attributes || {};
+  if (typeof attributes.passed === "boolean") return attributes.passed;
   const score = typeof record.score === "number" ? record.score : typeof attributes.score === "number" ? attributes.score : typeof record.value === "number" ? record.value : null;
   const target = attributes.target;
-  const direction = String(attributes.direction || "higher_is_better");
+  const direction = String(attributes.direction || "equal");
   if (score != null && typeof target === "number") {
-    return direction === "lower_is_better" ? score <= target : score >= target;
+    if (["lower_is_better", "max", "at_most", "<="].includes(direction)) return score <= target;
+    if (["higher_is_better", "min", "at_least", ">="].includes(direction)) return score >= target;
+    return score === target;
   }
-  const label = String(record.label || attributes.label || "").trim().toLowerCase();
-  if (["valid", "passed", "pass", "yes", "true", "achieved", "correct"].includes(label)) return true;
-  if (["invalid", "failed", "fail", "no", "false", "not achieved", "incorrect"].includes(label)) return false;
+  const observed = record.value ?? record.label ?? attributes.label;
+  if (target != null && observed != null) return observed === target;
   return null;
 };
 
@@ -1096,7 +1092,9 @@ export function ComparePage() {
   const q = useQuery({
     queryKey: ["compare", dimension, filterValues],
     queryFn: () => api.compare(dimension, filters),
+    placeholderData: keepPreviousData,
   });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -1114,12 +1112,12 @@ export function ComparePage() {
         description="See which providers and models deliver the result you need at the time and cost you can accept."
         action={
           <div className="flex rounded-lg bg-[#ecebe7] p-1">
-            <ModeButton active={dimension === "model"} onClick={() => setDimension("model")}>By model</ModeButton>
-            <ModeButton active={dimension === "provider"} onClick={() => setDimension("provider")}>By provider</ModeButton>
+            <ModeButton active={dimension === "model"} onClick={() => preserveViewport(() => setDimension("model"))}>By model</ModeButton>
+            <ModeButton active={dimension === "provider"} onClick={() => preserveViewport(() => setDimension("provider"))}>By provider</ModeButton>
           </div>
         }
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
       <Panel title={`${dimension === "model" ? "Models" : "Providers"}: attributable speed and spend`} note="Each point uses only the model calls, tokens, cost, and elapsed model time attributable to that participant.">
         <CostLatencyScatter items={compareItems} />
       </Panel>
@@ -1139,7 +1137,8 @@ export function WorkflowsPage() {
   const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
   const filters = resolvedFilters(filterValues);
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["workflows", filterValues], queryFn: () => api.workflows(filters) });
+  const q = useQuery({ queryKey: ["workflows", filterValues], queryFn: () => api.workflows(filters), placeholderData: keepPreviousData });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -1149,7 +1148,7 @@ export function WorkflowsPage() {
         title="Workflows"
         description="Understand which workflows carry the work and which paths are slow, expensive, or fragile."
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
       <Panel title="Workflow portfolio" note="Canonical runtimes only; wrapper spans are not counted as separate workflows. At most 10 workflows are shown.">
         <CostLatencyScatter items={q.data!.items} xLabel="End-to-end time / run (seconds)" />
       </Panel>
@@ -1166,155 +1165,226 @@ export function IssuesPage() {
   const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
   const filters = resolvedFilters(filterValues);
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["issues", filterValues], queryFn: () => api.issues(filters) });
+  const q = useQuery({ queryKey: ["issues", filterValues], queryFn: () => api.issues(filters), placeholderData: keepPreviousData });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
+  const data = q.data!;
+  const affectedRetryRuns = new Set(data.retries.flatMap((retry) => retry.runs.map((run) => run.execution_id))).size;
+  const runSignals = data.failures.length + data.quality_gaps.length + data.outliers.length;
+  const telemetrySignals = data.operation_failures.length + data.missing_required_measurements.length;
+  const operationFailures = data.operation_failures.reduce((total, item) => total + item.failed, 0);
+  const hasFailure = data.summary.terminal_failures > 0 || operationFailures > 0;
+  const hasAttention = runSignals + telemetrySignals > 0 || affectedRetryRuns > 0;
+  const headline = hasFailure
+    ? `${formatNumber(data.summary.terminal_failures + operationFailures)} failures need attention`
+    : hasAttention
+      ? "No failures. Efficiency and telemetry still need review."
+      : "No active issues in this population.";
+  const summary = [
+    data.outliers.length ? `${formatNumber(data.outliers.length)} p95 outlier run${data.outliers.length === 1 ? "" : "s"}` : null,
+    affectedRetryRuns ? `retries affected ${formatNumber(affectedRetryRuns)} run${affectedRetryRuns === 1 ? "" : "s"}` : null,
+    data.missing_required_measurements.length ? `${formatNumber(data.missing_required_measurements.length)} required measurement gap${data.missing_required_measurements.length === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" · ") || "No failure, quality, retry, outlier, or required-measurement signals were found.";
   return (
     <>
       <PageHeader
         title="Issues"
-        description="Failures, retries, and missing measurements—translated into concrete places to investigate."
+        description="A prioritized investigation queue for failures, quality regressions, retry pressure, resource outliers, and missing evidence."
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="Runs analyzed" value={formatNumber(q.data!.summary.runs)} />
-        <Kpi label="Terminal failures" value={formatNumber(q.data!.summary.terminal_failures)} tone={q.data!.summary.terminal_failures ? "warn" : "good"} />
-        <Kpi label="Recovered runs" value={formatNumber(q.data!.summary.recovered_runs)} />
-        <Kpi label="Retry attempts" value={formatNumber(q.data!.summary.extra_attempts)} tone={q.data!.summary.extra_attempts ? "warn" : "good"} />
-        <Kpi label="Below target" value={formatNumber(q.data!.summary.quality_gaps)} tone={q.data!.summary.quality_gaps ? "warn" : "good"} />
-      </div>
-      <div className="grid gap-4 xl:grid-cols-12 xl:items-start">
-        <Panel className="xl:col-span-7" title="Investigation queue" note="Runtime, quality, and resource signals ranked together. Select any row to open its exact replay.">
-          <IssueRunQueue data={q.data!} />
-        </Panel>
-        <Panel className="xl:col-span-5" title="Retry hotspots" note="Repeated stages ranked by extra attempts. Expand a stage only when you need its affected runs.">
-          <RetryHotspotList data={q.data!} />
-        </Panel>
-      </div>
-      <Panel className="mt-4" title="Measurement coverage" note="Coverage explains which issue signals can be evaluated reliably for this population.">
-        <div className="grid gap-6 sm:grid-cols-3">
-          <CoverageMeter label="Cost measured" value={q.data!.measurement.cost} total={q.data!.measurement.total} />
-          <CoverageMeter label="Tokens measured" value={q.data!.measurement.tokens} total={q.data!.measurement.total} />
-          <CoverageMeter label="Business goal reported" value={q.data!.measurement.business_goal} total={q.data!.measurement.total} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
+      <section className={`mb-4 overflow-hidden rounded-xl border ${hasFailure ? "border-red-200 bg-red-50/50" : hasAttention ? "border-amber-200 bg-[#fffdf7]" : "border-emerald-200 bg-emerald-50/40"}`}>
+        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(440px,.75fr)] lg:items-center">
+          <div className="min-w-0">
+            <div className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[.1em] ${hasFailure ? "bg-red-100 text-red-700" : hasAttention ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}><span className={`size-1.5 rounded-full ${hasFailure ? "bg-red-500" : hasAttention ? "bg-amber-500" : "bg-emerald-500"}`} />Current assessment</div>
+            <h2 className="mt-3 text-xl font-semibold tracking-[-.02em] text-[#302d33]">{headline}</h2>
+            <p className="mt-1.5 max-w-3xl text-xs leading-5 text-[#77716f]">{summary}</p>
+          </div>
+          <dl className="grid grid-cols-2 overflow-hidden rounded-lg border border-black/5 bg-white/80 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+            <IssueFact label="Runs" value={formatNumber(data.summary.runs)} />
+            <IssueFact label="Run signals" value={formatNumber(runSignals)} />
+            <IssueFact label="Retry runs" value={formatNumber(affectedRetryRuns)} />
+            <IssueFact label="Telemetry gaps" value={formatNumber(telemetrySignals)} />
+          </dl>
         </div>
+      </section>
+      <Panel title="Prioritized investigations" note="The most consequential signals first. Open a run to inspect its YAML-backed execution replay.">
+        <IssueRunQueue data={data} />
       </Panel>
+      <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-start">
+        <Panel className="xl:col-span-7" title="Retry concentration" note="Extra attempts are grouped by the operation that retried; expand a row for its affected executions.">
+          <RetryHotspotList data={data} />
+        </Panel>
+        <Panel className="xl:col-span-5" title="Measurement visibility" note="Run-level reporting availability. Required operation-level gaps are surfaced in the investigation queue.">
+          <div className="space-y-5">
+            <CoverageMeter label="Measured cost" value={data.measurement.cost} total={data.measurement.total} />
+            <CoverageMeter label="Token usage" value={data.measurement.tokens} total={data.measurement.total} />
+            <CoverageMeter label="Business goal" value={data.measurement.business_goal} total={data.measurement.total} />
+          </div>
+          <div className="mt-5 border-t border-[#ece9e4] pt-4 text-[10px] leading-4 text-[#85807e]">Availability is not the same as applicability. Optional meters and operations without billable activity are not treated as failures.</div>
+        </Panel>
+      </div>
     </>
   );
 }
 
+const humanizeOperation = (value: string) => value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+
+function IssueFact({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 border-l border-[#ece9e4] px-3 py-3 first:border-l-0 lg:[&:nth-child(3)]:border-l-0 xl:[&:nth-child(3)]:border-l">
+    <dt className="text-[8px] font-semibold uppercase tracking-[.12em] text-[#938e8b]">{label}</dt>
+    <dd className="mt-1 text-lg font-semibold text-[#38333a]">{value}</dd>
+  </div>;
+}
+
 type IssueQueueItem = {
   key: string;
-  executionId: string;
+  category: "failures" | "quality" | "efficiency" | "telemetry";
+  executionId?: string;
   title: string;
   detail: string;
   signal: string;
+  metrics: string[];
   tone: "red" | "amber" | "violet" | "green";
   priority: number;
 };
 
 function IssueRunQueue({ data }: { data: Issues }) {
+  const [category, setCategory] = useState<"all" | IssueQueueItem["category"]>("all");
+  const outlierReason = (reason: string) => reason === "duration_seconds" ? "Latency above p95" : reason === "known_cost" ? "Cost above p95" : reason === "total_tokens" ? "Token usage above p95" : reason.replaceAll("_", " ");
+  const meterLabel = (value: string) => value.split(".").map((part) => part.replaceAll("_", " ")).join(" · ");
   const items: IssueQueueItem[] = [
     ...data.failures.map((failure) => ({
       key: `failure-${failure.execution_id}`,
+      category: "failures" as const,
       executionId: failure.execution_id,
-      title: failure.display_name || failure.execution_id,
-      detail: `${failure.failure_location} · ${seconds(failure.duration_seconds)} · ${money(failure.known_cost)}`,
-      signal: failure.runtime_outcome === "recovered" ? "Recovered" : "Terminal",
+      title: `${failure.display_name || "Execution"} ${failure.runtime_outcome === "recovered" ? "recovered after a failure" : "failed"}`,
+      detail: `${failure.failure_location} · execution ${failure.execution_id.slice(0, 12)}`,
+      signal: failure.runtime_outcome === "recovered" ? "Recovered" : "Terminal failure",
+      metrics: [seconds(failure.duration_seconds), money(failure.known_cost)],
       tone: failure.runtime_outcome === "recovered" ? "green" as const : "red" as const,
       priority: failure.runtime_outcome === "recovered" ? 1 : 0,
     })),
     ...data.quality_gaps.map((gap) => ({
       key: `quality-${gap.execution_id}-${gap.name}`,
+      category: "quality" as const,
       executionId: gap.execution_id,
-      title: gap.display_name || gap.execution_id,
-      detail: `${gap.name} · observed ${formatNumber(gap.score)} · target ${formatNumber(gap.target)}`,
+      title: `${gap.name} missed its declared target`,
+      detail: `${gap.display_name || "Execution"} · execution ${gap.execution_id.slice(0, 12)}`,
       signal: "Below target",
+      metrics: [`Observed ${formatNumber(gap.score)}`, `Target ${formatNumber(gap.target)}`, gap.direction.replaceAll("_", " ")],
       tone: "amber" as const,
-      priority: 2,
+      priority: 1,
     })),
     ...data.outliers.map((run) => ({
       key: `outlier-${run.execution_id}`,
+      category: "efficiency" as const,
       executionId: run.execution_id,
-      title: run.display_name || run.execution_id,
-      detail: `${run.reasons.map((reason) => reason.replaceAll("_", " ")).join(" · ")} · ${seconds(run.duration_seconds)} · ${money(run.known_cost)} · ${formatNumber(run.total_tokens)} tokens`,
-      signal: "p95 outlier",
+      title: run.reasons.length > 1 ? `${run.display_name || "Execution"} is an outlier across ${run.reasons.length} resource signals` : `${run.display_name || "Execution"} has ${outlierReason(run.reasons[0] || "a p95 outlier").toLowerCase()}`,
+      detail: `${run.reasons.map(outlierReason).join(" · ")} · execution ${run.execution_id.slice(0, 12)}`,
+      signal: "Resource outlier",
+      metrics: [seconds(run.duration_seconds), money(run.known_cost), run.total_tokens == null ? "Tokens not measured" : `${formatNumber(run.total_tokens)} tokens`],
       tone: "violet" as const,
-      priority: 3,
+      priority: 2,
+    })),
+    ...data.operation_failures.map((item) => ({
+      key: `operation-${item.type}`,
+      category: "failures" as const,
+      title: `${humanizeOperation(item.type)} operations failed`,
+      detail: "Direct operation failures, independent of the final execution outcome.",
+      signal: "Operation failure",
+      metrics: [`${formatNumber(item.failed)} failed`, `${formatNumber(item.operations)} observed`],
+      tone: "red" as const,
+      priority: 0,
+    })),
+    ...data.missing_required_measurements.map((item) => ({
+      key: `meter-${item.operation_type}-${item.measurement_key}`,
+      category: "telemetry" as const,
+      title: `${humanizeOperation(item.operation_type)} is missing ${meterLabel(item.measurement_key)}`,
+      detail: "A required operation measurement was applicable but not reported.",
+      signal: "Missing evidence",
+      metrics: [`${formatNumber(item.operations)} operation${item.operations === 1 ? "" : "s"}`, `${formatNumber(item.executions)} execution${item.executions === 1 ? "" : "s"}`],
+      tone: "amber" as const,
+      priority: 1,
     })),
   ].sort((left, right) => left.priority - right.priority || left.title.localeCompare(right.title));
-  if (!items.length) return <Empty>No run-level issues in this population.</Empty>;
+  const visible = category === "all" ? items : items.filter((item) => item.category === category);
+  if (!items.length) return <Empty>No failures, quality gaps, resource outliers, or required-measurement gaps in this population.</Empty>;
   const toneClasses = {
     red: "border-red-200 bg-red-50 text-red-700",
     amber: "border-amber-200 bg-amber-50 text-amber-800",
     violet: "border-violet-200 bg-violet-50 text-violet-700",
     green: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
+  const categories: Array<{ id: "all" | IssueQueueItem["category"]; label: string }> = [{ id: "all", label: "All" }, { id: "failures", label: "Failures" }, { id: "quality", label: "Quality" }, { id: "efficiency", label: "Efficiency" }, { id: "telemetry", label: "Telemetry" }];
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between text-xs text-[#777]">
-        <span>{formatNumber(items.length)} signals</span>
-        <span>Highest priority first</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Issue category">
+          {categories.map((item) => {
+            const count = item.id === "all" ? items.length : items.filter((candidate) => candidate.category === item.id).length;
+            return <button key={item.id} type="button" role="tab" aria-selected={category === item.id} onClick={() => setCategory(item.id)} className={`rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition ${category === item.id ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#69645f] hover:bg-[#ebe8f2]"}`}>{item.label} <span className="ml-1 opacity-75">{count}</span></button>;
+          })}
+        </div>
+        <span className="text-[10px] text-[#8a8581]">Highest priority first</span>
       </div>
-      <div className="max-h-[430px] divide-y divide-[#ecebe6] overflow-y-auto rounded-xl border border-[#ecebe6]">
-        {items.map((item) => (
-          <Link
-            key={item.key}
-            to="/runs/$executionId"
-            params={{ executionId: item.executionId }}
-            className="group grid min-w-0 gap-2 bg-white px-4 py-3 hover:bg-[#faf9ff] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-[#4f32aa] group-hover:underline" title={item.title}>{item.title}</div>
-              <div className="mt-1 truncate text-xs text-[#777]" title={item.detail}>{item.detail}</div>
-            </div>
-            <span className={`w-fit shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${toneClasses[item.tone]}`}>{item.signal}</span>
-          </Link>
-        ))}
+      <div className="divide-y divide-[#ecebe6] overflow-hidden rounded-xl border border-[#ecebe6]">
+        {visible.map((item) => {
+          const content = <><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold ${toneClasses[item.tone]}`}>{item.signal}</span><span className="text-sm font-semibold text-[#373239] group-hover:text-[#5836b0]">{item.title}</span></div><div className="mt-1.5 text-[10px] leading-4 text-[#7b7578]">{item.detail}</div></div><div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:justify-end">{item.metrics.map((metric) => <span key={metric} className="rounded-md bg-[#f4f2f5] px-2 py-1 text-[9px] font-medium text-[#5e5861]">{metric}</span>)}{item.executionId ? <span className="ml-1 text-[10px] font-semibold text-[#5c35c8]">Open replay →</span> : null}</div></>;
+          return item.executionId ? <a key={item.key} href={`/runs/${encodeURIComponent(item.executionId)}`} className="group grid min-w-0 gap-3 bg-white px-4 py-3.5 transition hover:bg-[#faf8ff] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">{content}</a> : <div key={item.key} className="group grid min-w-0 gap-3 bg-white px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">{content}</div>;
+        })}
       </div>
+      {!visible.length ? <div className="rounded-xl border border-dashed border-[#dedbe0] px-4 py-8 text-center text-xs text-[#817b80]">No {categories.find((item) => item.id === category)?.label.toLowerCase()} issues in this population.</div> : null}
     </div>
   );
 }
 
 function RetryHotspotList({ data }: { data: Issues }) {
   if (!data.retries.length) return <Empty>No retries in this population.</Empty>;
+  const totalAttempts = data.summary.extra_attempts;
+  const affectedRuns = new Set(data.retries.flatMap((retry) => retry.runs.map((run) => run.execution_id))).size;
+  const topShare = totalAttempts ? data.retries.slice(0, 2).reduce((total, retry) => total + retry.extra_attempts, 0) / totalAttempts : 0;
   return (
-    <div className="max-h-[490px] divide-y divide-[#ece8da] overflow-y-auto rounded-xl border border-[#ece8da] bg-[#fffdf7]">
+    <div>
+      <div className="mb-3 grid grid-cols-3 overflow-hidden rounded-lg border border-[#ece8da] bg-[#fffdf7]">
+        <RetryFact label="Extra attempts" value={formatNumber(totalAttempts)} />
+        <RetryFact label="Affected runs" value={formatNumber(affectedRuns)} />
+        <RetryFact label="Top two share" value={percent(topShare)} />
+      </div>
+      <div className="max-h-[390px] divide-y divide-[#ece8da] overflow-y-auto rounded-xl border border-[#ece8da] bg-white">
       {data.retries.map((retry, index) => (
-        <details key={retry.label} className="group px-4 py-3 open:bg-[#fffaf0]">
+        <details key={retry.label} className="group px-3 py-2.5 open:bg-[#fffaf0]">
           <summary className="cursor-pointer list-none">
-            <div className="flex items-start gap-3">
-              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-[#f6ead0] text-xs font-bold text-[#8a5a08]">{index + 1}</span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="line-clamp-2 text-sm font-semibold text-[#3d382f]">{retry.label}</span>
-                  <span className="shrink-0 text-sm font-semibold text-[#9a6208]">+{formatNumber(retry.extra_attempts)}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between text-xs text-[#81786b]">
-                  <span>{formatNumber(retry.affected_runs)} affected runs</span>
-                  <span className="font-medium text-[#6b4bbd] group-open:hidden">Show runs ↓</span>
-                  <span className="hidden font-medium text-[#6b4bbd] group-open:inline">Hide runs ↑</span>
-                </div>
-              </div>
+            <div className="grid grid-cols-[24px_minmax(0,1fr)_70px_72px_20px] items-center gap-2 text-xs">
+              <span className="text-center text-[10px] font-semibold text-[#9a7a3a]">{index + 1}</span>
+              <span className="truncate font-semibold text-[#3d382f]" title={retry.label}>{retry.label}</span>
+              <span className="text-right font-semibold text-[#9a6208]">+{formatNumber(retry.extra_attempts)}</span>
+              <span className="text-right text-[10px] text-[#81786b]">{formatNumber(retry.affected_runs)} {retry.affected_runs === 1 ? "run" : "runs"}</span>
+              <span className="text-[#6b4bbd] transition group-open:rotate-180">⌄</span>
             </div>
           </summary>
-          <div className="ml-10 mt-3 max-h-44 space-y-1 overflow-y-auto border-l border-[#eadab8] pl-3">
+          <div className="ml-8 mt-2 max-h-40 space-y-1 overflow-y-auto border-l border-[#eadab8] pl-3">
             {retry.runs.map((run) => (
-              <Link
+              <a
                 key={run.execution_id}
-                to="/runs/$executionId"
-                params={{ executionId: run.execution_id }}
+                href={`/runs/${encodeURIComponent(run.execution_id)}`}
                 className="block truncate rounded-md px-2 py-1.5 text-xs font-medium text-[#5a35c8] hover:bg-white hover:underline"
                 title={run.display_name || run.execution_id}
               >
-                {run.display_name || run.execution_id}
-              </Link>
+                {run.display_name || "Execution"} · {run.execution_id.slice(0, 12)}
+              </a>
             ))}
           </div>
         </details>
       ))}
+      </div>
     </div>
   );
+}
+
+function RetryFact({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 border-l border-[#ece8da] px-3 py-2.5 first:border-l-0"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#9a8d75]">{label}</div><div className="mt-1 text-sm font-semibold text-[#4a4032]">{value}</div></div>;
 }
 
 function CoverageMeter({ label, value, total }: { label: string; value: number; total: number }) {

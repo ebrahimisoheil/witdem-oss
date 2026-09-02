@@ -11,7 +11,7 @@ Tracing tells you what executed. Witdem connects those executions to application
 [![Tests](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml/badge.svg)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![SDK on PyPI](https://img.shields.io/pypi/v/witdem-sdk?label=witdem-sdk)](https://pypi.org/project/witdem-sdk/)
 [![Analytics on PyPI](https://img.shields.io/pypi/v/witdem-analytics?label=witdem-analytics)](https://pypi.org/project/witdem-analytics/)
-[![npm](https://img.shields.io/npm/v/witdem?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
+[![npm](https://img.shields.io/npm/v/witdem/latest?label=npx%20witdem)](https://www.npmjs.com/package/witdem)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -34,64 +34,45 @@ execution graph, business outcome, cost, and contract evidence.
 
 ## First run
 
-Start the local receiver, ELT worker, and dashboard:
+Choose one backend launcher. Applications use `witdem-sdk` with either path.
+
+Docker-managed (requires Docker Compose):
 
 ```bash
-npx -y witdem@0.3.0 up
+npx -y witdem@latest up
 ```
 
-That pulls the version-matched container, starts all three services, waits for
-them to become healthy, and opens `http://localhost:8501`. Docker with Compose
-is the only prerequisite. Data persists across `down` and package upgrades.
+Native Python (requires Python and [pipx](https://pipx.pypa.io/)):
 
 ```bash
-npx -y witdem@0.3.0 status
-npx -y witdem@0.3.0 logs
-npx -y witdem@0.3.0 down
+pipx install witdem-analytics
+witdem up
 ```
 
-### Upgrade an existing installation
-
-Witdem releases the npm launcher, container, analytics package, and SDK with
-the same version. To upgrade an existing local backend, run the launcher at
-the new version. For example, to move from `0.3.0` to `0.3.1`:
+Both start the receiver, ELT worker, and dashboard, wait for health, open
+`http://localhost:8501`, and preserve data across `down` and upgrades. Their
+lifecycle vocabulary is the same:
 
 ```bash
-npx -y witdem@0.3.1 up
+npx -y witdem@latest status   # Docker path
+witdem status                     # pipx path
+npx -y witdem@latest logs receiver
+witdem down
 ```
 
-The launcher selects the matching container image and recreates the services.
-Collected executions remain in the named `witdem-data` Docker volume, and
-supported additive database changes are applied when the services start.
-
-Upgrade the SDK separately in each instrumented application, preserving the
-integration extra that application uses:
+Check releases and compatibility without changing packages or data:
 
 ```bash
-python -m pip install --upgrade "witdem-sdk[haystack]==0.3.1"
+npx -y witdem@latest update --check
+witdem update --check
 ```
 
-For a uv-managed application, update its project requirement and lockfile:
-
-```bash
-uv add "witdem-sdk[haystack]==0.3.1"
-```
-
-Upgrade the backend first, then roll out the matching SDK version to
-applications gradually. Verify the result with:
-
-```bash
-npx -y witdem@0.3.1 status
-witdem-sdk validate
-```
-
-Explicit version pins are intentional: existing installations do not move to
-a new release until their operator selects it.
+See the [upgrade guide](docs/upgrade.md) for exact NPX, pipx, and SDK commands.
 
 Add the SDK to an existing Haystack 3 project:
 
 ```bash
-python -m pip install "witdem-sdk[haystack]==0.3.0"
+python -m pip install "witdem-sdk[haystack]"
 export WITDEM_ENDPOINT=http://localhost:4318
 ```
 
@@ -162,6 +143,7 @@ Statuses reflect current implementation and test evidence, not roadmap intent.
 | [LangGraph](docs/integrations/langgraph.md) | **Beta** | Compiled graphs, nodes, tools, models, errors, sync/async invocation and streaming |
 | [LangChain](docs/integrations/langchain.md) | **Beta** | Runnables, chains, chat/LLM calls, tools, retrievers, sync/async invocation and streaming |
 | [Native Python](docs/integrations/native-python.md) | **Supported** | Execution, operation, model, tool, decision, evaluation, outcome, and metric primitives |
+| [Direct OpenAI SDK](docs/integrations/openai.md) | **Beta** | Responses, Chat Completions, embeddings, sync/async and streaming calls, usage, tool-call IDs |
 | [OpenAI Agents](docs/integrations/openai-agents.md) | **Beta** | Native trace processor, agents, generations, tools, handoffs, sync/async workloads |
 | [Anthropic Messages and Claude Agent SDK](docs/integrations/anthropic.md) | **Beta** | Messages calls, usage, tool-use IDs, multi-turn workloads, Claude Agent message streams |
 | [Hugging Face smolagents](docs/integrations/smolagents.md) | **Beta** | Official OpenInference agent, step, model, and tool spans; sync and streaming execution |
@@ -169,6 +151,8 @@ Statuses reflect current implementation and test evidence, not roadmap intent.
 | [OpenRouter](docs/providers/openrouter.md) | **Beta** | OpenAI-compatible sync/async and streaming calls, selected provider, route attempts, authoritative cost |
 | Generic provider calls | **Experimental** | Sync/async callable wrapper with explicit provider/model and observed result metadata |
 | Standard OTLP/HTTP | **Supported** | Generic OpenTelemetry, OTel GenAI, and OpenInference evidence |
+
+Witdem also normalizes retrieval, reranking, search, embeddings, OCR, tools, evaluations, image, audio, video, and extension operations without inferring vendors. See [AI operations and evaluations](docs/ai-operations.md).
 
 See [`compatibility.json`](compatibility.json) for machine-readable version constraints and [Providers](docs/providers.md) for the difference between native, framework-observed, and generic support.
 
@@ -205,9 +189,8 @@ The runnable [Haystack parallel pipeline](examples/haystack/pipeline/README.md) 
 
 ## Self-hosting
 
-The npm launcher is the recommended local backend path. It is deliberately a
-small, dependency-free Docker launcher rather than a second implementation of
-Witdem. It never runs an npm `postinstall` script.
+NPX is the Docker-managed path; pipx is a genuinely native, Node-free and
+Docker-free path. The npm package never runs a `postinstall` script.
 
 | Service | Address | Purpose |
 | --- | --- | --- |
@@ -216,21 +199,14 @@ Witdem. It never runs an npm `postinstall` script.
 | ELT worker | internal | Duckle transformation into dashboard-ready DuckDB tables |
 
 ```bash
-npx -y witdem@0.3.0 status
+npx -y witdem@latest status
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
 ```
 
-For source development, clone the repository and run `docker compose up -d`.
-See [Running Witdem with npx](docs/npm-launcher.md) for ports, lifecycle, image
-pinning, and troubleshooting.
-
-The Python-only development path is also available:
-
-```bash
-uv sync
-uv run witdem dev --open
-```
+See [Operations](docs/operations.md) for lifecycle, ports, logs, data,
+backup/recovery, and [Development](docs/development.md) only when contributing
+to Witdem itself.
 
 ## Documentation
 
@@ -239,6 +215,7 @@ uv run witdem dev --open
 - [Concepts: tracing and business meaning](docs/concepts.md)
 - [Tutorial: defining a YAML contract](docs/contract-tutorial.md)
 - [YAML configuration](docs/configuration.md)
+- [Workflow definitions, compilation, and replay](docs/workflow-replay.md)
 - [Haystack](docs/integrations/haystack.md)
 - [LangGraph](docs/integrations/langgraph.md)
 - [LangChain](docs/integrations/langchain.md)
@@ -251,6 +228,11 @@ uv run witdem dev --open
 - [Troubleshooting](docs/troubleshooting.md)
 - [Examples](docs/examples.md)
 - [Operations](docs/operations.md)
+- [CLI reference](docs/cli-reference.md)
+- [Upgrade and compatibility](docs/upgrade.md)
+- [Architecture and data flow](docs/architecture.md)
+- [Release notes](docs/changelog.md)
+- [Performance and lifecycle implementation report](docs/implementation-report.md)
 - [Development and contributing](docs/development.md)
 
 ## Community

@@ -147,6 +147,46 @@ def _is_content_tag(key: str) -> bool:
     )
 
 
+def _semantic_tags(operation_name: str, tags: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe native Haystack work from callback semantics, not identity."""
+
+    evidence = " ".join(
+        (
+            operation_name,
+            str(tags.get("haystack.component.fully_qualified_type") or ""),
+            str(tags.get("haystack.component.name") or ""),
+        )
+    ).casefold()
+    operation_type: str | None = None
+    interface = "framework"
+    if "hybridsearch" in evidence or "hybrid_search" in evidence:
+        operation_type, interface = "hybrid_search", "library"
+    elif "vectorsearch" in evidence or "vector_search" in evidence:
+        operation_type, interface = "vector_search", "library"
+    elif "embedder" in evidence or "embedding" in evidence:
+        operation_type, interface = "embedding", "model_api"
+    elif "retriever" in evidence or "retrieval" in evidence:
+        operation_type, interface = "retrieval", "library"
+    elif "reranker" in evidence or "ranker" in evidence:
+        operation_type, interface = "reranking", "model_api"
+    elif "generator" in evidence or operation_name.casefold().endswith(".llm"):
+        operation_type, interface = "text_generation", "model_api"
+    elif operation_name.casefold().endswith(".tool"):
+        operation_type, interface = "tool_execution", "tool"
+    semantic = {
+        "witdem.framework.id": "haystack",
+        "witdem.execution.source": "haystack",
+    }
+    if operation_type:
+        semantic.update(
+            {
+                "witdem.operation.type": operation_type,
+                "witdem.operation.interface": interface,
+            }
+        )
+    return semantic
+
+
 def _require_supported_haystack() -> None:
     try:
         installed = package_version("haystack-ai")
@@ -361,11 +401,7 @@ class _ObservedSpan:
     def finalize(self) -> None:
         """Name a tool-free completed Agent step from its observed structure."""
 
-        if (
-            self._operation_name.casefold() == "haystack.agent.step"
-            and not self._tool_names
-            and self._saw_model_child
-        ):
+        if self._operation_name.casefold() == "haystack.agent.step" and not self._tool_names and self._saw_model_child:
             self._set_step_identity(final_answer=True)
 
     def _set_step_identity(self, *, final_answer: bool = False) -> None:
@@ -473,6 +509,7 @@ class _ObservedTracer:
             for key, value in dict(tags or {}).items()
             if self.capture_content or not _is_content_tag(key)
         }
+        resolved_tags.update(_semantic_tags(operation_name, resolved_tags))
         component_name = resolved_tags.get("haystack.component.name")
         if isinstance(component_name, str) and component_name in self.topology:
             resolved_tags.update(_topology_tags(self.topology[component_name]))

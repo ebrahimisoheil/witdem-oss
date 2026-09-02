@@ -11,7 +11,9 @@ services:
       WITDEM_DB_PATH: /app/data/live.duckdb
       WITDEM_API_KEY: ${WITDEM_API_KEY:-}
     volumes:
-      - witdem-data:/app/data
+      - type: ${WITDEM_DATA_TYPE:-volume}
+        source: ${WITDEM_DATA_SOURCE:-witdem-data}
+        target: /app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:4318/readiness', timeout=2)"]
       interval: 3s
@@ -26,10 +28,18 @@ services:
       WITDEM_DATA_DIR: /app/data
       WITDEM_DB_PATH: /app/data/live.duckdb
     volumes:
-      - witdem-data:/app/data
+      - type: ${WITDEM_DATA_TYPE:-volume}
+        source: ${WITDEM_DATA_SOURCE:-witdem-data}
+        target: /app/data
     depends_on:
       receiver:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 5s
+      timeout: 2s
+      start_period: 5s
+      retries: 3
 
   dashboard:
     image: ${WITDEM_IMAGE}
@@ -40,7 +50,9 @@ services:
       WITDEM_DATA_DIR: /app/data
       WITDEM_DB_PATH: /app/data/live.duckdb
     volumes:
-      - witdem-data:/app/data
+      - type: ${WITDEM_DATA_TYPE:-volume}
+        source: ${WITDEM_DATA_SOURCE:-witdem-data}
+        target: /app/data
     depends_on:
       receiver:
         condition: service_healthy
@@ -53,6 +65,20 @@ services:
       start_period: 8s
       retries: 20
 
+  update-check:
+    image: ${WITDEM_IMAGE}
+    command: ["witdem", "update", "--check", "--data-dir", "/app/data", "--json"]
+    restart: "no"
+    environment:
+      WITDEM_DATA_DIR: /app/data
+      WITDEM_UPDATE_CHECK: ${WITDEM_UPDATE_CHECK:-1}
+    volumes:
+      - type: ${WITDEM_DATA_TYPE:-volume}
+        source: ${WITDEM_DATA_SOURCE:-witdem-data}
+        target: /app/data
+    depends_on:
+      receiver:
+        condition: service_healthy
+
 volumes:
   witdem-data:
-    name: witdem-data

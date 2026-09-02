@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+import os
 from collections.abc import Iterable
 from typing import Any
 
@@ -27,9 +28,11 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span
 from opentelemetry.trace import SpanKind as SdkSpanKind
 from opentelemetry.trace import StatusCode as SdkStatusCode
+from starlette.concurrency import run_in_threadpool
 
 from witdem.auth import require_api_key
-from witdem.ingest import raw_store
+from witdem.ingest import corpus, raw_store
+from witdem.integrations.normalizers.otel import sanitize_otel_span
 
 logger = logging.getLogger(__name__)
 
@@ -230,12 +233,26 @@ async def export_traces(
         raise fastapi.HTTPException(status_code=400, detail=f"invalid OTLP/HTTP protobuf body: {exc}") from exc
 
     spans = decode_export_request(export_request)
+    capture_content = os.getenv("WITDEM_CAPTURE_CONTENT", "").strip().casefold() in {"1", "true", "yes"}
+    spans = [sanitize_otel_span(span, include_content=capture_content) for span in spans]
     logger.debug(
         "otlp_http: decoded %d span(s) from %d resource_spans entr(y/ies)",
         len(spans),
         len(export_request.resource_spans),
     )
 
-    raw_store.commit_spans(spans, raw_payload=wire_body, content_encoding=content_encoding)
+    try:
+        await run_in_threadpool(
+            raw_store.commit_spans,
+            spans,
+            raw_payload=wire_body if capture_content else None,
+            content_encoding=content_encoding,
+        )
+    except corpus.CorpusBackpressureError as exc:
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": "1"},
+        ) from exc
     response = ExportTraceServiceResponse()
     return fastapi.Response(content=response.SerializeToString(), media_type=_OTLP_MEDIA_TYPE, status_code=200)

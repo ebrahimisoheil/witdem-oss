@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import runpy
 import subprocess
 import sys
@@ -131,6 +130,14 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         release["corpus_schema_version"],
         errors,
     )
+    workflow_source = (ROOT / "src" / "witdem" / "workflows.py").read_text(encoding="utf-8")
+    for field, constant in (
+        ("workflow_compiler_version", "WORKFLOW_COMPILER_VERSION"),
+        ("workflow_projector_version", "WORKFLOW_PROJECTOR_VERSION"),
+    ):
+        expected = f'{constant} = "{release[field]}"'
+        if expected not in workflow_source:
+            errors.append(f"{field} does not match {constant}")
     _expect("supported Python", analytics["requires-python"], ">=3.10,<3.14", errors)
     _expect("SDK supported Python", sdk["requires-python"], ">=3.10,<3.14", errors)
     _expect(
@@ -163,22 +170,25 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         errors.append(f"docker-compose.yml does not default to {image_reference}")
 
     expected_tag = f"analytics-v{platform_version}" if component == "platform" else f"sdk-v{sdk_version}"
-    observed_tag = tag
-    if not observed_tag and os.getenv("GITHUB_REF_TYPE") == "tag":
-        observed_tag = os.getenv("GITHUB_REF_NAME")
-    if observed_tag:
-        _expect("release tag", observed_tag, expected_tag, errors)
+    if tag:
+        _expect("release tag", tag, expected_tag, errors)
 
-    existing_tag_commit = _git("rev-parse", f"refs/tags/{expected_tag}^{{commit}}", check=False)
-    head_commit = _git("rev-parse", "HEAD")
-    if existing_tag_commit and existing_tag_commit != head_commit:
-        errors.append(
-            f"version reuse refused: {expected_tag} already identifies {existing_tag_commit}, not {head_commit}"
-        )
-    if observed_tag and not existing_tag_commit:
-        errors.append(f"release tag {expected_tag} is not available in the checkout")
-    if require_clean and _git("status", "--porcelain"):
-        errors.append("release worktree is not clean")
+    if tag:
+        existing_tag_commit = _git("rev-parse", f"refs/tags/{expected_tag}^{{commit}}", check=False)
+        head_commit = _git("rev-parse", "HEAD")
+        if existing_tag_commit and existing_tag_commit != head_commit:
+            errors.append(
+                f"version reuse refused: {expected_tag} already identifies {existing_tag_commit}, not {head_commit}"
+            )
+        if not existing_tag_commit:
+            errors.append(f"release tag {expected_tag} is not available in the checkout")
+    if require_clean:
+        if _git("status", "--porcelain"):
+            errors.append("release worktree is not clean")
+        try:
+            _git("show", "--check", "--oneline", "--no-renames", "HEAD")
+        except RuntimeError as error:
+            errors.append(f"release commit contains whitespace errors: {error}")
     return errors
 
 

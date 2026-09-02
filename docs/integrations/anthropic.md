@@ -7,7 +7,7 @@
 Install the Anthropic extra:
 
 ```bash
-python -m pip install "witdem-sdk[anthropic]==0.3.0"
+python -m pip install "witdem-sdk[anthropic]"
 export WITDEM_ENDPOINT=http://localhost:4318
 export ANTHROPIC_API_KEY=...
 ```
@@ -36,8 +36,8 @@ The proxy preserves the client API, supports sync and async `messages.create`, a
 
 Runnable examples:
 
-- [`examples/anthropic/basic_agent`](../../examples/anthropic/basic_agent)
-- [`examples/anthropic/tool_loop`](../../examples/anthropic/tool_loop)
+- [`examples/anthropic/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/basic_agent)
+- [`examples/anthropic/tool_loop`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/tool_loop)
 
 ## Claude Agent SDK
 

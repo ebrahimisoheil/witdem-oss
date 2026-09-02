@@ -71,7 +71,7 @@ def test_litellm_callback_emits_correlated_route_usage_and_authoritative_cost(mo
     model_span = spans["litellm.chat"]
     assert model_span.parent is not None
     assert model_span.attributes["gen_ai.provider.name"] == "openai"
-    assert model_span.attributes["witdem.gateway.name"] == "openrouter"
+    assert model_span.attributes["witdem.gateway.id"] == "openrouter"
     assert model_span.attributes["witdem.route.strategy"] == "fallback"
     assert model_span.attributes["witdem.route.attempt_count"] == 2
     assert model_span.attributes["witdem.retry.attempt"] == 2
@@ -80,6 +80,61 @@ def test_litellm_callback_emits_correlated_route_usage_and_authoritative_cost(mo
     assert model_span.attributes["gen_ai.usage.cache_read.input_tokens"] == 3
     assert model_span.attributes["gen_ai.cost.usd"] == 0.0012
     assert model_span.attributes["gen_ai.cost.source"] == "openrouter_reported"
+
+
+def test_litellm_ocr_reports_pages_without_inventing_tokens(monkeypatch: Any) -> None:
+    from witdem_sdk.integrations import litellm as integration
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(integration.trace, "get_tracer", provider.get_tracer)
+    callback = integration.WitdemLiteLLMCallback()
+    kwargs = {
+        "litellm_call_id": "ocr-call",
+        "model": "provider/document-reader",
+        "custom_llm_provider": "provider",
+        "call_type": "ocr",
+    }
+    response = {
+        "model": "document-reader",
+        "usage_info": {"pages_processed": 3, "doc_size_bytes": 1200},
+    }
+
+    callback.log_pre_api_call("provider/document-reader", [], kwargs)
+    callback.log_success_event(kwargs, response, None, None)
+
+    attributes = exporter.get_finished_spans()[0].attributes
+    assert attributes["witdem.operation.type"] == "ocr"
+    assert attributes["gen_ai.usage.ocr_pages"] == 3
+    assert attributes["gen_ai.usage.input_bytes"] == 1200
+    assert "gen_ai.usage.total_tokens" not in attributes
+
+
+def test_litellm_embedding_uses_call_semantics_not_provider_or_model_name(monkeypatch: Any) -> None:
+    from witdem_sdk.integrations import litellm as integration
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(integration.trace, "get_tracer", provider.get_tracer)
+    callback = integration.WitdemLiteLLMCallback()
+    kwargs = {
+        "litellm_call_id": "embedding-call",
+        "model": "opaque/provider-model",
+        "custom_llm_provider": "opaque",
+        "call_type": "embedding",
+    }
+    response = {"model": "provider-model", "data": [{"embedding": [0.1, 0.2, 0.3]}], "usage": {"input_tokens": 7}}
+
+    callback.log_pre_api_call("opaque/provider-model", [], kwargs)
+    callback.log_success_event(kwargs, response, None, None)
+
+    attributes = exporter.get_finished_spans()[0].attributes
+    assert attributes["witdem.operation.type"] == "embedding"
+    assert attributes["gen_ai.operation.name"] == "embeddings"
+    assert attributes["gen_ai.usage.output_vectors"] == 1
+    assert attributes["gen_ai.usage.vector_dimensions"] == 3
 
 
 def test_openrouter_observer_keeps_content_out_and_extracts_route_facts() -> None:

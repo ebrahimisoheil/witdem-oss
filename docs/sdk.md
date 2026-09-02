@@ -34,7 +34,7 @@ Supported tones are `success`, `warning`, `failure`, and `neutral`. They select 
 Install the optional dependency with the SDK:
 
 ```bash
-python -m pip install "witdem-sdk[langgraph]==0.3.0"
+python -m pip install "witdem-sdk[langgraph]"
 ```
 
 The `langgraph` extra supports LangGraph `>=0.2,<2`, including the current 1.x line.
@@ -97,6 +97,7 @@ Every high-level integration owns SDK configuration, one execution, correlation,
 | LangGraph | `langgraph.instrument(compiled_graph, ...)` | `graph.invoke(...)` |
 | LangChain | `langchain.instrument(runnable, ...)` | `chain.invoke(...)` |
 | Haystack | `haystack.instrument(pipeline, ...)` | `pipeline.run(...)` |
+| Direct OpenAI SDK | `openai.instrument(run_agent, client=client, ...)` | `observed_run(...)` |
 | OpenAI Agents | `openai_agents.instrument(run_agent, ...)` | `observed_run(...)` |
 | Anthropic Messages | `anthropic.instrument(run_agent, client=client, ...)` | `observed_run(...)` |
 | Claude Agent SDK | `claude_agent.instrument(message_stream, model=...)` | `async for message in stream` |
@@ -119,6 +120,15 @@ observed_run = instrument(
     client=anthropic_client,
     report_result=report_result,
 )
+answer = observed_run()
+```
+
+Direct OpenAI SDK instrumentation follows the same workload pattern and is separate from OpenAI Agents:
+
+```python
+from witdem_sdk.integrations.openai import instrument
+
+observed_run = instrument(run_agent, client=openai_client, report_result=report_result)
 answer = observed_run()
 ```
 
@@ -155,14 +165,14 @@ The existing low-level callbacks, client proxies, trace processors, and registra
 ## Integrations
 
 ```bash
-python -m pip install "witdem-sdk[anthropic]==0.3.0"
-python -m pip install "witdem-sdk[openai]==0.3.0"
-python -m pip install "witdem-sdk[langchain]==0.3.0"
-python -m pip install "witdem-sdk[langgraph]==0.3.0"
-python -m pip install "witdem-sdk[haystack]==0.3.0"
-python -m pip install "witdem-sdk[smolagents]==0.3.0"
-python -m pip install "witdem-sdk[litellm]==0.3.0"
-python -m pip install "witdem-sdk[openrouter]==0.3.0"
+python -m pip install "witdem-sdk[anthropic]"
+python -m pip install "witdem-sdk[openai]"
+python -m pip install "witdem-sdk[langchain]"
+python -m pip install "witdem-sdk[langgraph]"
+python -m pip install "witdem-sdk[haystack]"
+python -m pip install "witdem-sdk[smolagents]"
+python -m pip install "witdem-sdk[litellm]"
+python -m pip install "witdem-sdk[openrouter]"
 ```
 
 Supported input evidence includes generic OpenTelemetry, OTel GenAI attributes, OpenInference, LangChain, LangGraph, OpenAI Agents, Anthropic Messages/Claude Agent telemetry, Haystack, and explicit SDK integration callbacks.
@@ -174,3 +184,20 @@ One physical runtime boundary maps to an execution. Physically observed agents, 
 Content capture is disabled by default. Prompts, completions, documents, tool arguments/results, and graph state are not required for structural analytics. Correlation uses explicit execution/trace/span identity; names and timestamps are not used to invent missing relationships.
 
 Provider-reported monetary cost is authoritative when present. Otherwise Witdem may calculate cost from observed provider, model, and usage using its versioned catalog. Unknown prices remain unavailable with a diagnostic reason.
+
+## Delivery under load
+
+Semantic records use a bounded background queue, retry transient receiver
+errors three times, and expose delivery counts through `delivery_status()`.
+`flush()` returns `False` when its deadline expires; it never reports success
+while records remain pending.
+
+| Environment variable | Default | Purpose |
+| --- | ---: | --- |
+| `WITDEM_SDK_QUEUE_SIZE` | `1000` | Maximum pending semantic records |
+| `WITDEM_SDK_QUEUE_WAIT` | `0.1` | Seconds of application-side backpressure before dropping a new record |
+| `WITDEM_SDK_REQUEST_TIMEOUT` | `10` | Timeout for one delivery attempt |
+| `WITDEM_SDK_FLUSH_TIMEOUT` | `30` | Default deadline for explicit shutdown flushing |
+
+These settings affect SDK semantic records. Standard OTLP exporters have their
+own batch, queue, retry, and timeout settings.

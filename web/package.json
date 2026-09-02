@@ -1,28 +1,27 @@
 {
   "name": "witdem-dashboard",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.2.4",
   "type": "module",
   "engines": {
     "node": ">=22.0.0 <23"
   },
-  "packageManager": "npm@11.4.1",
+  "packageManager": "npm@11.19.1",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/normalize-generated-assets.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
     "@lemonsqueezy/wedges": "1.4.0",
     "@tanstack/react-query": "^5.102.3",
     "@tanstack/react-router": "^1.131.0",
     "@tanstack/react-table": "^8.21.3",
-    "@xyflow/react": "^12.11.3",
     "cytoscape": "^3.34.1",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.2",
-    "elkjs": "^0.12.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

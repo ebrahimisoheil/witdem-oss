@@ -25,3 +25,6 @@ web/tailwind.config.d.ts
 
 # Locally generated live-matrix reports
 examples/product-factory/reports/
+
+# Local screenshots and investigation output
+/artifacts/

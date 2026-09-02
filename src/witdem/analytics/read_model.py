@@ -16,6 +16,7 @@ from statistics import median
 from typing import Any, Literal
 
 BusinessMode = Literal["runtime", "business", "mixed"]
+RuntimeState = Literal["running", "recovered", "failed", "completed", "unknown"]
 
 _SUCCESS_OUTCOMES = {"accepted", "successful", "succeeded", "success", "valid"}
 _UNSUCCESSFUL_OUTCOMES = {"rejected", "unsuccessful", "invalid", "failed", "failure"}
@@ -97,15 +98,30 @@ def _human_time_markers(rows: Sequence[Mapping[str, Any]]) -> tuple[float | None
 
 
 def _runtime_completed(row: Mapping[str, Any]) -> bool:
-    return row.get("status") != "running" and int(row.get("failure_count") or 0) == 0
+    return runtime_state(row) == "completed"
 
 
 def _runtime_failed(row: Mapping[str, Any]) -> bool:
-    return (
-        row.get("status") != "running"
-        and int(row.get("failure_count") or 0) > 0
-        and _runtime_outcome(row) not in _RECOVERED_OUTCOMES
-    )
+    return runtime_state(row) == "failed"
+
+
+def runtime_state(row: Mapping[str, Any]) -> RuntimeState:
+    """Classify every execution once without interpreting application outcomes."""
+
+    status = str(row.get("status") or row.get("runtime_status") or "").strip().casefold()
+    outcome = str(_runtime_outcome(row) or "").strip().casefold()
+    if status == "running" or outcome == "running":
+        return "running"
+    if outcome == "recovered":
+        return "recovered"
+    if int(row.get("failure_count") or 0) > 0 or status in {"error", "failed"} or outcome == "failed":
+        return "failed"
+    if status in {"completed", "complete", "succeeded", "success", "ok"} or outcome in {
+        "completed",
+        "succeeded",
+    }:
+        return "completed"
+    return "unknown"
 
 
 def _business_outcome(row: Mapping[str, Any]) -> Any:
@@ -179,10 +195,13 @@ def dashboard_metrics(rows: Iterable[Mapping[str, Any]], *, business_available: 
     materialized = [dict(row) for row in rows]
     semantics = outcome_semantics(materialized, business_available)
     total = len(materialized)
-    running = sum(row.get("status") == "running" for row in materialized)
-    completed = sum(_runtime_completed(row) for row in materialized)
-    failed = sum(_runtime_failed(row) for row in materialized)
-    recovered = sum(_runtime_outcome(row) in _RECOVERED_OUTCOMES for row in materialized)
+    states = [runtime_state(row) for row in materialized]
+    running = states.count("running")
+    completed = states.count("completed")
+    failed = states.count("failed")
+    recovered = states.count("recovered")
+    unknown = states.count("unknown")
+    terminal = completed + recovered + failed
     extra = sum(int(row.get("repeated_work") or 0) > 0 for row in materialized)
     measured = [row for row in materialized if _known(row.get("known_cost")) is not None]
     measured_operations = sum(int(row.get("measured_cost_operations") or 0) for row in materialized)
@@ -239,6 +258,10 @@ def dashboard_metrics(rows: Iterable[Mapping[str, Any]], *, business_available: 
         "semantics": semantics,
         "total_runs": total,
         "running_runs": running,
+        "unknown_runs": unknown,
+        "terminal_runs": terminal,
+        "attention_runs": failed + recovered,
+        "runtime_success_rate": (completed + recovered) / terminal if terminal else 0.0,
         "completed_runs": completed,
         "failed_runs": failed,
         "observed_failure_runs": observed_failures,

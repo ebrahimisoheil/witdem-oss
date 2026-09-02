@@ -35,9 +35,10 @@ from typing import Any, Literal
 
 import fastapi
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from witdem.auth import require_api_key
-from witdem.ingest import sdk_store
+from witdem.ingest import corpus, sdk_store
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,14 @@ async def create_record(
             raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
 
     record_dict = record.model_dump(mode="json")
-    commit = sdk_store.commit_record(record_dict, raw_payload=raw_payload)
+    try:
+        commit = await run_in_threadpool(sdk_store.commit_record, record_dict, raw_payload=raw_payload)
+    except corpus.CorpusBackpressureError as exc:
+        raise fastapi.HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": "1"},
+        ) from exc
     logger.debug(
         "create_record: accepted %s record %s for execution %s",
         record.kind,

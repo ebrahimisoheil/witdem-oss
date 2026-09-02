@@ -43,6 +43,35 @@ class ExecutionSummary(_ReadModel):
     business_successful_runs: int
     business_unsuccessful_runs: int
     business_reported_runs: int
+    terminal_runs: int
+    unknown_runs: int
+    attention_runs: int
+    runtime_success_rate: float
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementCoverage(_ReadModel):
+    """Completeness for a measurement that is not applicable to every run."""
+
+    total_runs: int
+    applicable_runs: int
+    complete_runs: int
+    partial_runs: int
+    missing_runs: int
+    not_applicable_runs: int
+    eligible_operations: int
+    measured_operations: int
+
+    @property
+    def coverage(self) -> float:
+        return self.complete_runs / self.applicable_runs if self.applicable_runs else 0.0
+
+    @property
+    def operation_coverage(self) -> float:
+        return self.measured_operations / self.eligible_operations if self.eligible_operations else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**asdict(self), "coverage": self.coverage, "operation_coverage": self.operation_coverage}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +128,14 @@ class CostSummary(_ReadModel):
     output_tokens: float | None
     total_tokens: float | None
     token_runs: int
+    cost: MeasurementCoverage
+    tokens: MeasurementCoverage
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["cost"] = self.cost.to_dict()
+        payload["tokens"] = self.tokens.to_dict()
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +192,19 @@ class PerformanceSummary(_ReadModel):
     extra_work_rate: float
     cost_coverage: float
     semantics: str
+    participant_id: str
+    dimension: str
+    provider_id: str | None
+    model_id: str | None
+    model_family: str | None
+    vendor_id: str | None
+    active_seconds: float
+    p50_call_seconds: float | None
+    p95_call_seconds: float | None
+    cost_eligible_operations: int
+    cost_measured_operations: int
+    token_eligible_operations: int
+    token_measured_operations: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +232,9 @@ class FailureSummary(_ReadModel):
     time_seconds: float
     known_cost: float | None
     total_tokens: float | None
+    affected_run_time_seconds: float
+    affected_run_cost: float | None
+    affected_run_tokens: float | None
 
 
 @dataclass(frozen=True, slots=True)

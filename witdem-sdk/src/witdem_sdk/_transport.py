@@ -19,7 +19,6 @@ from witdem_sdk._config import api_key, records_endpoint
 
 logger = logging.getLogger("witdem_sdk")
 
-_REQUEST_TIMEOUT_SECONDS = 5.0
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SECONDS = 0.1
 _BACKOFF_MAX_SECONDS = 1.0
@@ -70,11 +69,28 @@ def delivery_status() -> DeliveryStatus:
         )
 
 
+def _nonnegative_env(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _request_timeout() -> float:
+    return _nonnegative_env("WITDEM_SDK_REQUEST_TIMEOUT", 10.0)
+
+
+def _queue_wait() -> float:
+    return _nonnegative_env("WITDEM_SDK_QUEUE_WAIT", 0.1)
+
+
 def submit_record(payload: Mapping[str, Any]) -> Future[None] | None:
     global _submitted, _dropped, _last_queue_warning_at
     with _lock:
         _submitted += 1
-    if not _capacity.acquire(blocking=False):
+    queue_wait = _queue_wait()
+    acquired = _capacity.acquire(timeout=queue_wait) if queue_wait > 0 else _capacity.acquire(blocking=False)
+    if not acquired:
         now = time.monotonic()
         should_warn = False
         with _lock:
@@ -109,9 +125,9 @@ def _flush_timeout(timeout: float | None) -> float:
     if timeout is not None:
         return max(0.0, float(timeout))
     try:
-        return max(0.0, float(os.getenv("WITDEM_SDK_FLUSH_TIMEOUT", "5")))
+        return max(0.0, float(os.getenv("WITDEM_SDK_FLUSH_TIMEOUT", "30")))
     except ValueError:
-        return 5.0
+        return 30.0
 
 
 def flush(timeout: float | None = None) -> bool:
@@ -131,7 +147,7 @@ def _send(payload: dict[str, Any]) -> None:
     last_error: Exception | None = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            request_kwargs: dict[str, Any] = {"json": payload, "timeout": _REQUEST_TIMEOUT_SECONDS}
+            request_kwargs: dict[str, Any] = {"json": payload, "timeout": _request_timeout()}
             if headers:
                 request_kwargs["headers"] = headers
             response = httpx.post(url, **request_kwargs)

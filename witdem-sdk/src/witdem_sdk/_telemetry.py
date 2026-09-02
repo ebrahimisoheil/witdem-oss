@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import wraps
 from types import TracebackType
 from typing import Any, TypeVar, cast
@@ -37,6 +38,9 @@ from witdem_sdk._transport import DeliveryStatus
 from witdem_sdk._transport import flush as flush_records
 
 _EXECUTION_ID_KEY = "witdem.execution_id"
+_WORKFLOW_ID_KEY = "witdem.workflow.id"
+_EVALUATION_CAMPAIGN_KEY = "witdem.evaluation.campaign_id"
+_EVALUATION_CASE_KEY = "witdem.evaluation.case_id"
 _CONFIGURED_PROVIDER_IDS: set[int] = set()
 _CONFIGURED_EXPORTER_CONFIGS: set[tuple[int, str, tuple[tuple[str, str], ...]]] = set()
 _PROVIDER_EXPORTER_CONFIG: dict[int, tuple[str, tuple[tuple[str, str], ...]]] = {}
@@ -48,6 +52,9 @@ class _ExecutionIdSpanProcessor(SpanProcessor):
         execution_id = baggage.get_baggage(_EXECUTION_ID_KEY, parent_context)
         if isinstance(execution_id, str):
             span.set_attribute(_EXECUTION_ID_KEY, execution_id)
+        workflow_id = baggage.get_baggage(_WORKFLOW_ID_KEY, parent_context)
+        if isinstance(workflow_id, str):
+            span.set_attribute(_WORKFLOW_ID_KEY, workflow_id)
 
     def on_end(self, span: ReadableSpan) -> None:
         return None
@@ -80,6 +87,39 @@ class Operation:
     """A model/tool operation whose observed response facts can be recorded."""
 
     span: Span
+    measurements: list[dict[str, Any]] = field(default_factory=list)
+
+    def measure(
+        self,
+        name: str,
+        value: int | float,
+        *,
+        unit: str,
+        aggregation: str = "sum",
+        scope: str = "operation",
+        provenance: str = "application_reported",
+    ) -> Self:
+        """Record one typed, vendor-neutral operation measurement."""
+
+        key = str(name).strip().casefold().replace("-", "_").replace(" ", "_")
+        if not key or not all(character.isalnum() or character in "._" for character in key):
+            raise ValueError(f"invalid measurement name: {name!r}")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"measurement {name!r} must be a non-negative number")
+        if aggregation not in {"sum", "average", "maximum", "latest"}:
+            raise ValueError("aggregation must be sum, average, maximum, or latest")
+        item = {
+            "key": key,
+            "value": value,
+            "unit": str(unit),
+            "aggregation": aggregation,
+            "scope": str(scope),
+            "provenance": str(provenance),
+        }
+        self.measurements = [existing for existing in self.measurements if existing.get("key") != key]
+        self.measurements.append(item)
+        self.span.set_attribute("witdem.measurements", json.dumps(self.measurements, separators=(",", ":")))
+        return self
 
     def usage(
         self,
@@ -114,14 +154,34 @@ class Operation:
             "gen_ai.usage.video.output_tokens": video_output_tokens,
             "gen_ai.usage.search_queries": search_queries,
         }
-        for name, value in (meters or {}).items():
+        for name, meter_value in (meters or {}).items():
             normalized = str(name).strip().casefold().replace("-", "_").replace(" ", "_")
             if not normalized or not all(character.isalnum() or character in "._" for character in normalized):
                 raise ValueError(f"invalid usage meter name: {name!r}")
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            if not isinstance(meter_value, (int, float)) or isinstance(meter_value, bool) or meter_value < 0:
                 raise ValueError(f"usage meter {name!r} must be a non-negative number")
-            values[f"gen_ai.usage.{normalized}"] = value
+            values[f"gen_ai.usage.{normalized}"] = meter_value
         _set_attributes(self.span, values)
+        canonical: dict[str, tuple[int | None, str]] = {
+            "tokens.input": (input_tokens, "token"),
+            "tokens.output": (output_tokens, "token"),
+            "tokens.total": (total_tokens, "token"),
+            "tokens.cache_read": (cache_read_tokens, "token"),
+            "tokens.cache_creation": (cache_creation_tokens, "token"),
+            "tokens.reasoning": (reasoning_tokens, "token"),
+            "tokens.audio_input": (audio_input_tokens, "token"),
+            "tokens.audio_output": (audio_output_tokens, "token"),
+            "tokens.image_input": (image_input_tokens, "token"),
+            "tokens.image_output": (image_output_tokens, "token"),
+            "tokens.video_input": (video_input_tokens, "token"),
+            "tokens.video_output": (video_output_tokens, "token"),
+            "queries": (search_queries, "query"),
+        }
+        for name, (canonical_value, unit) in canonical.items():
+            if canonical_value is not None:
+                self.measure(name, canonical_value, unit=unit, provenance="provider_reported")
+        for name, meter_value in (meters or {}).items():
+            self.measure(name, meter_value, unit="unit")
         return self
 
     def response_model(self, model: str | None) -> Self:
@@ -132,6 +192,7 @@ class Operation:
     def cost(self, amount_usd: float, *, source: str = "provider_reported") -> Self:
         self.span.set_attribute("gen_ai.cost.usd", amount_usd)
         self.span.set_attribute("gen_ai.cost.source", source)
+        self.measure("cost.usd", amount_usd, unit="USD", provenance=source)
         return self
 
 
@@ -222,6 +283,7 @@ class Witdem:
         name: str | None = None,
         *,
         execution_id: str | None = None,
+        workflow: str | None = None,
         attributes: Mapping[str, Any] | None = None,
     ) -> Iterator[str]:
         """Create one correlated execution for traces and SDK records."""
@@ -236,7 +298,22 @@ class Witdem:
                 )
             resolved_id = f"{active_context.trace_id:032x}"
         resolved_id = resolved_id or uuid4().hex
+        definition = None
+        project_config = getattr(self, "project_config", None)
+        if project_config is not None:
+            workflow_id = workflow or project_config.default_workflow
+            if workflow_id is None and len(project_config.workflow_definitions) == 1:
+                workflow_id = next(iter(project_config.workflow_definitions))
+            if workflow_id is not None:
+                definition = project_config.workflow_definitions.get(workflow_id)
+                if definition is None:
+                    raise ValueError(f"witdem_sdk: unknown workflow {workflow_id!r}")
+        elif workflow is not None:
+            raise ValueError("witdem_sdk: workflow= requires a project configuration")
+        workflow_id = definition.id if definition is not None else None
         context = baggage.set_baggage(_EXECUTION_ID_KEY, resolved_id)
+        if workflow_id:
+            context = baggage.set_baggage(_WORKFLOW_ID_KEY, workflow_id, context=context)
         token = otel_context.attach(context)
         try:
             with self._tracer.start_as_current_span(resolved_name, kind=SpanKind.INTERNAL) as span:
@@ -245,10 +322,32 @@ class Witdem:
                 span.set_attribute("witdem.runtime.kind", "workflow")
                 span.set_attribute("witdem.runtime.name", self.runtime)
                 span.set_attribute("witdem.runtime", self.runtime)
+                if definition is not None:
+                    span.set_attribute(_WORKFLOW_ID_KEY, definition.id)
+                    span.set_attribute("witdem.workflow.template_hash", definition.template_hash)
                 _set_attributes(span, attributes)
                 from witdem_sdk import event, outcome
 
-                event("execution.started", {"service": self.service_name})
+                if definition is not None:
+                    event(
+                        "workflow.definition",
+                        {
+                            "workflow_id": definition.id,
+                            "template_hash": definition.template_hash,
+                            "definition": definition.model_dump(mode="json"),
+                        },
+                    )
+                event(
+                    "execution.started",
+                    {
+                        "service": self.service_name,
+                        **(
+                            {"workflow_id": definition.id, "template_hash": definition.template_hash}
+                            if definition is not None
+                            else {}
+                        ),
+                    },
+                )
                 try:
                     yield resolved_id
                 except BaseException as exc:
@@ -272,6 +371,11 @@ class Witdem:
     ) -> Iterator[Operation]:
         with self._tracer.start_as_current_span(name, kind=SpanKind.CLIENT) as span:
             span.set_attribute("gen_ai.operation.name", "chat")
+            span.set_attribute("witdem.operation.type", "text_generation")
+            span.set_attribute("witdem.operation.interface", "model_api")
+            span.set_attribute("witdem.operation.role", "application")
+            span.set_attribute("witdem.operation.input_modalities", ["text"])
+            span.set_attribute("witdem.operation.output_modalities", ["text"])
             span.set_attribute("gen_ai.provider.name", provider)
             span.set_attribute("gen_ai.request.model", model)
             _set_attributes(span, attributes)
@@ -288,25 +392,152 @@ class Witdem:
     ) -> Iterator[Operation]:
         with self._tracer.start_as_current_span(f"tool.{name}", kind=SpanKind.INTERNAL) as span:
             span.set_attribute("gen_ai.operation.name", "execute_tool")
+            span.set_attribute("witdem.operation.type", "tool")
+            span.set_attribute("witdem.operation.interface", "tool")
+            span.set_attribute("witdem.operation.role", "application")
             span.set_attribute("gen_ai.tool.name", name)
             span.set_attribute("gen_ai.cost.usd", cost_usd)
             if call_id:
                 span.set_attribute("gen_ai.tool.call.id", call_id)
             _set_attributes(span, attributes)
-            yield Operation(span)
+            operation = Operation(span)
+            operation.measure("tool.calls", 1, unit="call", provenance="runtime_reported")
+            operation.cost(cost_usd, source="application_reported")
+            yield operation
 
-    @contextmanager
     def operation(
         self,
-        name: str,
+        name: str | None = None,
         *,
         kind: str = "component",
+        type: str | None = None,
+        family: str | None = None,
+        operation_type: str | None = None,
+        subtype: str | None = None,
+        interface: str = "unknown",
+        role: str = "application",
+        input_modalities: list[str] | tuple[str, ...] = (),
+        output_modalities: list[str] | tuple[str, ...] = (),
+        provider: str | None = None,
+        provider_id: str | None = None,
+        model: str | None = None,
+        model_id: str | None = None,
+        implementation: str | None = None,
+        implementation_id: str | None = None,
+        framework: str | None = None,
+        framework_id: str | None = None,
+        execution_source: str | None = None,
+        gateway: str | None = None,
+        vendor: str | None = None,
         attributes: Mapping[str, Any] | None = None,
-    ) -> Iterator[Operation]:
-        with self._tracer.start_as_current_span(name, kind=SpanKind.INTERNAL) as span:
-            span.set_attribute("witdem.runtime.kind", kind)
-            _set_attributes(span, attributes)
-            yield Operation(span)
+    ) -> Any:
+        """Create a canonical operation context, or decorate a callable.
+
+        ``type``/``provider``/``model`` remain compatibility aliases for the
+        explicit ``operation_type``/``provider_id``/``model_id`` contract.
+        """
+
+        resolved_type = operation_type or type
+        resolved_provider = provider_id or provider
+        resolved_model = model_id or model
+        resolved_implementation = implementation_id or implementation
+        resolved_framework = framework_id or framework
+
+        @contextmanager
+        def operation_context(resolved_name: str) -> Iterator[Operation]:
+            with self._tracer.start_as_current_span(resolved_name, kind=SpanKind.INTERNAL) as span:
+                span.set_attribute("witdem.runtime.kind", kind)
+                if family:
+                    span.set_attribute("witdem.operation.family", family)
+                if resolved_type:
+                    span.set_attribute("witdem.operation.type", resolved_type)
+                if subtype:
+                    span.set_attribute("witdem.operation.subtype", subtype)
+                span.set_attribute("witdem.operation.interface", interface)
+                span.set_attribute("witdem.operation.role", role)
+                if input_modalities:
+                    span.set_attribute("witdem.operation.input_modalities", list(input_modalities))
+                if output_modalities:
+                    span.set_attribute("witdem.operation.output_modalities", list(output_modalities))
+                if resolved_provider:
+                    span.set_attribute("gen_ai.provider.name", resolved_provider)
+                if resolved_model:
+                    span.set_attribute("gen_ai.request.model", resolved_model)
+                if resolved_implementation:
+                    span.set_attribute("witdem.implementation.id", resolved_implementation)
+                if resolved_framework:
+                    span.set_attribute("witdem.framework.id", resolved_framework)
+                if execution_source:
+                    span.set_attribute("witdem.execution.source", execution_source)
+                if gateway:
+                    span.set_attribute("witdem.gateway.id", gateway)
+                if vendor:
+                    span.set_attribute("witdem.vendor.id", vendor)
+                _set_attributes(span, attributes)
+                yield Operation(span)
+
+        if name is not None:
+            return operation_context(name)
+
+        def decorator(function: _CallableT) -> _CallableT:
+            if inspect.iscoroutinefunction(function):
+                @wraps(function)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    with operation_context(function.__name__):
+                        return await function(*args, **kwargs)
+
+                return cast(_CallableT, async_wrapper)
+
+            @wraps(function)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                with operation_context(function.__name__):
+                    return function(*args, **kwargs)
+
+            return cast(_CallableT, wrapper)
+
+        return decorator
+
+    @contextmanager
+    def evaluation_campaign(
+        self,
+        campaign_id: str,
+        *,
+        suite_id: str,
+        dataset_id: str,
+        dataset_version: str,
+        candidate_version: str,
+        baseline_version: str | None = None,
+    ) -> Iterator[str]:
+        """Attach framework-neutral offline-campaign identity to evaluations."""
+
+        attributes = {
+            _EVALUATION_CAMPAIGN_KEY: campaign_id,
+            "witdem.evaluation.suite_id": suite_id,
+            "witdem.evaluation.dataset_id": dataset_id,
+            "witdem.evaluation.dataset_version": dataset_version,
+            "witdem.evaluation.candidate_version": candidate_version,
+            "witdem.evaluation.baseline_version": baseline_version,
+        }
+        context = otel_context.get_current()
+        for key, value in attributes.items():
+            if value is not None:
+                context = baggage.set_baggage(key, value, context=context)
+        token = otel_context.attach(context)
+        try:
+            yield campaign_id
+        finally:
+            otel_context.detach(token)
+
+    @contextmanager
+    def evaluation_case(self, case_id: str) -> Iterator[str]:
+        """Attach a dataset-case identity inside an evaluation campaign."""
+
+        context = baggage.set_baggage(_EVALUATION_CASE_KEY, case_id)
+        token = otel_context.attach(context)
+        try:
+            yield case_id
+        finally:
+            otel_context.detach(token)
 
     def event(
         self,
@@ -344,7 +575,27 @@ class Witdem:
     ) -> None:
         from witdem_sdk import evaluation
 
-        evaluation(name, score=score, label=label, value=value, attributes=attributes, execution_id=execution_id)
+        campaign_attributes = {
+            key: baggage.get_baggage(key)
+            for key in (
+                _EVALUATION_CAMPAIGN_KEY,
+                _EVALUATION_CASE_KEY,
+                "witdem.evaluation.suite_id",
+                "witdem.evaluation.dataset_id",
+                "witdem.evaluation.dataset_version",
+                "witdem.evaluation.candidate_version",
+                "witdem.evaluation.baseline_version",
+            )
+            if baggage.get_baggage(key) is not None
+        }
+        evaluation(
+            name,
+            score=score,
+            label=label,
+            value=value,
+            attributes={**campaign_attributes, **dict(attributes or {})},
+            execution_id=execution_id,
+        )
 
     def outcome(
         self,
@@ -434,8 +685,7 @@ class Witdem:
         ):
             allowed = ", ".join(spec.decision.values)
             raise ValueError(
-                f"witdem_sdk: expected_decision {expected_decision!r} is not declared; "
-                f"expected one of: {allowed}"
+                f"witdem_sdk: expected_decision {expected_decision!r} is not declared; expected one of: {allowed}"
             )
         undeclared_dimensions = sorted(set(dimensions or {}) - set(spec.dimensions))
         if undeclared_dimensions:
@@ -573,9 +823,7 @@ class Witdem:
                     "expected_status": expected_decision,
                     "observed_status": decision,
                     "decision_correct": decision_correct,
-                    "outcome_description": (
-                        spec.decision.values.get(str(decision)) if spec.decision else None
-                    ),
+                    "outcome_description": (spec.decision.values.get(str(decision)) if spec.decision else None),
                 },
                 execution_id=execution_id,
             )
@@ -635,9 +883,7 @@ class Witdem:
         from witdem_sdk._contract import evaluate, result_context
 
         context = result_context(result)
-        configured_attributes = {
-            key: evaluate(value, context) for key, value in spec.attributes.items()
-        }
+        configured_attributes = {key: evaluate(value, context) for key, value in spec.attributes.items()}
         definition_hash, definition = contract_definition(config, contract_name, spec)
         reported = getattr(self, "_reported_contract_definitions", None)
         if reported is None:
@@ -705,31 +951,16 @@ class Witdem:
         for evaluation_spec in spec.evaluations:
             self.evaluation(
                 evaluation_spec.name,
-                score=(
-                    float(evaluate(evaluation_spec.score, context))
-                    if evaluation_spec.score is not None
-                    else None
-                ),
-                label=(
-                    str(evaluate(evaluation_spec.label, context))
-                    if evaluation_spec.label is not None
-                    else None
-                ),
-                value=(
-                    evaluate(evaluation_spec.value, context)
-                    if evaluation_spec.value is not None
-                    else None
-                ),
+                score=(float(evaluate(evaluation_spec.score, context)) if evaluation_spec.score is not None else None),
+                label=(str(evaluate(evaluation_spec.label, context)) if evaluation_spec.label is not None else None),
+                value=(evaluate(evaluation_spec.value, context) if evaluation_spec.value is not None else None),
                 attributes={
                     **shared,
                     "evaluation_description": evaluation_spec.description,
                     "unit": evaluation_spec.unit,
                     "target": evaluation_spec.target,
                     "direction": evaluation_spec.direction,
-                    **{
-                        key: evaluate(value, context)
-                        for key, value in evaluation_spec.attributes.items()
-                    },
+                    **{key: evaluate(value, context) for key, value in evaluation_spec.attributes.items()},
                 },
                 execution_id=execution_id,
             )
@@ -741,10 +972,7 @@ class Witdem:
                     **shared,
                     "metric_description": metric_spec.description,
                     "unit": metric_spec.unit,
-                    **{
-                        key: evaluate(value, context)
-                        for key, value in metric_spec.attributes.items()
-                    },
+                    **{key: evaluate(value, context) for key, value in metric_spec.attributes.items()},
                 },
                 execution_id=execution_id,
             )

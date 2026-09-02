@@ -1,73 +1,54 @@
-# Running Witdem with npx
+# Running Witdem with NPX
 
-The npm package is a small launcher for the official Witdem container. It gives
-Node-oriented projects a one-command local environment without duplicating the
-Python server or installing Witdem into the application.
-
-## Start
-
-Install Docker Desktop or Docker Engine with the Compose plugin, then run:
+The npm package is a small, dependency-free launcher for the version-matched
+Witdem container. It does not use `postinstall`, install a host daemon, or edit
+the current project.
 
 ```bash
-npx -y witdem@0.3.0 up
+npx -y witdem@latest up
 ```
 
-The command resolves the matching `0.3.0` container, starts the receiver, ELT
-worker, and dashboard, waits for both public endpoints, and opens the
-dashboard. It does not use `postinstall`, start a host daemon, or edit the
-current project.
-
-| Service | Local address |
-| --- | --- |
-| Dashboard | `http://localhost:8501` |
-| OTLP/SDK receiver | `http://localhost:4318` |
+It starts the receiver, ELT worker, and dashboard, waits for health, and opens
+`http://localhost:8501`. The receiver is at `http://localhost:4318`.
 
 ## Lifecycle
 
 ```bash
-# Health and container state
-npx -y witdem@0.3.0 status
-
-# Follow service output
-npx -y witdem@0.3.0 logs
-
-# Run in the foreground during development
-npx -y witdem@0.3.0 dev
-
-# Stop all services
-npx -y witdem@0.3.0 down
+npx -y witdem@latest status
+npx -y witdem@latest logs receiver
+npx -y witdem@latest logs --follow worker
+npx -y witdem@latest open
+npx -y witdem@latest update --check
+npx -y witdem@latest down
 ```
 
-`down` preserves executions in the named `witdem-data` Docker volume. The
-launcher intentionally has no data-deletion command.
+`down` preserves the named volume or explicit data directory. Use `--json` on
+status and update checks for automation.
 
-## Ports and authentication
+## Ports, data, and isolation
 
 ```bash
-npx -y witdem@0.3.0 up \
+npx -y witdem@latest up \
   --dashboard-port 18501 \
   --receiver-port 14318 \
+  --data-dir /srv/witdem/team-a \
+  --project-name witdem-team-a \
   --no-open
 ```
 
-When receiver authentication is required, export `WITDEM_API_KEY` before
-starting. The same value must be configured in the instrumented application.
+Without `--data-dir`, Compose uses a project-scoped persistent named volume.
+With it, all data is bind-mounted at the explicit path. Separate project names,
+ports, and paths allow multiple installations and clean release tests without
+touching shared data.
 
 ## Versions and images
 
-Use an explicit npm version in automation. Every published launcher defaults
-to the exact same container version; the release workflow rejects mismatched
-Python, npm, and container versions.
-
-For a locally built or private image:
+For reproducible automation, quote an exact release:
 
 ```bash
-npx -y ./npm up --image witdem-analytics:dev
+npx -y "witdem@<version>" up
 ```
 
-Docker reuses the exact local tag when it exists and pulls it when it is
-missing.
-
-Run `npx -y witdem@0.3.0 doctor` to check Node, Docker, Docker Compose, and the
-Docker daemon. If startup fails, the launcher prints container state and recent
-logs before exiting.
+Every launcher defaults to its matching container. `--image` is available for
+a locally built release candidate. Run `doctor` to validate Node, Docker,
+Compose, and daemon access.
