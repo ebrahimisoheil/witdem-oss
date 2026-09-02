@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from witdem.api import app
-from witdem.protocol import SEMANTIC_RECORD_PROTOCOL_VERSION
+from witdem.protocol import EVIDENCE_BUNDLE_SCHEMA_VERSION, SEMANTIC_RECORD_PROTOCOL_VERSION
 
 FIXTURE = Path(__file__).with_name("fixtures") / "sdk-wire-v1-oldest.json"
 
@@ -30,6 +30,8 @@ def test_published_compatibility_metadata_matches_server_protocol() -> None:
     release = json.loads((root / "release.json").read_text(encoding="utf-8"))
     assert metadata["semantic_record_protocol"] == SEMANTIC_RECORD_PROTOCOL_VERSION
     assert metadata["semantic_record_protocol"] == release["semantic_record_protocol"]
+    assert metadata["evidence_bundle_schema_version"] == EVIDENCE_BUNDLE_SCHEMA_VERSION
+    assert metadata["evidence_bundle_schema_version"] == release["evidence_bundle_schema_version"]
     assert metadata["python"] == ">=3.10,<3.14"
     assert metadata["tested_pairs"]
     assert all(

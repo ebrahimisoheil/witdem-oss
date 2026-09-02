@@ -52,6 +52,9 @@ def test_primary_user_docs_do_not_pin_stale_example_versions() -> None:
         ROOT / "docs/cli-reference.md",
         ROOT / "docs/troubleshooting.md",
         ROOT / "docs/workflow-replay.md",
+        ROOT / "docs/integrations/haystack.md",
+        ROOT / "docs/integrations/langgraph.md",
+        ROOT / "docs/integrations/langchain.md",
     ]
     for path in paths:
         assert not re.search(r"\b0\.3\.\d+\b", path.read_text(encoding="utf-8")), path

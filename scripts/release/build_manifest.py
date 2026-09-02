@@ -102,6 +102,7 @@ def build_manifest(*, repository: str, signing_key: str) -> dict[str, Any]:
         "sdk_version": sdk,
         "image_version": platform,
         "protocol_version": str(release["semantic_record_protocol"]),
+        "evidence_bundle_schema_version": str(release["evidence_bundle_schema_version"]),
         "workflow_schema_version": str(release["workflow_schema_version"]),
         "compiler_version": str(release["workflow_compiler_version"]),
         "projector_version": str(release["workflow_projector_version"]),

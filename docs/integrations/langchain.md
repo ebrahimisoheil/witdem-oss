@@ -6,9 +6,9 @@ The LangChain integration wraps a runnable and appends a callback that records c
 
 ## Requirements and installation
 
-- Python 3.10 or newer
+- Python 3.10–3.13
 - `langchain-core>=0.3,<2`
-- `witdem-sdk[langchain]` 0.3.x
+- A `witdem-sdk` release compatible with the running analytics release
 - The model-provider package used by your chain
 
 ```bash

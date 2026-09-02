@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "execution": {
+    "execution_id": "evidence-v1",
+    "runtime_id": "runtime",
+    "started_at": "2026-01-01T10:00:00Z",
+    "ended_at": "2026-01-01T10:00:02Z",
+    "status": "completed",
+    "schema_version": "0.1.0",
+    "attributes": {"workflow_id": "support"}
+  },
+  "operations": [
+    {
+      "operation_id": "operation-1",
+      "execution_id": "evidence-v1",
+      "trace_id": "trace-1",
+      "span_id": "span-1",
+      "parent_span_id": null,
+      "kind": "model",
+      "name": "draft",
+      "status": "ok",
+      "started_at": "2026-01-01T10:00:00Z",
+      "ended_at": "2026-01-01T10:00:01Z",
+      "attempt": 1,
+      "attributes": {"provider": "example", "model": "example-1"}
+    }
+  ],
+  "links": [
+    {
+      "link_id": "link-1",
+      "execution_id": "evidence-v1",
+      "source_id": "operation-1",
+      "target_id": "outcome-1",
+      "relation": "produced",
+      "attributes": {}
+    }
+  ],
+  "events": [
+    {
+      "event_id": "event-1",
+      "execution_id": "evidence-v1",
+      "trace_id": "trace-1",
+      "span_id": "span-1",
+      "timestamp": "2026-01-01T10:00:01Z",
+      "type": "step",
+      "name": "drafted",
+      "payload": {"format": "text"},
+      "schema_version": "0.1.0"
+    }
+  ],
+  "evaluations": [
+    {
+      "evaluation_id": "evaluation-1",
+      "execution_id": "evidence-v1",
+      "subject_id": "operation-1",
+      "name": "quality",
+      "value": 0.9,
+      "label": "accepted",
+      "score": 0.9,
+      "source": "offline",
+      "confidence": 0.95,
+      "definition_version": "1",
+      "attributes": {"target": 0.8, "direction": "higher_is_better"}
+    }
+  ],
+  "outcomes": [
+    {
+      "outcome_id": "outcome-1",
+      "execution_id": "evidence-v1",
+      "name": "resolved",
+      "status": "achieved",
+      "value": true,
+      "timestamp": "2026-01-01T10:00:02Z",
+      "attributes": {"source": "ticketing"}
+    }
+  ],
+  "diagnostics": {
+    "failure_explanation": {"primary_break_point": null, "reason": null, "evidence": []},
+    "operation_summary": {
+      "total_operations": 0,
+      "execution_containers": 0,
+      "failed_operations": 0,
+      "types": []
+    },
+    "operation_measurements": [],
+    "measurement_coverage": {
+      "measured": 0,
+      "missing": 0,
+      "not_applicable": 0,
+      "applicable": 0,
+      "coverage": null
+    },
+    "evaluation_assessments": [{"evaluation_id": "evaluation-1", "passed": true}],
+    "workflow_discrepancies": null
+  }
+}

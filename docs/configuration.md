@@ -1,6 +1,10 @@
-# Configuring `witdem.yml`
+# Configuring Witdem YAML
 
-New projects should use one project-root `witdem.yml`. It can register separate workflow definition files for workflow-centric replay; see [Workflow-centric replay](workflow-replay.md). The earlier `.witdem/witdem.yaml` location remains discoverable for compatibility.
+New projects should use `.witdem/witdem.yaml`, which is the file created by
+`witdem-sdk init`. The same file can register separate workflow definitions for
+workflow-centric replay; see [Workflow-centric replay](workflow-replay.md).
+Root-level `witdem.yml` and `witdem.yaml` are also supported when a project
+deliberately prefers that layout.
 
 Technical instrumentation tells Witdem what ran. The YAML contract tells Witdem what the returned value means to your application.
 
@@ -10,7 +14,10 @@ An LLM request that completed is not automatically a qualified lead, an approved
 
 ## Discovery and validation
 
-The SDK searches the current directory and its parents for `.witdem/witdem.yaml`. Set `WITDEM_CONFIG=/absolute/path/to/witdem.yaml` or pass `config_path=` when discovery is not appropriate.
+The SDK searches the current directory and its parents. In each directory it
+checks `witdem.yml`, then `witdem.yaml`, then `.witdem/witdem.yaml`. Set
+`WITDEM_CONFIG=/absolute/path/to/witdem.yaml`, pass `config_path=` in Python, or
+use `--config` with SDK validation when discovery is not appropriate.
 
 ```bash
 witdem-sdk validate

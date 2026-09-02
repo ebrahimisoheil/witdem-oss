@@ -130,6 +130,18 @@ def validate(component: str, tag: str | None, *, require_clean: bool) -> list[st
         release["corpus_schema_version"],
         errors,
     )
+    _expect(
+        "evidence bundle schema contract",
+        server_protocol["EVIDENCE_BUNDLE_SCHEMA_VERSION"],
+        release["evidence_bundle_schema_version"],
+        errors,
+    )
+    _expect(
+        "published evidence bundle schema contract",
+        compatibility["evidence_bundle_schema_version"],
+        release["evidence_bundle_schema_version"],
+        errors,
+    )
     workflow_source = (ROOT / "src" / "witdem" / "workflows.py").read_text(encoding="utf-8")
     for field, constant in (
         ("workflow_compiler_version", "WORKFLOW_COMPILER_VERSION"),

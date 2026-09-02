@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from filelock import Timeout as FileLockTimeout
 
+from witdem.analytics.evidence import EvidenceBundle
 from witdem.analytics.repository.state import FilterState
 from witdem.config import db_path
 from witdem.dashboard import service
@@ -128,6 +129,18 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
     def run(execution_id: str) -> dict[str, Any]:
         with service.repository(database_path) as repo:
             result = service.run_detail(repo, execution_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return result
+
+    @app.get(
+        "/api/v1/runs/{execution_id}/evidence-bundle",
+        response_model=EvidenceBundle,
+        tags=["runs"],
+    )
+    def run_evidence_bundle(execution_id: str) -> EvidenceBundle:
+        with service.repository(database_path) as repo:
+            result = service.evidence_bundle(repo, execution_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return result

@@ -4,8 +4,8 @@ This guide takes one application execution from code to the local Witdem dashboa
 
 ## Prerequisites
 
-- Docker with Compose for the NPX path, or Python 3.10+ with pipx for native operation
-- Python 3.10 or newer for the SDK and examples
+- Docker with Compose for the NPX path, or Python 3.10–3.13 with pipx for native operation
+- Python 3.10–3.13 for the SDK and examples
 - An existing AI application or one of the checked-in examples
 - The API key required by the provider you choose
 

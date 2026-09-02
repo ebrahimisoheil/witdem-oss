@@ -21,7 +21,7 @@ from witdem import __version__
 from witdem.analytics.operations import MEASUREMENT_REGISTRY_VERSION, OPERATION_TAXONOMY_VERSION
 from witdem.config import storage_root
 from witdem.evaluation_campaigns import EVALUATION_SCHEMA_VERSION
-from witdem.protocol import CORPUS_SCHEMA_VERSION, SEMANTIC_RECORD_PROTOCOL_VERSION
+from witdem.protocol import CORPUS_SCHEMA_VERSION, EVIDENCE_BUNDLE_SCHEMA_VERSION, SEMANTIC_RECORD_PROTOCOL_VERSION
 from witdem.workflows import WORKFLOW_COMPILER_VERSION, WORKFLOW_PROJECTOR_VERSION
 
 RELEASE_MANIFEST_SCHEMA_VERSION = 1
@@ -142,6 +142,7 @@ def installed_versions() -> dict[str, str]:
         "sdk": sdk_version,
         "protocol": SEMANTIC_RECORD_PROTOCOL_VERSION,
         "corpus_schema": CORPUS_SCHEMA_VERSION,
+        "evidence_bundle_schema": EVIDENCE_BUNDLE_SCHEMA_VERSION,
         "workflow_schema": "1",
         "compiler": WORKFLOW_COMPILER_VERSION,
         "projector": WORKFLOW_PROJECTOR_VERSION,

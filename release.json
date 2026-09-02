@@ -4,6 +4,7 @@
   "semantic_record_protocol": "1.0",
   "dashboard_api_version": "1.0.0",
   "corpus_schema_version": "1.0",
+  "evidence_bundle_schema_version": "1.0",
   "workflow_schema_version": "1",
   "workflow_compiler_version": "1",
   "workflow_projector_version": "2"

@@ -231,6 +231,7 @@ to Witdem itself.
 - [CLI reference](docs/cli-reference.md)
 - [Upgrade and compatibility](docs/upgrade.md)
 - [Architecture and data flow](docs/architecture.md)
+- [Evidence bundles](docs/evidence-bundles.md)
 - [Release notes](docs/changelog.md)
 - [Performance and lifecycle implementation report](docs/implementation-report.md)
 - [Development and contributing](docs/development.md)

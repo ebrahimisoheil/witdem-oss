@@ -1,9 +1,10 @@
 # Define a Witdem YAML contract
 
-The canonical file is `.witdem/witdem.yaml` in the root of your application.
+The default file is `.witdem/witdem.yaml` in the root of your application.
 This tutorial builds one from an actual returned value, validates it, and
-explains what appears in the dashboard. Use `.yaml` in new projects; a custom
-`.yml` filename also works when passed explicitly with `--config`.
+explains what appears in the dashboard. Root-level `witdem.yml` and
+`witdem.yaml` are also discovered, and a custom filename works when passed
+explicitly with `--config`.
 
 A Witdem contract answers four different questions:
 
@@ -102,9 +103,9 @@ witdem-sdk validate
 
 The contract above defines the application result, product goal, and assurance
 checks. It does not invent a workflow graph from runtime spans. For a multi-step
-application, register an authored workflow definition in the project-root
-`witdem.yml`; otherwise the execution remains valid telemetry but is labelled
-**No YAML replay** in the execution list.
+application, register an authored workflow definition in the same Witdem
+configuration file; otherwise the execution remains valid telemetry but is
+labelled **No YAML replay** in the execution list.
 
 Workflow nodes may also declare vendor-neutral operation types such as
 `embedding`, `retrieval`, `reranking`, `ocr`, `text_generation`, or `tool`.
