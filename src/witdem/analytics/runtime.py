@@ -564,14 +564,15 @@ def normalize_haystack_spans(
         else:
             attributes.setdefault("cost_known", False)
             attributes.setdefault("cost_complete", False)
-            reason = cost_unavailable_reason(
-                str(provider) if provider is not None else None,
-                str(model) if model is not None else None,
-                model_usage if kind == "model" else None,
-                context=attributes,
-            )
-            if reason is not None:
-                attributes.setdefault("cost_unavailable_reason", reason)
+            if kind == "model" or attributes.get("cost_applicable") is True:
+                reason = cost_unavailable_reason(
+                    str(provider) if provider is not None else None,
+                    str(model) if model is not None else None,
+                    model_usage if kind == "model" else None,
+                    context=attributes,
+                )
+                if reason is not None:
+                    attributes.setdefault("cost_unavailable_reason", reason)
         operations.append(
             Operation(
                 operation_id=span_id,

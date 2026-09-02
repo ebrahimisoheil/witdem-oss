@@ -242,14 +242,16 @@ export function Kpi({
   value,
   note,
   tone = "neutral",
+  href,
 }: {
   label: string;
   value: string;
   note?: string;
   tone?: "neutral" | "good" | "warn";
+  href?: string;
 }) {
-  return (
-    <div className="min-w-0 overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-4">
+  const content = (
+    <>
       <div className="break-words text-xs font-medium text-[#73736d]">{label}</div>
       <div
         className={`mt-3 min-w-0 break-words text-2xl font-semibold leading-tight tracking-[-.03em] [overflow-wrap:anywhere] ${tone === "good" ? "text-[#14794c]" : tone === "warn" ? "text-[#a15c00]" : ""}`}
@@ -258,8 +260,13 @@ export function Kpi({
         {value}
       </div>
       {note && <div className="mt-2 break-words text-xs text-[#888880]">{note}</div>}
-    </div>
+      {href && <div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div>}
+    </>
   );
+  const className = "group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-4 transition";
+  return href
+    ? <a href={href} className={`${className} hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]`}>{content}</a>
+    : <div className={className}>{content}</div>;
 }
 export function Empty({ children }: React.PropsWithChildren) {
   return (
@@ -286,9 +293,11 @@ export function ErrorPage({ error }: { error: Error }) {
 export function CostSpeedChart({
   items,
   breakdown = "model",
+  onSelect,
 }: {
   items: Performance[];
   breakdown?: "model" | "provider";
+  onSelect?: (item: Performance) => void;
 }) {
   const data = items.filter(
     (x) => x.measured_cost != null && x.time_per_positive_run != null,
@@ -317,6 +326,7 @@ export function CostSpeedChart({
       </div>
       <ReactEChartsCore
         echarts={echarts}
+        onEvents={onSelect ? { click: (point: { data?: { item?: Performance } }) => point.data?.item && onSelect(point.data.item) } : undefined}
         style={{ height: 300, width: "100%" }}
         option={{
           color: chartColors,
@@ -354,6 +364,7 @@ export function CostSpeedChart({
             data: [{
               name: participant.label,
               value: [participant.time_per_positive_run, participant.measured_cost, participant.runs],
+              item: participant,
             }],
             emphasis: {
               label: { show: true, position: "top", formatter: "{b}" },
@@ -368,9 +379,11 @@ export function CostSpeedChart({
 export function BreakdownBar({
   data,
   colors,
+  hrefFor,
 }: {
   data: Record<string, number>;
   colors: Record<string, string>;
+  hrefFor?: (name: string) => string;
 }) {
   const entries = Object.entries(data);
   const total = entries.reduce((n, [, v]) => n + v, 0);
@@ -378,25 +391,31 @@ export function BreakdownBar({
   return (
     <div>
       <div className="flex h-10 overflow-hidden rounded-lg">
-        {entries.map(([name, value]) => (
-          <div
+        {entries.map(([name, value]) => {
+          const Segment = hrefFor ? "a" : "div";
+          return (
+          <Segment
             key={name}
+            href={hrefFor?.(name)}
             title={`${name}: ${formatNumber(value)}`}
-            className="grid place-items-center text-xs font-semibold text-white"
+            className="grid place-items-center text-xs font-semibold text-white transition hover:brightness-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{
               width: `${(value / total) * 100}%`,
               background: colors[name.toLowerCase()] || "#7a8290",
             }}
           >
             {value / total > 0.09 ? percent(value / total) : ""}
-          </div>
-        ))}
+          </Segment>
+        );})}
       </div>
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-        {entries.map(([name, value]) => (
-          <div
+        {entries.map(([name, value]) => {
+          const Legend = hrefFor ? "a" : "div";
+          return (
+          <Legend
             key={name}
-            className="flex items-center gap-2 text-xs capitalize"
+            href={hrefFor?.(name)}
+            className="flex items-center gap-2 rounded text-xs capitalize hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"
           >
             <span
               className="size-2.5 rounded-sm"
@@ -405,8 +424,8 @@ export function BreakdownBar({
             <span>
               {name.replaceAll("_", " ")} <b>{formatNumber(value)}</b>
             </span>
-          </div>
-        ))}
+          </Legend>
+        );})}
       </div>
     </div>
   );
@@ -416,10 +435,12 @@ export function RuntimeDonutChart({
   data,
   colors,
   height = 245,
+  onSelect,
 }: {
   data: Record<string, number>;
   colors: Record<string, string>;
   height?: number;
+  onSelect?: (status: string) => void;
 }) {
   const entries = Object.entries(data).filter(([, value]) => value > 0);
   const total = entries.reduce((sum, [, value]) => sum + value, 0);
@@ -428,6 +449,7 @@ export function RuntimeDonutChart({
   return (
     <ReactEChartsCore
       echarts={echarts}
+      onEvents={onSelect ? { click: (point: { data?: { status?: string } }) => point.data?.status && onSelect(point.data.status) } : undefined}
       style={{ height, width: "100%" }}
       option={{
         tooltip: { trigger: "item", formatter: "{b}<br/>{c} runs · {d}%" },
@@ -444,6 +466,7 @@ export function RuntimeDonutChart({
           label: { show: false },
           data: entries.map(([name, value]) => ({
             name: name.replaceAll("_", " "),
+            status: name,
             value,
             label: name === entries[0]?.[0] ? { show: true, position: "center", formatter: `{value|${formatNumber(total)}}\n{caption|runs}`, rich: { value: { color: "#292925", fontSize: compact ? 17 : 22, fontWeight: 700, lineHeight: compact ? 19 : 25 }, caption: { color: "#7a7a74", fontSize: compact ? 8 : 10, lineHeight: 12 } } } : { show: false },
             itemStyle: { color: colors[name.toLowerCase()] || "#7a8290", borderColor: "#fff", borderWidth: 2 },
@@ -454,7 +477,7 @@ export function RuntimeDonutChart({
   );
 }
 
-export function WorkflowBarChart({ items }: { items: Performance[] }) {
+export function WorkflowBarChart({ items, onSelect }: { items: Performance[]; onSelect?: (item: Performance, status: "completed" | "failed") => void }) {
   const shown = [...items]
     .sort((a, b) => b.runs - a.runs)
     .slice(0, 10)
@@ -475,6 +498,7 @@ export function WorkflowBarChart({ items }: { items: Performance[] }) {
   return (
     <ReactEChartsCore
       echarts={echarts}
+      onEvents={onSelect ? { click: (point: { data?: { item?: Performance }; seriesName?: string }) => point.data?.item && onSelect(point.data.item, point.seriesName === "Completed" ? "completed" : "failed") } : undefined}
       style={{ height: Math.max(280, shown.length * 38) }}
       option={{
         color: ["#6d4aff", "#d34f6f"],
@@ -503,14 +527,14 @@ export function WorkflowBarChart({ items }: { items: Performance[] }) {
             name: "Completed",
             type: "bar",
             stack: "runs",
-            data: shown.map((x) => Math.max(0, x.completed - x.recovered)),
+            data: shown.map((x) => ({ value: Math.max(0, x.completed - x.recovered), item: x })),
             barWidth: 18,
           },
           {
             name: "Failed / recovered",
             type: "bar",
             stack: "runs",
-            data: shown.map((x) => x.failed + x.recovered),
+            data: shown.map((x) => ({ value: x.failed + x.recovered, item: x })),
             barWidth: 18,
           },
         ],
@@ -519,7 +543,7 @@ export function WorkflowBarChart({ items }: { items: Performance[] }) {
   );
 }
 
-export function EconomicsBarChart({ items }: { items: Performance[] }) {
+export function EconomicsBarChart({ items, onSelect }: { items: Performance[]; onSelect?: (item: Performance) => void }) {
   const [sortBy, setSortBy] = useState<"time" | "cost">("cost");
   const shown = [...items]
     .filter((x) => x.measured_cost != null && x.time_per_positive_run != null)
@@ -568,6 +592,7 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
       </div>
       <ReactEChartsCore
         echarts={echarts}
+        onEvents={onSelect ? { click: (point: { data?: { item?: Performance } }) => point.data?.item && onSelect(point.data.item) } : undefined}
         style={{ height: 500, width: "100%" }}
         option={{
           color: ["#2477e6", "#e38317"],
@@ -633,7 +658,7 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
             {
               name: "Attributed time / successful involved run",
               type: "bar",
-              data: shown.map((x) => x.time_per_positive_run),
+              data: shown.map((x) => ({ value: x.time_per_positive_run, item: x })),
               barMaxWidth: 28,
               itemStyle: { borderRadius: [5, 5, 0, 0] },
               label: {
@@ -649,6 +674,7 @@ export function EconomicsBarChart({ items }: { items: Performance[] }) {
               data: shown.map((x) => ({
                 value: scaledCost(x.measured_cost),
                 raw: x.measured_cost || 0,
+                item: x,
               })),
               barMaxWidth: 28,
               itemStyle: { borderRadius: [5, 5, 0, 0] },
@@ -877,10 +903,11 @@ export function NormalizedComparisonChart({ items }: { items: ComparisonInsight[
   );
 }
 
-export function QualityComparisonChart({ items }: { items: ComparisonInsight[] }) {
+export function QualityComparisonChart({ items, onSelect }: { items: ComparisonInsight[]; onSelect?: (participant: string, evaluationKey: string) => void }) {
   const rows = items.flatMap((item) => (item.evaluations || []).map((evaluation) => ({
     participant: item.label,
     evaluation: evaluation.name,
+    evaluationKey: evaluation.key,
     label: `${item.label}\n${evaluation.name}`,
     score: evaluation.average_score,
     target: typeof evaluation.target === "number" ? evaluation.target : null,
@@ -889,7 +916,7 @@ export function QualityComparisonChart({ items }: { items: ComparisonInsight[] }
   if (!rows.length) return <Empty>No evaluation scores are reported for this selection.</Empty>;
   const maximum = Math.max(1, ...rows.flatMap((row) => [row.score || 0, row.target || 0]));
   return (
-    <ReactEChartsCore echarts={echarts} style={{ height: Math.max(290, rows.length * 56), width: "100%" }} option={{
+    <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { dataIndex?: number }) => { const row = rows[point.dataIndex ?? -1]; if (row) onSelect(row.participant, row.evaluationKey); } } : undefined} style={{ height: Math.max(290, rows.length * 56), width: "100%" }} option={{
       color: ["#6d4aff", "#282824"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ dataIndex: number }>) => { const row = rows[points[0]?.dataIndex || 0]; return `<b>${row.participant}</b><br/>${row.evaluation}<br/>Average: ${formatNumber(row.score)}<br/>Target: ${formatNumber(row.target)}<br/>${formatNumber(row.runs)} evaluated runs`; } },
       legend: { top: 0, itemWidth: 12, itemHeight: 8 },
@@ -920,11 +947,23 @@ export function QualityComparisonChart({ items }: { items: ComparisonInsight[] }
   );
 }
 
+export const sharedCohortSize = (items: ComparisonInsight[]): number | null => {
+  if (items.length < 2 || !items[0].cohort_key) return null;
+  return items.every((item) => item.cohort_key === items[0].cohort_key) ? items[0].runs : null;
+};
+
 export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void }) {
   const shown = items.filter((item) => item.goal_rate != null && item.avg_cost_per_run != null);
   if (!shown.length) return <Empty>No measured goal-and-cost combinations in this view.</Empty>;
+  const sharedRuns = sharedCohortSize(shown);
   return (
-    <ReactEChartsCore
+    <div>
+      {sharedRuns != null && (
+        <div className="mb-3 rounded-lg border border-[#e5dcbd] bg-[#fff9e9] px-3 py-2 text-xs leading-5 text-[#765716]">
+          <span className="font-semibold">Same run cohort:</span> every point represents the same {formatNumber(sharedRuns)} runs, so the goal-success percentage is expected to match. Cost is model-attributed; success is a shared run outcome.
+        </div>
+      )}
+      <ReactEChartsCore
       echarts={echarts}
       onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined}
       style={{ height: 360, width: "100%" }}
@@ -950,7 +989,7 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
         },
         yAxis: {
           type: "value",
-          name: "Goal achievement",
+          name: "Goal success of involved runs",
           min: 0,
           max: 1,
           axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` },
@@ -968,7 +1007,8 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
           emphasis: { focus: "series" },
         })),
       }}
-    />
+      />
+    </div>
   );
 }
 
@@ -988,7 +1028,7 @@ export function GoalRateColumns({ items, onSelect, height = 330 }: { items: Comp
         xAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { rotate: 30, interval: 0, width: 100, overflow: "truncate" } },
         yAxis: { type: "value", min: 0, max: 1, axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` }, splitLine: { lineStyle: { color: "#ecece7" } } },
         series: [
-          { name: "Goal achievement", type: "bar", barMaxWidth: 24, data: shown.map((item) => ({ value: item.goal_rate, item })), itemStyle: { borderRadius: [5, 5, 0, 0] } },
+          { name: "Run-cohort goal success", type: "bar", barMaxWidth: 24, data: shown.map((item) => ({ value: item.goal_rate, item })), itemStyle: { borderRadius: [5, 5, 0, 0] } },
           { name: "Decision correctness", type: "bar", barMaxWidth: 24, data: shown.map((item) => ({ value: item.decision_correctness_rate, item })), itemStyle: { borderRadius: [5, 5, 0, 0] } },
         ],
       }}
@@ -1044,7 +1084,7 @@ export function WorkflowStageContribution({ items }: { items: WorkflowStage[] })
   );
 }
 
-export function StageAccumulation({ items }: { items: Overview["stages"] }) {
+export function StageAccumulation({ items, hrefFor }: { items: Overview["stages"]; hrefFor?: (item: Overview["stages"][number], metric: "time" | "tokens" | "cost") => string }) {
   const [sortBy, setSortBy] = useState<"time" | "tokens" | "cost">("time");
   const value = (item: Overview["stages"][number]) =>
     sortBy === "time"
@@ -1073,8 +1113,8 @@ export function StageAccumulation({ items }: { items: Overview["stages"] }) {
       </div>
       {shown.length ? (
         <div className="space-y-3">
-          {shown.map((item) => (
-            <div key={item.label} className="grid gap-2 sm:grid-cols-[minmax(160px,1.2fr)_minmax(160px,2fr)_80px_90px_90px] sm:items-center">
+          {shown.map((item) => {
+            const content = <>
               <div className="min-w-0 text-sm font-medium" title={item.label}>{item.label}</div>
               <div className="h-2.5 overflow-hidden rounded-full bg-[#ecebe7]">
                 <div className="h-full rounded-full bg-[#6d4aff]" style={{ width: `${Math.max(2, (Number(value(item)) / maximum) * 100)}%` }} />
@@ -1082,15 +1122,19 @@ export function StageAccumulation({ items }: { items: Overview["stages"] }) {
               <div className="text-xs text-[#666]">{seconds(item.time_seconds)}</div>
               <div className="text-xs text-[#666]">{item.token_eligible_operations === 0 ? "Not applicable" : item.total_tokens == null ? "Not measured" : `${formatNumber(item.total_tokens)} tokens`}</div>
               <div className="text-xs text-[#666]">{item.cost_eligible_operations === 0 ? "Not applicable" : item.known_cost == null ? "Not measured" : money(item.known_cost)}</div>
-            </div>
-          ))}
+            </>;
+            const className = "grid gap-2 rounded-lg px-2 py-1.5 transition sm:grid-cols-[minmax(160px,1.2fr)_minmax(160px,2fr)_80px_90px_90px] sm:items-center";
+            return hrefFor
+              ? <a key={item.label} href={hrefFor(item, sortBy)} className={`${className} hover:bg-[#f7f4ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]`}>{content}</a>
+              : <div key={item.label} className={className}>{content}</div>;
+          })}
         </div>
       ) : <Empty>{available(sortBy) ? "No measured values for this metric." : "This metric is not applicable in this view."}</Empty>}
     </div>
   );
 }
 
-export function GoalTrendChart({ items }: { items: Overview["goal_trend"] }) {
+export function GoalTrendChart({ items, onSelect }: { items: Overview["goal_trend"]; onSelect?: (item: Overview["goal_trend"][number], metric: "success" | "time" | "cost") => void }) {
   const [metric, setMetric] = useState<"success" | "time" | "cost">("success");
   const values = items.map((item) =>
     metric === "success"
@@ -1118,6 +1162,7 @@ export function GoalTrendChart({ items }: { items: Overview["goal_trend"] }) {
       {items.length ? (
         <ReactEChartsCore
           echarts={echarts}
+          onEvents={onSelect ? { click: (point: { dataIndex?: number }) => point.dataIndex != null && items[point.dataIndex] && onSelect(items[point.dataIndex], metric) } : undefined}
           style={{ height: 260, width: "100%" }}
           option={{
             color: ["#6d4aff"],
@@ -1245,14 +1290,14 @@ export function StageDiagnosticsChart({ items, height = 310 }: { items: Overview
   </div>;
 }
 
-export function OperationHealthChart({ items, height = 260 }: { items: OperationTypeSummary[]; height?: number }) {
+export function OperationHealthChart({ items, height = 260, onSelect }: { items: OperationTypeSummary[]; height?: number; onSelect?: (item: OperationTypeSummary, failedOnly: boolean) => void }) {
   const [metric, setMetric] = useState<"volume" | "time" | "failures">("volume");
   const value = (item: OperationTypeSummary) => metric === "volume" ? item.operations : metric === "time" ? item.active_seconds : item.failed;
   const shown = [...items].sort((left, right) => value(right) - value(left)).slice(0, 10).reverse();
   const name = metric === "volume" ? "Operations" : metric === "time" ? "Active time" : "Failures";
   return <div>
     <div className="mb-2 flex justify-end gap-1">{(["volume", "time", "failures"] as const).map((choice) => <button key={choice} type="button" onClick={() => setMetric(choice)} className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${metric === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{choice === "volume" ? "Volume" : choice === "time" ? "Active time" : "Failures"}</button>)}</div>
-    {!shown.length ? <Empty>No operation classifications have been materialized.</Empty> : metric === "failures" && !shown.some((item) => item.failed) ? <Empty>No operation failures were observed in this selection.</Empty> : <AnalyticsChart echarts={echarts} style={{ height: Math.max(height, shown.length * 38), width: "100%" }} option={{
+    {!shown.length ? <Empty>No operation classifications have been materialized.</Empty> : metric === "failures" && !shown.some((item) => item.failed) ? <Empty>No operation failures were observed in this selection.</Empty> : <AnalyticsChart echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item, metric === "failures") } : undefined} style={{ height: Math.max(height, shown.length * 38), width: "100%" }} option={{
       color: [metric === "failures" ? "#dc5a5a" : metric === "time" ? "#2477e6" : "#6d4aff"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${humanizeOperationType(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Interface: ${item.interfaces.join(", ") || "unknown"}<br/>Providers: ${item.providers.join(", ") || "not reported"}` : ""; } },
       grid: { left: 142, right: 28, top: 12, bottom: 30 },

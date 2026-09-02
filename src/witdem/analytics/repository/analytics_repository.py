@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 from threading import RLock
 from typing import Any, TypeVar, cast
@@ -64,6 +65,13 @@ from witdem.analytics.runtime import (
 
 _CACHE_MISS = object()
 _CacheValue = TypeVar("_CacheValue")
+
+
+def _cohort_key(samples: Iterable[Mapping[str, Any]]) -> str:
+    """Return a stable, opaque identity for a participant's involved-run cohort."""
+
+    execution_ids = sorted({str(sample.get("execution_id") or "") for sample in samples})
+    return sha256("\0".join(execution_ids).encode()).hexdigest()[:16]
 
 
 def _json(value: Any) -> dict[str, Any]:
@@ -175,13 +183,11 @@ def _active_seconds(operations: Iterable[Operation]) -> float:
 
 
 def _cost_eligible(operation: Operation) -> bool:
-    return operation.kind == "model" or (
-        operation_identity(operation)["family"] in {"inference", "media", "action"}
-        and any(
-            key in operation.attributes
-            for key in ("cost_usd", "gen_ai.cost.usd", "cost_unavailable_reason", "cost_applicable")
-        )
-    )
+    if operation.kind == "model":
+        return True
+    if any(isinstance(operation.attributes.get(key), (int, float)) for key in ("cost_usd", "gen_ai.cost.usd")):
+        return True
+    return operation.attributes.get("cost_applicable") is True
 
 
 def _token_eligible(operation: Operation) -> bool:
@@ -203,6 +209,21 @@ def _complete_operation_total(operations: Iterable[Operation], measurement: str)
     if not all(isinstance(operation.attributes.get(field), (int, float)) for operation in eligible):
         return True, None
     return True, sum(float(operation.attributes[field]) for operation in eligible)
+
+
+def _operation_measurement_state(operations: Iterable[Operation], measurement: str) -> str:
+    eligible = [
+        operation
+        for operation in operations
+        if (_cost_eligible(operation) if measurement == "cost" else _token_eligible(operation))
+    ]
+    if not eligible:
+        return "not_applicable"
+    field = "cost_usd" if measurement == "cost" else "total_tokens"
+    measured = sum(isinstance(operation.attributes.get(field), (int, float)) for operation in eligible)
+    if measured == len(eligible):
+        return "complete"
+    return "partial" if measured else "missing"
 
 
 def _participant_identity(
@@ -425,6 +446,23 @@ class AnalyticsRepository:
             return cast(list[dict[str, Any]], cached)
         rows = self._query("SELECT * FROM serving.execution_facts ORDER BY started_at DESC NULLS LAST")
         contracts = self._serving_contracts_by_execution()
+        needs_operations = any(
+            (
+                filters.cost_status,
+                filters.token_status,
+                filters.operation_type,
+                filters.operation_status,
+            )
+        )
+        operations_by_execution: dict[str, list[Operation]] = {}
+        if needs_operations:
+            for operation_row in self._query("SELECT * FROM serving.operation_facts ORDER BY sequence_number"):
+                operation = _operation_from_serving_fact(operation_row)
+                operations_by_execution.setdefault(operation.execution_id, []).append(operation)
+        evaluations_by_execution: dict[str, list[dict[str, Any]]] = {}
+        if filters.evaluation_key or filters.evaluation_status:
+            for evaluation in self._latest_evaluation_facts():
+                evaluations_by_execution.setdefault(str(evaluation["execution_id"]), []).append(evaluation)
 
         def includes(values: Any, wanted: str | None) -> bool:
             if not wanted:
@@ -445,6 +483,10 @@ class AnalyticsRepository:
                 continue
             if filters.status == "completed" and runtime_outcome not in {"completed", "recovered"}:
                 continue
+            if filters.status == "recovered" and runtime_outcome != "recovered":
+                continue
+            if filters.has_failure and failures == 0:
+                continue
             if filters.start_date and fact.get("started_at") and fact["started_at"].date() < filters.start_date:
                 continue
             if filters.end_date and fact.get("started_at") and fact["started_at"].date() > filters.end_date:
@@ -457,6 +499,63 @@ class AnalyticsRepository:
                 continue
             if filters.has_repeated_work is True and not int(fact.get("repeated_pattern_count") or 0):
                 continue
+            goal_reported = fact.get("product_goal_reported") is True
+            goal_achieved = fact.get("product_goal_achieved")
+            if filters.goal_status == "reported" and not goal_reported:
+                continue
+            if filters.goal_status == "unreported" and goal_reported:
+                continue
+            if filters.goal_status == "achieved" and goal_achieved is not True:
+                continue
+            if filters.goal_status == "not_achieved" and goal_achieved is not False:
+                continue
+            if filters.assurance_status and _goal_assurance_state(fact) != filters.assurance_status:
+                continue
+            if filters.application_outcome and fact.get("application_outcome") != filters.application_outcome:
+                continue
+            if filters.blocker and fact.get("closest_blocker") != filters.blocker:
+                continue
+            if filters.failure_location and fact.get("failure_location") != filters.failure_location:
+                continue
+            operations = operations_by_execution.get(str(fact["execution_id"]), [])
+            if filters.cost_status and _operation_measurement_state(operations, "cost") != filters.cost_status:
+                continue
+            if filters.token_status and _operation_measurement_state(operations, "tokens") != filters.token_status:
+                continue
+            if filters.operation_type or filters.operation_status:
+                matching_operations = [
+                    operation
+                    for operation in operations
+                    if not filters.operation_type
+                    or str(operation_identity(operation)["type"]) == filters.operation_type
+                ]
+                if filters.operation_status == "failed":
+                    matching_operations = [
+                        operation for operation in matching_operations if operation.status in {"error", "failed"}
+                    ]
+                elif filters.operation_status == "completed":
+                    matching_operations = [
+                        operation for operation in matching_operations if operation.status not in {"error", "failed"}
+                    ]
+                if not matching_operations:
+                    continue
+            if filters.evaluation_key or filters.evaluation_status:
+                matching_evaluations = []
+                for evaluation in evaluations_by_execution.get(str(fact["execution_id"]), []):
+                    attributes = _json(evaluation.get("attributes"))
+                    key = str(attributes.get("evaluation_key") or evaluation.get("name") or "Evaluation")
+                    if filters.evaluation_key and key != filters.evaluation_key:
+                        continue
+                    met = self._evaluation_met_target(evaluation, attributes)
+                    if filters.evaluation_status == "passed" and met is not True:
+                        continue
+                    if filters.evaluation_status == "failed" and met is not False:
+                        continue
+                    if filters.evaluation_status == "unassessed" and met is not None:
+                        continue
+                    matching_evaluations.append(evaluation)
+                if not matching_evaluations:
+                    continue
             model_calls = int(fact.get("model_calls") or 0)
             coverage = fact.get("cost_coverage")
             measured_operations = round(model_calls * float(coverage)) if coverage is not None else 0
@@ -1819,10 +1918,12 @@ class AnalyticsRepository:
                 for sample in samples:
                     for fact in evaluations_by_execution.get(str(sample["execution_id"]), []):
                         attributes = _json(fact.get("attributes"))
-                        name = str(fact.get("name") or attributes.get("evaluation_key") or "Evaluation")
+                        key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
+                        name = str(fact.get("name") or key)
                         evaluation = evaluation_groups.setdefault(
-                            name,
+                            key,
                             {
+                                "key": key,
                                 "name": name,
                                 "scores": [],
                                 "target": attributes.get("target"),
@@ -1847,6 +1948,7 @@ class AnalyticsRepository:
                         "p50_duration_seconds": _percentile(call_durations, 0.50),
                         "p95_duration_seconds": _percentile(call_durations, 0.95),
                         "scope": "cohort+direct-attribution",
+                        "cohort_key": _cohort_key(samples),
                         "cost_eligible_operations": cost_eligible,
                         "cost_measured_operations": cost_measured,
                         "token_eligible_operations": token_eligible,
@@ -1901,10 +2003,12 @@ class AnalyticsRepository:
             for sample in samples:
                 for evaluation_fact in evaluations_by_execution.get(str(sample["execution_id"]), []):
                     attributes = _json(evaluation_fact.get("attributes"))
-                    name = str(evaluation_fact.get("name") or attributes.get("evaluation_key") or "Evaluation")
+                    key = str(attributes.get("evaluation_key") or evaluation_fact.get("name") or "Evaluation")
+                    name = str(evaluation_fact.get("name") or key)
                     evaluation = evaluation_groups.setdefault(
-                        name,
+                        key,
                         {
+                            "key": key,
                             "name": name,
                             "scores": [],
                             "target": attributes.get("target"),
@@ -1939,6 +2043,7 @@ class AnalyticsRepository:
                     "token_eligible_operations": token_eligible,
                     "token_measured_operations": token_measured,
                     "scope": "cohort+direct-attribution",
+                    "cohort_key": _cohort_key(samples),
                     "evaluations": evaluations,
                 }
             )
@@ -3213,10 +3318,17 @@ class AnalyticsRepository:
                 measurement[key] = identity.get(key)
         return operations, measurements
 
-    def operation_health_facts(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Return all materialized operation facts for cross-workflow health."""
+    def operation_health_facts(
+        self, filters: FilterState = FilterState()
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return materialized operation facts for the selected executions."""
 
         if "operation_classification_facts" not in self._tables:
+            return [], []
+        allowed_execution_ids = {
+            str(row["execution_id"]) for row in self.execution_rows(filters, limit=None)
+        }
+        if not allowed_execution_ids:
             return [], []
         rows = self._query(
             "SELECT o.*, m.registry_version AS measurement_registry_version, m.measurement_key, m.value, "
@@ -3228,6 +3340,8 @@ class AnalyticsRepository:
         operations: dict[str, dict[str, Any]] = {}
         measurements: list[dict[str, Any]] = []
         for row in rows:
+            if str(row.get("execution_id") or "") not in allowed_execution_ids:
+                continue
             operation_id = str(row.get("operation_id") or "")
             operations.setdefault(
                 operation_id,

@@ -34,6 +34,17 @@ def filters_from_values(
     tool: str | None = None,
     stage: str | None = None,
     contract_hash: str | None = None,
+    goal_status: str | None = None,
+    assurance_status: str | None = None,
+    application_outcome: str | None = None,
+    blocker: str | None = None,
+    evaluation_key: str | None = None,
+    evaluation_status: str | None = None,
+    cost_status: str | None = None,
+    token_status: str | None = None,
+    operation_type: str | None = None,
+    operation_status: str | None = None,
+    failure_location: str | None = None,
     has_repeated_work: bool = False,
     has_failure: bool = False,
     start_date: date | None = None,
@@ -47,6 +58,17 @@ def filters_from_values(
         tool=tool,
         stage=stage,
         contract_hash=contract_hash,
+        goal_status=goal_status,
+        assurance_status=assurance_status,
+        application_outcome=application_outcome,
+        blocker=blocker,
+        evaluation_key=evaluation_key,
+        evaluation_status=evaluation_status,
+        cost_status=cost_status,
+        token_status=token_status,
+        operation_type=operation_type,
+        operation_status=operation_status,
+        failure_location=failure_location,
         has_repeated_work=has_repeated_work,
         has_failure=has_failure,
         start_date=start_date,
@@ -89,7 +111,7 @@ def metadata(repo: AnalyticsRepository) -> dict[str, Any]:
 def overview(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
     with repo._overview_read_session():
         snapshot = repo.get_overview_snapshot(filters)
-        all_operation_facts, all_operation_measurements = repo.operation_health_facts()
+        all_operation_facts, all_operation_measurements = repo.operation_health_facts(filters)
         operation_facts, operation_measurements = _operation_profile_inputs(
             all_operation_facts, all_operation_measurements
         )
@@ -1030,7 +1052,7 @@ def workflows(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]
 
 def issues(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
     result = dict(repo.get_issue_insights(filters))
-    operations, measurements = repo.operation_health_facts()
+    operations, measurements = repo.operation_health_facts(filters)
     result["operation_failures"] = [
         item for item in _operation_summary(operations, measurements)["types"] if int(item["failed"]) > 0
     ]

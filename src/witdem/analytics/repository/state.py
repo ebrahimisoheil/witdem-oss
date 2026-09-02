@@ -46,6 +46,17 @@ class FilterState:
     tool: str | None = None
     stage: str | None = None
     contract_hash: str | None = None
+    goal_status: str | None = None
+    assurance_status: str | None = None
+    application_outcome: str | None = None
+    blocker: str | None = None
+    evaluation_key: str | None = None
+    evaluation_status: str | None = None
+    cost_status: str | None = None
+    token_status: str | None = None
+    operation_type: str | None = None
+    operation_status: str | None = None
+    failure_location: str | None = None
     has_repeated_work: bool = False
     has_failure: bool = False
     start_date: date | None = None

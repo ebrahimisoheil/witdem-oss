@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   api,
   type ContractDefinition,
@@ -55,21 +56,45 @@ const providerDisplayName = (value: string) => {
 const routeParam = (name: string) =>
   typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get(name) || "";
 
+const useViewportAnchor = (isFetching: boolean) => {
+  const anchor = useRef<{ element: HTMLElement; top: number } | null>(null);
+  const preserve = useCallback((update: () => void) => {
+    const element = document.activeElement;
+    if (element instanceof HTMLElement) {
+      anchor.current = { element, top: element.getBoundingClientRect().top };
+    }
+    update();
+  }, []);
+  useLayoutEffect(() => {
+    if (isFetching || !anchor.current) return;
+    const current = anchor.current;
+    anchor.current = null;
+    if (!current.element.isConnected) return;
+    const delta = current.element.getBoundingClientRect().top - current.top;
+    if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "instant" });
+  }, [isFetching]);
+  return preserve;
+};
+
 export function OverviewPage() {
   const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
   const filters = resolvedFilters(filterValues);
   const q = useQuery({
     queryKey: ["overview", "portfolio", filterValues],
     queryFn: () => api.overview(filters),
+    placeholderData: keepPreviousData,
   });
   const models = useQuery({
     queryKey: ["compare", "overview", "model", filterValues],
     queryFn: () => api.compare("model", filters),
+    placeholderData: keepPreviousData,
   });
   const providers = useQuery({
     queryKey: ["compare", "overview", "provider", filterValues],
     queryFn: () => api.compare("provider", filters),
+    placeholderData: keepPreviousData,
   });
+  const preserveViewport = useViewportAnchor(q.isFetching || models.isFetching || providers.isFetching);
   if (q.isLoading || models.isLoading || providers.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (models.error) return <ErrorPage error={models.error} />;
@@ -89,7 +114,7 @@ export function OverviewPage() {
       <SharedFilterBar
         metadata={d.metadata}
         values={filterValues}
-        onChange={setFilterValues}
+        onChange={(values) => preserveViewport(() => setFilterValues(values))}
         includeGoal={false}
       />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_.72fr_.48fr]">
@@ -170,7 +195,7 @@ export function OverviewPage() {
         </div>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Panel className="h-full" title="Model goal trade-offs" note="Goal outcomes for runs involving each model versus that model’s directly attributed cost.">
+        <Panel className="h-full" title="Run-cohort success versus model cost" note="Shared run outcomes for runs involving each model versus that model’s directly attributed cost; this is not causal model attribution.">
           <GoalTradeoffChart items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { model: item.label }))} />
         </Panel>
         <Panel className="h-full" title="Model call latency distribution" note="Direct model-call p50 and p95 latency. Select a model to inspect System Health.">
@@ -210,14 +235,33 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     status: status || undefined,
     start_date: startDate,
   };
+  const drilldownBase = {
+    contract_hash: contractHash || undefined,
+    provider: provider || undefined,
+    model: model || undefined,
+    status: status || undefined,
+    range: range === "all" ? undefined : range,
+  };
+  const runsHref = (extra: Record<string, string | number | boolean | null | undefined> = {}) =>
+    drilldownHref("/runs", { ...drilldownBase, ...extra });
   const q = useQuery({
     queryKey: ["overview", contractHash, provider, model, status, range],
     queryFn: () => api.overview(filters),
+    placeholderData: keepPreviousData,
   });
   const goalComparison = useQuery({
     queryKey: ["compare", "goal-performance", breakdown, contractHash, provider, model, status, range],
     queryFn: () => api.compare(breakdown, filters),
     enabled: mode === "goals",
+    placeholderData: keepPreviousData,
+  });
+  const preserveViewport = useViewportAnchor(q.isFetching || goalComparison.isFetching);
+  const updateFilter = (key: string, value: string, setter: (next: string) => void) => preserveViewport(() => {
+    setter(value);
+    const url = new URL(window.location.href);
+    if (!value || value === "all") url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+    window.history.replaceState(window.history.state, "", url);
   });
   if (q.isLoading || (mode === "goals" && goalComparison.isLoading)) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
@@ -258,29 +302,30 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       />
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-white p-3">
           <span className="mr-1 text-xs font-semibold text-[#555]">Filter this view</span>
-          <FilterSelect value={contractHash} onChange={setContractHash} label="All business goals">
+          <FilterSelect value={contractHash} onChange={(value) => updateFilter("contract_hash", value, setContractHash)} label="All business goals">
             {metadata.contracts.map((item) => (
               <option key={item.contract_hash} value={item.contract_hash}>
                 {item.product_goal?.name || item.contract_name || "Business goal"}
               </option>
             ))}
           </FilterSelect>
-          <FilterSelect value={provider} onChange={setProvider} label="All providers">
+          <FilterSelect value={provider} onChange={(value) => updateFilter("provider", value, setProvider)} label="All providers">
             {(metadata.filters.provider || []).map((value) => (
               <option key={value} value={value}>{providerDisplayName(value)}</option>
             ))}
           </FilterSelect>
-          <FilterSelect value={model} onChange={setModel} label="All models">
+          <FilterSelect value={model} onChange={(value) => updateFilter("model", value, setModel)} label="All models">
             {(metadata.filters.model || []).map((value) => (
               <option key={value} value={value}>{value}</option>
             ))}
           </FilterSelect>
-          <FilterSelect value={status} onChange={setStatus} label="All runtime states">
+          <FilterSelect value={status} onChange={(value) => updateFilter("status", value, setStatus)} label="All runtime states">
             <option value="completed">Completed or recovered</option>
+            <option value="recovered">Recovered</option>
             <option value="failed">Failed</option>
             <option value="running">Running</option>
           </FilterSelect>
-          <FilterSelect value={range} onChange={setRange} label="All time" includeEmpty={false}>
+          <FilterSelect value={range} onChange={(value) => updateFilter("range", value, setRange)} label="All time" includeEmpty={false}>
             <option value="1">Last 24 hours</option>
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
@@ -290,44 +335,47 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       {mode === "health" ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Kpi label="Runs" value={formatNumber(d.execution.total_runs)} />
+            <Kpi label="Runs" value={formatNumber(d.execution.total_runs)} href={runsHref()} />
             <Kpi
               label="Runtime completion"
               value={percent(d.execution.runtime_success_rate)}
               note={`${formatNumber(d.execution.successful_runs + d.execution.recovered_runs)} of ${formatNumber(d.execution.terminal_runs)} terminal runs`}
               tone="good"
+              href={runsHref({ status: "completed" })}
             />
             <Kpi
               label="Needs attention"
               value={formatNumber(d.execution.attention_runs)}
               note={`${formatNumber(d.execution.failed_runs)} failed · ${formatNumber(d.execution.recovered_runs)} recovered`}
               tone={d.execution.failed_runs ? "warn" : "neutral"}
+              href={runsHref({ has_failure: true })}
             />
-            <Kpi label="Average elapsed" value={seconds(d.execution.avg_duration_seconds)} />
+            <Kpi label="Average elapsed" value={seconds(d.execution.avg_duration_seconds)} href={runsHref()} />
             <Kpi
               label="Measured cost / run"
               value={money(d.costs.measured_cost_per_run)}
               note={`${formatNumber(d.costs.cost.complete_runs)} complete of ${formatNumber(d.costs.cost.applicable_runs)} applicable`}
+              href={runsHref({ cost_status: "complete" })}
             />
           </div>
           <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
             <Panel title="Runtime health" note="Did each agent finish, recover, fail, or remain running?">
-              <BreakdownBar data={d.runtime_breakdown} colors={runtimeColors} />
+              <BreakdownBar data={d.runtime_breakdown} colors={runtimeColors} hrefFor={(runtimeStatus) => runsHref({ status: runtimeStatus })} />
             </Panel>
-            <AttentionPanel data={d} />
+            <AttentionPanel data={d} runsHref={runsHref} />
           </div>
           <Panel className="mt-4" title="Workflow volume and reliability" note="Where work is completing, recovering, or breaking.">
-            <WorkflowBarChart items={d.workflows} />
+            <WorkflowBarChart items={d.workflows} onSelect={(item, runtimeStatus) => window.location.assign(runsHref({ workflow: item.label, status: runtimeStatus }))} />
           </Panel>
           <Panel className="mt-4" title="Where work accumulates" note="Declared YAML steps ranked by deduplicated active wall time, directly attributed tokens, or measured cost.">
-            <StageAccumulation items={d.stages} />
+            <StageAccumulation items={d.stages} hrefFor={(item) => runsHref({ stage: item.label })} />
           </Panel>
           <Panel className="mt-4" title="Operation health" note={`Semantic AI, knowledge, media, action, and quality work. ${formatNumber(excludedCoordinationCount)} coordination or unclassified spans are excluded.`}>
             <div className="grid gap-4 xl:grid-cols-[1.45fr_.55fr]">
-              <OperationHealthChart items={semanticOperationTypes} height={230} />
+              <OperationHealthChart items={semanticOperationTypes} height={230} onSelect={(item, failedOnly) => window.location.assign(runsHref({ operation_type: item.type, operation_status: failedOnly ? "failed" : undefined }))} />
               <div className="grid content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="rounded-lg border border-[#e8e5e9] bg-[#fbfbf9] p-3"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Semantic activity</div><div className="mt-1 text-xl font-semibold">{formatNumber(semanticOperationCount)}</div><div className="mt-1 text-[10px] text-[#777178]">across {formatNumber(semanticOperationTypes.length)} operation types</div></div>
-                <div className={`rounded-lg border p-3 ${semanticOperationFailures ? "border-red-200 bg-red-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Direct failures</div><div className={`mt-1 text-xl font-semibold ${semanticOperationFailures ? "text-red-700" : ""}`}>{formatNumber(semanticOperationFailures)}</div><div className="mt-1 text-[10px] text-[#777178]">failed semantic operations, not affected-run exposure</div></div>
+                <a href={runsHref()} className="flex h-full flex-col rounded-lg border border-[#e8e5e9] bg-[#fbfbf9] p-3 transition hover:border-[#cfc6ef] hover:bg-[#f7f4ff]"><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Semantic activity</div><div className="mt-1 text-xl font-semibold">{formatNumber(semanticOperationCount)}</div><div className="mt-1 text-[10px] text-[#777178]">across {formatNumber(semanticOperationTypes.length)} operation types</div><div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div></a>
+                <a href={runsHref({ operation_status: "failed" })} className={`flex h-full flex-col rounded-lg border p-3 transition hover:brightness-[.98] ${semanticOperationFailures ? "border-red-200 bg-red-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Direct failures</div><div className={`mt-1 text-xl font-semibold ${semanticOperationFailures ? "text-red-700" : ""}`}>{formatNumber(semanticOperationFailures)}</div><div className="mt-1 text-[10px] text-[#777178]">failed semantic operations</div><div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div></a>
                 <div className={`rounded-lg border p-3 sm:col-span-2 xl:col-span-1 ${d.operation_measurement_alerts.length ? "border-amber-200 bg-amber-50" : "border-[#e8e5e9] bg-[#fbfbf9]"}`}><div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">Required measurement gaps</div><div className="mt-1 text-xl font-semibold">{formatNumber(d.operation_measurement_alerts.length)}</div>{d.operation_measurement_alerts.length ? <div className="mt-2 space-y-1 text-[10px] text-[#86531d]">{d.operation_measurement_alerts.slice(0, 3).map((item) => <div key={`${item.operation_type}-${item.measurement_key}`}>{humanizeOperation(item.operation_type)} · {item.measurement_key}: {formatNumber(item.operations)}</div>)}</div> : <div className="mt-1 text-[10px] text-[#777178]">No required meters are missing.</div>}</div>
               </div>
             </div>
@@ -346,36 +394,39 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               label="Goal reporting"
               value={percent(d.goals.coverage)}
               note={`${formatNumber(d.goals.reported_runs)} of ${formatNumber(d.execution.total_runs)} runs`}
+              href={runsHref({ goal_status: "reported" })}
             />
-            <Kpi label="Goal success" value={percent(d.goals.success_rate)} note={goalNote} tone="good" />
+            <Kpi label="Goal success" value={percent(d.goals.success_rate)} note={goalNote} tone="good" href={runsHref({ goal_status: "achieved" })} />
             <Kpi
               label="Assured achievements"
               value={formatNumber(d.assurance_summary.assured_runs)}
               note={`${percent(d.assurance_summary.assurance_rate)} of achieved goals`}
               tone="good"
+              href={runsHref({ goal_status: "achieved", assurance_status: "assured" })}
             />
             <Kpi
               label="Assurance attention"
               value={formatNumber(d.assurance_summary.attention_runs + d.assurance_summary.unassessed_runs)}
               note={`${formatNumber(d.assurance_summary.attention_runs)} needs attention · ${formatNumber(d.assurance_summary.unassessed_runs)} unassessed`}
               tone={d.assurance_summary.attention_runs + d.assurance_summary.unassessed_runs ? "warn" : "good"}
+              href={runsHref({ goal_status: "achieved", assurance_status: "needs_attention" })}
             />
-            <Kpi label="Cost / achieved goal" value={money(d.goals.cost_per_achieved_goal)} note={`${formatNumber(d.goals.cost_measured_achieved_runs)} of ${formatNumber(d.goals.achieved_runs)} achieved runs measured`} />
+            <Kpi label="Cost / achieved goal" value={money(d.goals.cost_per_achieved_goal)} note={`${formatNumber(d.goals.cost_measured_achieved_runs)} of ${formatNumber(d.goals.achieved_runs)} achieved runs measured`} href={runsHref({ goal_status: "achieved", cost_status: "complete" })} />
           </div>
           {selectedContract ? (
             <>
               <Panel className="mt-4" title="Goal assurance" note="Achievement and the strength of its declared checks for this goal.">
-                <GoalPortfolio items={d.goal_portfolio} />
+                <GoalPortfolio items={d.goal_portfolio} drilldownBase={drilldownBase} />
               </Panel>
               <div className="mt-4 grid gap-4 xl:grid-cols-2">
               <Panel title="Business results" note="These labels belong to the selected business contract; they are not runtime states.">
-                <BreakdownBar data={d.outcome_breakdown} colors={outcomeColors} />
+                <BreakdownBar data={d.outcome_breakdown} colors={outcomeColors} hrefFor={(outcome) => runsHref({ application_outcome: outcome })} />
               </Panel>
                 <Panel title="Declared checks" note="What this contract evaluated and how its reported runs scored.">
               {d.evaluations.length ? (
                 <div className="space-y-3">
                   {d.evaluations.slice(0, 6).map((evaluation) => (
-                    <div key={evaluation.key} className="rounded-lg bg-[#f7f7f3] p-3">
+                    <a key={evaluation.key} href={runsHref({ evaluation_key: evaluation.key })} className="flex min-h-32 flex-col rounded-lg bg-[#f7f7f3] p-3 transition hover:bg-[#f0ecff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-sm font-semibold">{evaluation.name}</div>
                         <Badge color="gray">{formatNumber(evaluation.reported_runs)} runs</Badge>
@@ -385,7 +436,8 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
                         {evaluation.average_score != null ? `Average: ${formatNumber(evaluation.average_score)} ${evaluation.unit || ""}` : Object.entries(evaluation.labels).map(([label, count]) => `${label}: ${count}`).join(" · ")}
                         {evaluation.target != null ? ` · Target: ${formatNumber(Number(evaluation.target))} ${evaluation.unit || ""}` : ""}
                       </div>
-                    </div>
+                      <div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View evaluated runs →</div>
+                    </a>
                   ))}
                 </div>
               ) : <Empty>No declared checks were reported for this goal.</Empty>}
@@ -396,13 +448,14 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               {d.goal_misses.length ? (
                 <div className="space-y-3">
                   {d.goal_misses.map((item) => (
-                    <div key={item.reason} className="rounded-lg bg-[#fff5f5] p-3">
+                    <a key={item.reason} href={runsHref({ goal_status: "not_achieved", blocker: item.reason })} className="flex min-h-28 flex-col rounded-lg bg-[#fff5f5] p-3 transition hover:bg-[#ffeded] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d95858]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-sm font-medium">{item.reason}</div>
                         <Badge color="red">{formatNumber(item.runs)} runs</Badge>
                       </div>
                       <div className="mt-2 text-xs text-[#777]">{seconds(item.time_seconds)} observed · {money(item.known_cost)}</div>
-                    </div>
+                      <div className="mt-auto pt-3 text-[10px] font-semibold text-[#a83f3f]">View affected runs →</div>
+                    </a>
                   ))}
                 </div>
               ) : <Empty>No reported goal misses in this view.</Empty>}
@@ -413,7 +466,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               )}
                 </Panel>
                 <Panel title="Change over time" note="Success, time, and cost for this goal under the selected filters.">
-                  <GoalTrendChart items={d.goal_trend} />
+                  <GoalTrendChart items={d.goal_trend} onSelect={(item, metric) => window.location.assign(runsHref({ range: undefined, start_date: item.date, end_date: item.date, goal_status: metric === "success" ? "reported" : "achieved", cost_status: metric === "cost" ? "complete" : undefined }))} />
                 </Panel>
               </div>
             </>
@@ -424,10 +477,10 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
               </Panel>
               <div className="mt-4 grid gap-4 xl:grid-cols-[.85fr_1.15fr]">
                 <Panel title="What needs attention" note="Below-target checks and reported goal blockers, ranked for investigation.">
-                  <GoalAttentionQueue data={d} />
+                  <GoalAttentionQueue data={d} drilldownBase={drilldownBase} />
                 </Panel>
                 <Panel title="Portfolio change over time" note="Goal achievement, time, and cost across the complete selected portfolio.">
-                  <GoalTrendChart items={d.goal_trend} />
+                  <GoalTrendChart items={d.goal_trend} onSelect={(item, metric) => window.location.assign(runsHref({ range: undefined, start_date: item.date, end_date: item.date, goal_status: metric === "success" ? "reported" : "achieved", cost_status: metric === "cost" ? "complete" : undefined }))} />
                 </Panel>
               </div>
             </>
@@ -447,7 +500,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
           {(["model", "provider"] as const).map((value) => (
             <button
               key={value}
-              onClick={() => setBreakdown(value)}
+              onClick={() => preserveViewport(() => setBreakdown(value))}
               className={`rounded-md px-4 py-2 text-xs font-semibold ${
                 breakdown === value
                   ? "bg-white text-[#5a35c8] shadow-sm"
@@ -462,18 +515,18 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
       {mode === "health" ? (
         <>
           <Panel className="mt-3" title={`${breakdownLabel} runtime reliability`} note="Execution outcomes for runs involving each operational participant; cost, tokens, calls, and active time remain directly attributed.">
-            <SystemBreakdownList items={breakdownItems} dimension={breakdown} destination="/system-health" />
+            <SystemBreakdownList items={breakdownItems} dimension={breakdown} destination="/runs" drilldownBase={drilldownBase} />
           </Panel>
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,.8fr)]">
             <Panel title={`${breakdownLabel} cost versus active time`} note="Directly attributed active time and measured spend; bubble size shows involved-run volume.">
-              <CostSpeedChart items={breakdownItems} breakdown={breakdown} />
+              <CostSpeedChart items={breakdownItems} breakdown={breakdown} onSelect={(item) => window.location.assign(runsHref({ [breakdown]: item.label }))} />
             </Panel>
             <Panel title={`${breakdownLabel} share of measured spend`} note="Share of measured spend. Hover for the exact amount.">
-              <ProviderSpendChart items={breakdownItems} breakdown={breakdown} />
+              <ProviderSpendChart items={breakdownItems} breakdown={breakdown} onSelect={(item) => window.location.assign(runsHref({ [breakdown]: item.label, cost_status: "complete" }))} />
             </Panel>
           </div>
           <Panel className="mt-4" title={`${breakdownLabel} operational ranking`} note="Direct active time and measured cost for each participant.">
-            <EconomicsBarChart items={breakdownItems} />
+            <EconomicsBarChart items={breakdownItems} onSelect={(item) => window.location.assign(runsHref({ [breakdown]: item.label }))} />
           </Panel>
         </>
       ) : (
@@ -482,16 +535,16 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
             <Panel title={`Goal outcomes for runs involving each ${breakdown}`} note="These are cohort outcomes, not causal attribution; runtime completion is excluded.">
               <GoalRateColumns
                 items={goalComparison.data?.items || []}
-                onSelect={(item) => breakdown === "model" ? setModel(item.model_family || item.model_id || item.label) : setProvider(item.provider_id || item.label)}
+                onSelect={(item) => breakdown === "model" ? updateFilter("model", item.model_family || item.model_id || item.label, setModel) : updateFilter("provider", item.provider_id || item.label, setProvider)}
               />
             </Panel>
-            <Panel title="Goal achievement versus attributed cost" note="Vertical values are cohort outcomes for involved runs; horizontal values are directly attributed participant cost.">
-              <GoalTradeoffChart items={goalComparison.data?.items || []} />
+            <Panel title="Run-cohort goal success versus attributed cost" note="Vertical values are shared outcomes of runs involving the participant; horizontal values are directly attributed participant cost. This is not causal attribution.">
+              <GoalTradeoffChart items={goalComparison.data?.items || []} onSelect={(item) => breakdown === "model" ? updateFilter("model", item.model_family || item.model_id || item.label, setModel) : updateFilter("provider", item.provider_id || item.label, setProvider)} />
             </Panel>
           </div>
           {selectedContract && (
             <Panel className="mt-4" title="Evaluation results for runs involving participant" note="Average final evaluation facts for each participant cohort, compared with the selected contract targets.">
-              <QualityComparisonChart items={goalComparison.data?.items || []} />
+              <QualityComparisonChart items={goalComparison.data?.items || []} onSelect={(participant, evaluation) => window.location.assign(runsHref({ [breakdown]: participant, evaluation_key: evaluation }))} />
             </Panel>
           )}
         </>
@@ -510,10 +563,10 @@ export function GoalPerformancePage() {
 
 export const drilldownHref = (
   destination: string,
-  filters: { contract_hash?: string | null; model?: string; provider?: string },
+  filters: Record<string, string | number | boolean | null | undefined>,
 ) => {
   const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => value && params.set(key, value));
+  Object.entries(filters).forEach(([key, value]) => value !== null && value !== undefined && value !== "" && value !== false && params.set(key, String(value)));
   const query = params.toString();
   return query ? `${destination}?${query}` : destination;
 };
@@ -582,7 +635,7 @@ function GoalPortfolioGrid({ items }: { items: GoalPortfolioItem[] }) {
   );
 }
 
-function GoalAttentionQueue({ data }: { data: Overview }) {
+function GoalAttentionQueue({ data, drilldownBase }: { data: Overview; drilldownBase?: Record<string, string | number | boolean | null | undefined> }) {
   const checks = data.goal_portfolio
     .filter((item) => item.top_attention)
     .sort((a, b) => (b.top_attention?.attention_runs || 0) - (a.top_attention?.attention_runs || 0));
@@ -590,16 +643,16 @@ function GoalAttentionQueue({ data }: { data: Overview }) {
   return (
     <div className="space-y-2">
       {checks.slice(0, 4).map((item) => (
-        <a key={item.goal_id} href={drilldownHref("/goal-performance", { contract_hash: item.contract_hash || item.contract_hashes[0] })} className="block rounded-lg bg-[#fff7e9] p-3 hover:bg-[#fff1d8]">
+        <a key={item.goal_id} href={drilldownHref("/runs", { ...drilldownBase, contract_hash: item.contract_hash || item.contract_hashes[0], evaluation_key: item.top_attention?.key, evaluation_status: "failed" })} className="block rounded-lg bg-[#fff7e9] p-3 hover:bg-[#fff1d8]">
           <div className="flex items-start justify-between gap-3"><div className="text-sm font-semibold">{item.goal_name}</div><Badge color="yellow">{formatNumber(item.top_attention?.attention_runs)} runs</Badge></div>
           <div className="mt-1 text-xs text-[#7a5b2c]">{item.top_attention?.name}: average {formatNumber(item.top_attention?.average_score)} · target {String(item.top_attention?.target ?? "not declared")}</div>
         </a>
       ))}
       {data.goal_misses.slice(0, Math.max(2, 5 - checks.length)).map((item) => (
-        <div key={item.reason} className="rounded-lg bg-[#fff2f2] p-3">
+        <a key={item.reason} href={drilldownHref("/runs", { ...drilldownBase, goal_status: "not_achieved", blocker: item.reason })} className="block rounded-lg bg-[#fff2f2] p-3 hover:bg-[#ffebeb]">
           <div className="flex items-start justify-between gap-3"><div className="text-sm font-semibold">{item.reason}</div><Badge color="red">{formatNumber(item.runs)} runs</Badge></div>
           <div className="mt-1 text-xs text-[#846767]">{seconds(item.time_seconds)} observed · {money(item.known_cost)}</div>
-        </div>
+        </a>
       ))}
     </div>
   );
@@ -649,10 +702,12 @@ function SystemBreakdownList({
   items,
   dimension,
   destination,
+  drilldownBase,
 }: {
   items: Performance[];
   dimension: "model" | "provider";
   destination: string;
+  drilldownBase?: Record<string, string | number | boolean | null | undefined>;
 }) {
   const shown = [...items].sort((a, b) => b.runs - a.runs).slice(0, 8);
   if (!shown.length) return <Empty>No operational participants in this view.</Empty>;
@@ -664,7 +719,7 @@ function SystemBreakdownList({
         return (
           <a
             key={item.label}
-            href={drilldownHref(destination, { [dimension]: item.label })}
+            href={drilldownHref(destination, { ...drilldownBase, [dimension]: item.label })}
             className="group grid gap-2 rounded-lg border border-transparent px-2 py-2 hover:border-[#e3ddf7] hover:bg-[#faf8ff] sm:grid-cols-[minmax(140px,1fr)_minmax(150px,1.5fr)_72px_82px] sm:items-center"
           >
             <div className="min-w-0"><div className="truncate text-sm font-semibold group-hover:text-[#603bd1]">{label}</div><div className="text-[11px] text-[#777]">{formatNumber(item.runs)} runs</div></div>
@@ -678,18 +733,20 @@ function SystemBreakdownList({
   );
 }
 
-function GoalPortfolio({ items, destination, compact = false }: { items: GoalPortfolioItem[]; destination?: string; compact?: boolean }) {
+function GoalPortfolio({ items, destination, compact = false, drilldownBase }: { items: GoalPortfolioItem[]; destination?: string; compact?: boolean; drilldownBase?: Record<string, string | number | boolean | null | undefined> }) {
   if (!items.length) return <Empty>No business goals were reported in this view.</Empty>;
   return (
     <div className="space-y-3">
       {items.map((item) => {
         const total = Math.max(item.runs, 1);
+        const contract = item.contract_hash || item.contract_hashes[0];
         const segments = [
-          { label: "Assured", count: item.assured_runs, color: "bg-[#24a267]" },
-          { label: "Achieved · attention", count: item.attention_runs, color: "bg-[#ed9b2d]" },
-          { label: "Not achieved", count: item.not_achieved_runs, color: "bg-[#d95858]" },
-          { label: "Unassessed", count: item.unassessed_runs, color: "bg-[#9aa1ad]" },
+          { label: "Assured", count: item.assured_runs, color: "bg-[#24a267]", filters: { goal_status: "achieved", assurance_status: "assured" } },
+          { label: "Achieved · attention", count: item.attention_runs, color: "bg-[#ed9b2d]", filters: { goal_status: "achieved", assurance_status: "needs_attention" } },
+          { label: "Not achieved", count: item.not_achieved_runs, color: "bg-[#d95858]", filters: { goal_status: "not_achieved" } },
+          { label: "Unassessed", count: item.unassessed_runs, color: "bg-[#9aa1ad]", filters: { goal_status: "achieved", assurance_status: "unassessed" } },
         ];
+        const segmentHref = (filters: Record<string, string | undefined>) => drilldownHref("/runs", { ...drilldownBase, contract_hash: contract, ...filters });
         return (
           <div key={item.goal_id} className="rounded-xl border border-[#e9e8e2] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -707,27 +764,29 @@ function GoalPortfolio({ items, destination, compact = false }: { items: GoalPor
             </div>
             <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-[#efefeb]" aria-label={`${item.goal_name} assurance breakdown`}>
               {segments.map((segment) => segment.count > 0 && (
-                <div
+                <a
                   key={segment.label}
+                  href={segmentHref(segment.filters)}
                   title={`${segment.label}: ${segment.count}`}
-                  className={segment.color}
+                  className={`${segment.color} transition hover:brightness-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white`}
                   style={{ width: `${(segment.count / total) * 100}%` }}
                 />
               ))}
             </div>
             {!compact && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#686862]">
               {segments.map((segment) => (
-                <span key={segment.label} className="inline-flex items-center gap-1.5">
+                <a key={segment.label} href={segmentHref(segment.filters)} className="inline-flex items-center gap-1.5 rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]">
                   <span className={`size-2 rounded-sm ${segment.color}`} />
                   {segment.label} {formatNumber(segment.count)}
-                </span>
+                </a>
               ))}
               <span>Assessment coverage {percent(item.assessment_coverage)}</span>
             </div>}
             {!compact && item.top_attention && (
-              <div className="mt-3 rounded-lg bg-[#fff8ec] px-3 py-2 text-xs text-[#8a570e]">
+              <a href={segmentHref({ evaluation_key: item.top_attention.key, evaluation_status: "failed" })} className="mt-3 block rounded-lg bg-[#fff8ec] px-3 py-2 text-xs text-[#8a570e] transition hover:bg-[#fff1d8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ed9b2d]">
                 <span className="font-semibold">Needs attention:</span> {item.top_attention.name} averaged {item.top_attention.average_score == null ? "an unscored result" : formatNumber(item.top_attention.average_score)}{item.top_attention.target == null ? "" : ` against a target of ${String(item.top_attention.target)}`} and missed in {formatNumber(item.top_attention.attention_runs)} run{item.top_attention.attention_runs === 1 ? "" : "s"}.
-              </div>
+                <span className="ml-1 font-semibold">View failed checks →</span>
+              </a>
             )}
           </div>
         );
@@ -774,6 +833,68 @@ const resolvedFilters = (values: SharedFilterValues): DashboardFilters => ({
       ? undefined
       : browserDateDaysAgo(Number(values.range)),
 });
+
+const semanticRouteFilters = (): DashboardFilters => ({
+  start_date: routeParam("start_date") || undefined,
+  end_date: routeParam("end_date") || undefined,
+  stage: routeParam("stage") || undefined,
+  tool: routeParam("tool") || undefined,
+  goal_status: routeParam("goal_status") || undefined,
+  assurance_status: routeParam("assurance_status") || undefined,
+  application_outcome: routeParam("application_outcome") || undefined,
+  blocker: routeParam("blocker") || undefined,
+  evaluation_key: routeParam("evaluation_key") || undefined,
+  evaluation_status: routeParam("evaluation_status") || undefined,
+  cost_status: routeParam("cost_status") || undefined,
+  token_status: routeParam("token_status") || undefined,
+  operation_type: routeParam("operation_type") || undefined,
+  operation_status: routeParam("operation_status") || undefined,
+  failure_location: routeParam("failure_location") || undefined,
+  has_failure: routeParam("has_failure") === "true" || undefined,
+  has_repeated_work: routeParam("has_repeated_work") === "true" || undefined,
+});
+
+const filterLabel = (key: string, value: string) => {
+  const names: Record<string, string> = {
+    contract_hash: "Goal",
+    provider: "Provider",
+    model: "Model",
+    status: "Runtime",
+    goal_status: "Goal",
+    assurance_status: "Assurance",
+    application_outcome: "Business result",
+    blocker: "Blocker",
+    evaluation_key: "Evaluation",
+    evaluation_status: "Evaluation result",
+    cost_status: "Cost",
+    token_status: "Tokens",
+    operation_type: "Operation",
+    operation_status: "Operation status",
+    failure_location: "Failure location",
+    start_date: "From",
+    end_date: "Through",
+    has_failure: "Failure",
+    has_repeated_work: "Repeated work",
+  };
+  return `${names[key] || key}: ${value.replaceAll("_", " ")}`;
+};
+
+function ActiveFilterChips({ filters }: { filters: DashboardFilters }) {
+  const entries = Object.entries(filters).filter(([, value]) => value != null && value !== "");
+  if (!entries.length) return null;
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-[#f9f7ff] px-3 py-2 text-xs">
+      <span className="font-semibold text-[#555]">Showing</span>
+      {entries.map(([key, value]) => {
+        const params = new URLSearchParams(window.location.search);
+        params.delete(key);
+        const href = `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`;
+        return <a key={key} href={href} className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-[#5a35c8] ring-1 ring-[#d8cff3] hover:bg-[#f0ebff]">{filterLabel(key, String(value))} ×</a>;
+      })}
+      <a href={window.location.pathname} className="ml-auto font-semibold text-[#6b6470] hover:text-[#5a35c8]">Clear all</a>
+    </div>
+  );
+}
 function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { metadata: Meta; values: SharedFilterValues; onChange: (values: SharedFilterValues) => void; includeGoal?: boolean }) {
   const set = (key: keyof SharedFilterValues, value: string) => onChange({ ...values, [key]: value });
   return (
@@ -792,6 +913,7 @@ function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { m
       </FilterSelect>
       <FilterSelect value={values.status} onChange={(value) => set("status", value)} label="All runtime states">
         <option value="completed">Completed or recovered</option>
+        <option value="recovered">Recovered</option>
         <option value="failed">Failed</option>
         <option value="running">Running</option>
       </FilterSelect>
@@ -827,14 +949,14 @@ function ContractCard({ contract }: { contract: ContractDefinition }) {
   );
 }
 
-function AttentionPanel({ data }: { data: Overview }) {
+function AttentionPanel({ data, runsHref }: { data: Overview; runsHref: (extra?: Record<string, string | number | boolean | null | undefined>) => string }) {
   const measurementMessages = measurementAttentionMessages(data);
   return (
     <Panel title="What needs attention" note="Concrete breakpoints and missing measurements.">
       {data.failures.length ? (
         <div className="space-y-3">
           {data.failures.slice(0, 6).map((failure) => (
-            <div key={failure.failure_location} className="flex items-center justify-between rounded-lg bg-[#fff5f5] p-3">
+            <a key={failure.failure_location} href={runsHref({ failure_location: failure.failure_location, has_failure: true })} className="flex items-center justify-between rounded-lg bg-[#fff5f5] p-3 transition hover:bg-[#ffeded] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d95858]">
               <div>
                 <div className="text-sm font-medium">{failure.failure_location}</div>
                 <div className="text-xs text-[#777]">{formatNumber(failure.recovered_runs)} recovered · failed operation {seconds(failure.time_seconds)} · {money(failure.known_cost)}</div>
@@ -845,7 +967,7 @@ function AttentionPanel({ data }: { data: Overview }) {
                   ? `${formatNumber(failure.terminal_runs)} failed`
                   : `${formatNumber(failure.recovered_runs)} recovered`}
               </Badge>
-            </div>
+            </a>
           ))}
         </div>
       ) : measurementMessages.length ? (
@@ -876,14 +998,16 @@ export function RunsPage() {
     provider: routeParam("provider"),
     model: routeParam("model"),
     status: routeParam("status"),
+    range: routeParam("range") || "all",
   }));
   const [page, setPage] = useState(1);
   const workflow = routeParam("workflow");
   const workflowId = routeParam("workflow_id");
   const unavailableReplay = routeParam("unavailable_replay");
-  const filters = { ...resolvedFilters(filterValues), workflow: workflow || undefined, workflow_id: workflowId || undefined };
+  const filters = { ...resolvedFilters(filterValues), ...semanticRouteFilters(), workflow: workflow || undefined, workflow_id: workflowId || undefined };
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["runs", workflow, workflowId, filterValues, page], queryFn: () => api.runs(filters, page, 10) });
+  const q = useQuery({ queryKey: ["runs", workflow, workflowId, filterValues, page], queryFn: () => api.runs(filters, page, 10), placeholderData: keepPreviousData });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -903,13 +1027,14 @@ export function RunsPage() {
         </div>
       ) : null}
       {workflow || workflowId ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow || workflowId}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => { setFilterValues(values); setPage(1); }} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); setPage(1); })} />
+      <ActiveFilterChips filters={filters} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
       <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-[#74746e]">Page {q.data!.page} of {q.data!.pages} · {formatNumber(q.data!.count)} runs</span>
         <div className="flex gap-2">
-          <button disabled={q.data!.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
-          <button disabled={q.data!.page >= q.data!.pages} onClick={() => setPage((value) => value + 1)} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+          <button disabled={q.data!.page <= 1} onClick={() => preserveViewport(() => setPage((value) => Math.max(1, value - 1)))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+          <button disabled={q.data!.page >= q.data!.pages} onClick={() => preserveViewport(() => setPage((value) => value + 1))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Next</button>
         </div>
       </div>
     </>
@@ -967,7 +1092,9 @@ export function ComparePage() {
   const q = useQuery({
     queryKey: ["compare", dimension, filterValues],
     queryFn: () => api.compare(dimension, filters),
+    placeholderData: keepPreviousData,
   });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -985,12 +1112,12 @@ export function ComparePage() {
         description="See which providers and models deliver the result you need at the time and cost you can accept."
         action={
           <div className="flex rounded-lg bg-[#ecebe7] p-1">
-            <ModeButton active={dimension === "model"} onClick={() => setDimension("model")}>By model</ModeButton>
-            <ModeButton active={dimension === "provider"} onClick={() => setDimension("provider")}>By provider</ModeButton>
+            <ModeButton active={dimension === "model"} onClick={() => preserveViewport(() => setDimension("model"))}>By model</ModeButton>
+            <ModeButton active={dimension === "provider"} onClick={() => preserveViewport(() => setDimension("provider"))}>By provider</ModeButton>
           </div>
         }
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
       <Panel title={`${dimension === "model" ? "Models" : "Providers"}: attributable speed and spend`} note="Each point uses only the model calls, tokens, cost, and elapsed model time attributable to that participant.">
         <CostLatencyScatter items={compareItems} />
       </Panel>
@@ -1010,7 +1137,8 @@ export function WorkflowsPage() {
   const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
   const filters = resolvedFilters(filterValues);
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["workflows", filterValues], queryFn: () => api.workflows(filters) });
+  const q = useQuery({ queryKey: ["workflows", filterValues], queryFn: () => api.workflows(filters), placeholderData: keepPreviousData });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -1020,7 +1148,7 @@ export function WorkflowsPage() {
         title="Workflows"
         description="Understand which workflows carry the work and which paths are slow, expensive, or fragile."
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
       <Panel title="Workflow portfolio" note="Canonical runtimes only; wrapper spans are not counted as separate workflows. At most 10 workflows are shown.">
         <CostLatencyScatter items={q.data!.items} xLabel="End-to-end time / run (seconds)" />
       </Panel>
@@ -1037,7 +1165,8 @@ export function IssuesPage() {
   const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
   const filters = resolvedFilters(filterValues);
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["issues", filterValues], queryFn: () => api.issues(filters) });
+  const q = useQuery({ queryKey: ["issues", filterValues], queryFn: () => api.issues(filters), placeholderData: keepPreviousData });
+  const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -1064,7 +1193,7 @@ export function IssuesPage() {
         title="Issues"
         description="A prioritized investigation queue for failures, quality regressions, retry pressure, resource outliers, and missing evidence."
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={setFilterValues} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
       <section className={`mb-4 overflow-hidden rounded-xl border ${hasFailure ? "border-red-200 bg-red-50/50" : hasAttention ? "border-amber-200 bg-[#fffdf7]" : "border-emerald-200 bg-emerald-50/40"}`}>
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(440px,.75fr)] lg:items-center">
           <div className="min-w-0">

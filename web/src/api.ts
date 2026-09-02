@@ -31,6 +31,7 @@ export type ComparisonInsight = {
   model_family: string | null;
   vendor_id: string | null;
   scope: "cohort+direct-attribution";
+  cohort_key?: string;
   label: string;
   runs: number;
   avg_duration_seconds: number | null;
@@ -47,7 +48,7 @@ export type ComparisonInsight = {
   cost_measured_operations: number;
   token_eligible_operations: number;
   token_measured_operations: number;
-  evaluations?: Array<{ name: string; reported_runs: number; average_score: number | null; target?: number | string | boolean; direction: string }>;
+  evaluations?: Array<{ key: string; name: string; reported_runs: number; average_score: number | null; target?: number | string | boolean; direction: string }>;
 };
 export type WorkflowInsight = ComparisonInsight & { runtime_id: string };
 export type WorkflowStage = {
@@ -315,10 +316,25 @@ export type Meta = {
 export type DashboardFilters = {
   workflow?: string;
   workflow_id?: string;
+  tool?: string;
+  stage?: string;
   contract_hash?: string;
   provider?: string;
   model?: string;
   status?: string;
+  goal_status?: string;
+  assurance_status?: string;
+  application_outcome?: string;
+  blocker?: string;
+  evaluation_key?: string;
+  evaluation_status?: string;
+  cost_status?: string;
+  token_status?: string;
+  operation_type?: string;
+  operation_status?: string;
+  failure_location?: string;
+  has_failure?: boolean;
+  has_repeated_work?: boolean;
   start_date?: string;
   end_date?: string;
 };
@@ -544,10 +560,10 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
     );
   return response.json() as Promise<T>;
 }
-const withFilters = (path: string, filters: Record<string, string | undefined> = {}) => {
+const withFilters = (path: string, filters: Record<string, string | boolean | undefined> = {}) => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
-    if (value) params.set(key, value);
+    if (value !== undefined && value !== "" && value !== false) params.set(key, String(value));
   });
   const query = params.toString();
   return query ? `${path}?${query}` : path;
