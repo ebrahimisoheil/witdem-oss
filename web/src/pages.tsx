@@ -132,41 +132,43 @@ export function OverviewPage() {
           </div>
           <a href="/goal-performance" className="mt-6 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Explore goal performance →</a>
         </section>
-        <section className="rounded-2xl border border-[#e2e1db] bg-white p-6 shadow-[0_8px_30px_rgba(40,40,30,.05)]">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#6f6f69]">System health</div>
-              <div className="mt-3 text-4xl font-semibold tracking-[-.04em] text-[#252522]">{percent(completionRate)}</div>
-              <div className="mt-2 text-sm text-[#72726c]">runtime completion across {formatNumber(d.execution.total_runs)} runs</div>
+        <section className="flex flex-col rounded-2xl border border-[#e2e1db] bg-white p-6 shadow-[0_8px_30px_rgba(40,40,30,.05)]">
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#6f6f69]">System health</div>
+            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 ${runtimeAttention ? "bg-[#fff4e7]" : "bg-[#edf9f2]"}`}>
+              <span className={`text-sm font-semibold ${runtimeAttention ? "text-[#a96108]" : "text-[#167a47]"}`}>{formatNumber(runtimeAttention)}</span>
+              <span className="text-[11px] text-[#777]">need attention</span>
             </div>
-            <div className={`rounded-xl px-4 py-3 text-right ${runtimeAttention ? "bg-[#fff4e7]" : "bg-[#edf9f2]"}`}>
-              <div className={`text-2xl font-semibold ${runtimeAttention ? "text-[#a96108]" : "text-[#167a47]"}`}>{formatNumber(runtimeAttention)}</div>
-              <div className="text-xs text-[#777]">need attention</div>
-            </div>
+          </div>
+          <div className="mt-4">
+            <div className="text-4xl font-semibold tracking-[-.04em] text-[#252522]">{percent(completionRate)}</div>
+            <div className="mt-1 text-sm font-medium text-[#55554f]">Runtime completion</div>
+            <div className="mt-1 text-xs text-[#888880]">Across {formatNumber(d.execution.total_runs)} terminal runs</div>
           </div>
           <div className="mt-5 grid grid-cols-3 gap-2 border-t border-[#ecebe6] pt-4 text-xs">
-            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">avg / terminal run</div></div>
-            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">complete measured / applicable run</div></div>
-            <div><div className="font-semibold text-[#333]">{percent(d.costs.cost.coverage)}</div><div className="mt-1 text-[#777]">applicable cost coverage</div></div>
+            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">Avg duration</div></div>
+            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">Avg measured cost</div></div>
+            <div><div className="font-semibold text-[#333]">{percent(d.costs.cost.coverage)}</div><div className="mt-1 text-[#777]">Cost coverage</div></div>
           </div>
-          <a href="/system-health" className="mt-5 inline-flex text-xs font-semibold text-[#603bd1]">Explore system health →</a>
+          <a href="/system-health" className="mt-auto inline-flex pt-5 text-xs font-semibold text-[#603bd1]">Explore system health →</a>
         </section>
         <section className="flex min-w-0 flex-col rounded-2xl border border-[#ded7f3] bg-[#f8f5ff] p-6 shadow-[0_8px_30px_rgba(62,42,112,.06)]">
           <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">{costIncomplete ? "Known subtotal" : "Measured spend"}</div>
           <div className="mt-3 break-words text-4xl font-semibold tracking-[-.04em] text-[#2f2450]">
             {money(d.costs.measured_cost)}
           </div>
-          <div className="mt-2 text-sm leading-5 text-[#716a7f]">
-            {formatNumber(d.costs.cost.applicable_runs)} of {formatNumber(d.execution.total_runs)} runs contained billable activity
+          <div className="mt-1 text-sm font-medium text-[#554b68]">Billable activity</div>
+          <div className="mt-1 text-xs text-[#817a8d]">
+            {formatNumber(d.costs.cost.applicable_runs)} of {formatNumber(d.execution.total_runs)} runs
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#e5def6] pt-4 text-xs">
-            <div>
-              <div className="font-semibold text-[#3e3458]">{percent(d.costs.cost.coverage)}</div>
-              <div className="mt-1 text-[#817a8d]">of applicable runs</div>
+          <div className="mt-5 space-y-3 border-t border-[#e5def6] pt-4 text-xs">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[#817a8d]">Cost coverage</span>
+              <span className="font-semibold text-[#3e3458]">{percent(d.costs.cost.coverage)}</span>
             </div>
-            <div>
-              <div className="font-semibold text-[#3e3458]">{money(d.costs.measured_cost_per_run)}</div>
-              <div className="mt-1 text-[#817a8d]">measured / run</div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[#817a8d]">Average per run</span>
+              <span className="font-semibold text-[#3e3458]">{money(d.costs.measured_cost_per_run)}</span>
             </div>
           </div>
           <a href="/system-health" className="mt-auto pt-5 text-xs font-semibold text-[#603bd1]">Inspect spend →</a>
