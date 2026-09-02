@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any
 
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 
@@ -81,6 +82,7 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
         self.model = model
         self._tracer = trace.get_tracer("witdem_sdk.integrations.langchain")
         self._operations: dict[str, Any] = {}
+        self._context_tokens: dict[str, Any] = {}
 
     def _start(
         self,
@@ -102,6 +104,7 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
             if value is not None:
                 span.set_attribute(key, value)
         self._operations[str(run_id)] = span
+        self._context_tokens[str(run_id)] = otel_context.attach(trace.set_span_in_context(span))
 
     def _end(self, run_id: Any, error: BaseException | None = None, output: Any = None) -> None:
         span = self._operations.pop(str(run_id), None)
@@ -109,12 +112,27 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
             if error is not None:
                 span.record_exception(error)
                 span.set_status(Status(StatusCode.ERROR, str(error)))
+            token = self._context_tokens.pop(str(run_id), None)
+            if token is not None:
+                otel_context.detach(token)
             span.end()
 
     def on_chain_start(
         self, serialized: Any, inputs: Any, *, run_id: Any, parent_run_id: Any = None, **kwargs: Any
     ) -> None:
-        self._start(run_id, "langchain.chain", "component", parent_run_id=parent_run_id)
+        self._start(
+            run_id,
+            "langchain.chain",
+            "component",
+            parent_run_id=parent_run_id,
+            **{
+                "witdem.operation.family": "orchestration",
+                "witdem.operation.type": "component",
+                "witdem.operation.interface": "framework",
+                "witdem.framework.id": "langchain",
+                "witdem.execution.source": "langchain",
+            },
+        )
 
     def on_chain_end(self, outputs: Any, *, run_id: Any, **kwargs: Any) -> None:
         self._end(run_id, output=outputs)
@@ -133,6 +151,11 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
             parent_run_id=parent_run_id,
             **{
                 "gen_ai.framework.name": "langchain",
+                "gen_ai.operation.name": "text_completion",
+                "witdem.operation.type": "text_generation",
+                "witdem.operation.interface": "model_api",
+                "witdem.framework.id": "langchain",
+                "witdem.execution.source": "langchain",
                 "gen_ai.provider.name": self.provider,
                 "gen_ai.request.model": model or self.model or "unknown",
             },
@@ -149,6 +172,11 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
             parent_run_id=parent_run_id,
             **{
                 "gen_ai.framework.name": "langchain",
+                "gen_ai.operation.name": "chat",
+                "witdem.operation.type": "text_generation",
+                "witdem.operation.interface": "model_api",
+                "witdem.framework.id": "langchain",
+                "witdem.execution.source": "langchain",
                 "gen_ai.provider.name": self.provider,
                 "gen_ai.request.model": model or self.model or "unknown",
             },
@@ -165,7 +193,18 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
         self, serialized: Any, input_str: Any, *, run_id: Any, parent_run_id: Any = None, **kwargs: Any
     ) -> None:
         name = serialized.get("name", "tool") if isinstance(serialized, dict) else "tool"
-        self._start(run_id, f"langchain.tool.{name}", "tool", parent_run_id=parent_run_id)
+        self._start(
+            run_id,
+            f"langchain.tool.{name}",
+            "tool",
+            parent_run_id=parent_run_id,
+            **{
+                "witdem.operation.type": "tool_execution",
+                "witdem.operation.interface": "tool",
+                "witdem.framework.id": "langchain",
+                "witdem.execution.source": "langchain",
+            },
+        )
 
     def on_tool_end(self, output: Any, *, run_id: Any, **kwargs: Any) -> None:
         self._end(run_id, output=output)
@@ -176,7 +215,18 @@ class WitdemCallbackHandler(BaseCallbackHandler):  # type: ignore[misc,unused-ig
     def on_retriever_start(
         self, serialized: Any, query: Any, *, run_id: Any, parent_run_id: Any = None, **kwargs: Any
     ) -> None:
-        self._start(run_id, "langchain.retriever", "retriever", parent_run_id=parent_run_id)
+        self._start(
+            run_id,
+            "langchain.retriever",
+            "retriever",
+            parent_run_id=parent_run_id,
+            **{
+                "witdem.operation.type": "retrieval",
+                "witdem.operation.interface": "library",
+                "witdem.framework.id": "langchain",
+                "witdem.execution.source": "langchain",
+            },
+        )
 
     def on_retriever_end(self, documents: Any, *, run_id: Any, **kwargs: Any) -> None:
         self._end(run_id, output=documents)

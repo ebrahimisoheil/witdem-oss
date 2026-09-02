@@ -17,6 +17,7 @@
     "langgraph": "beta",
     "langchain": "beta",
     "native_python": "supported",
+    "openai_direct": "beta",
     "openai_agents": "beta",
     "anthropic_messages": "beta",
     "claude_agent": "beta",

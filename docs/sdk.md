@@ -97,6 +97,7 @@ Every high-level integration owns SDK configuration, one execution, correlation,
 | LangGraph | `langgraph.instrument(compiled_graph, ...)` | `graph.invoke(...)` |
 | LangChain | `langchain.instrument(runnable, ...)` | `chain.invoke(...)` |
 | Haystack | `haystack.instrument(pipeline, ...)` | `pipeline.run(...)` |
+| Direct OpenAI SDK | `openai.instrument(run_agent, client=client, ...)` | `observed_run(...)` |
 | OpenAI Agents | `openai_agents.instrument(run_agent, ...)` | `observed_run(...)` |
 | Anthropic Messages | `anthropic.instrument(run_agent, client=client, ...)` | `observed_run(...)` |
 | Claude Agent SDK | `claude_agent.instrument(message_stream, model=...)` | `async for message in stream` |
@@ -119,6 +120,15 @@ observed_run = instrument(
     client=anthropic_client,
     report_result=report_result,
 )
+answer = observed_run()
+```
+
+Direct OpenAI SDK instrumentation follows the same workload pattern and is separate from OpenAI Agents:
+
+```python
+from witdem_sdk.integrations.openai import instrument
+
+observed_run = instrument(run_agent, client=openai_client, report_result=report_result)
 answer = observed_run()
 ```
 

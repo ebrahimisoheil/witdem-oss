@@ -40,7 +40,7 @@ Runnable examples:
 
 ## Limitations
 
-- This adapter targets OpenAI Agents SDK tracing, not every call made through the base `openai` Python client. Wrap direct client calls with native operations or the generic provider helper.
+- This adapter targets OpenAI Agents SDK tracing. Use the separate [direct OpenAI SDK integration](openai.md) for Responses, Chat Completions, or embeddings calls.
 - Content capture is disabled by default.
 - Cost requires provider-reported money or recognized model and usage evidence.
 - Native SDK trace fields can change before a 1.0 release; the supported dependency range remains `<1`.

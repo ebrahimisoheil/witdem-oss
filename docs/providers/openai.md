@@ -1,13 +1,13 @@
 # OpenAI
 
-**Status: beta native support for OpenAI Agents; framework and generic paths are also available.**
+**Status: beta native support for both the direct OpenAI SDK and OpenAI Agents.**
 
 ## Choose the path
 
 - OpenAI Agents SDK: use [`openai_agents.instrument`](../integrations/openai-agents.md).
+- Direct Responses, Chat Completions, or embeddings: use [`openai.instrument`](../integrations/openai.md) or `instrument_openai` inside an existing execution.
 - LangChain or LangGraph with an OpenAI model: use that framework's Witdem wrapper and pass `provider="openai"`/`model=` only when framework metadata is incomplete.
 - Haystack 3: use the [Haystack wrapper](../integrations/haystack.md); it observes OpenAI generator response metadata at the native component boundary.
-- Direct `openai` client calls: use a native `witdem.model(...)` block or the generic wrapper.
 
 ## OpenAI Agents example
 
@@ -34,6 +34,6 @@ The bundled catalog includes the exact OpenAI models listed in [`catalog.yaml`](
 
 ## Limitations
 
-- OpenAI Agents tracing is a dedicated integration; the base OpenAI client is not automatically monkey-patched.
+- Direct OpenAI and OpenAI Agents are separate adapters; neither globally monkey-patches the other SDK.
 - Azure OpenAI has separate endpoint/deployment semantics; use the [Azure guide](azure-openai.md).
 - Cost is not proof that content capture is enabled. Prompts and outputs remain disabled by default.

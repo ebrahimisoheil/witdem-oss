@@ -28,7 +28,7 @@ env:
   PIP_VERSION: "26.2.1"
   BUILD_VERSION: "1.5.0"
   TWINE_VERSION: "7.0.0"
-  NPM_DIST_TAG: "stable-0-1"
+  NPM_DIST_TAG: "latest"
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
@@ -343,12 +343,11 @@ jobs:
           npm run check
           npm test
           npm pack --silent
-      - name: Publish npm without changing latest
+      - name: Publish npm and restore the release channel
         working-directory: release-source/npm
         env:
           VERSION: ${{ steps.resumed-release.outputs.version }}
         run: |
-          latest_before=$(npm view witdem dist-tags.latest)
           if npm view "witdem@${VERSION}" version >/dev/null 2>&1; then
             test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
             test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
@@ -357,8 +356,6 @@ jobs:
           fi
           test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
           test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
-          latest_after=$(npm view witdem dist-tags.latest)
-          test "$latest_after" = "$latest_before"
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}

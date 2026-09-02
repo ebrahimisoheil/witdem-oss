@@ -15,7 +15,7 @@ Choose one:
 
 ```bash
 # Docker-managed
-npx -y witdem@stable-0-1 up
+npx -y witdem@latest up
 
 # Native Python, without Node or Docker
 pipx install witdem-analytics
@@ -25,7 +25,7 @@ witdem up
 Verify both public services:
 
 ```bash
-npx -y witdem@stable-0-1 status  # NPX
+npx -y witdem@latest status  # NPX
 witdem status                # pipx
 curl http://localhost:4318/readiness
 curl http://localhost:8501/health
@@ -43,6 +43,7 @@ and stores data under the platform data directory. See [Operations](operations.m
 | Haystack 3 | [Using Witdem with Haystack](integrations/haystack.md) | `haystack` |
 | LangGraph | [Using Witdem with LangGraph](integrations/langgraph.md) | `langgraph` |
 | LangChain | [Using Witdem with LangChain](integrations/langchain.md) | `langchain` |
+| Direct OpenAI SDK | [Using Witdem with the direct OpenAI SDK](integrations/openai.md) | `openai` |
 | OpenAI Agents | [Using Witdem with OpenAI Agents](integrations/openai-agents.md) | `openai` |
 | Anthropic Messages or Claude Agent SDK | [Using Witdem with Anthropic](integrations/anthropic.md) | `anthropic` for Messages |
 | Hugging Face smolagents | [Using Witdem with smolagents](integrations/smolagents.md) | `smolagents` |
@@ -150,7 +151,7 @@ The ELT worker processes ingestion asynchronously. A new run can take a short mo
 ## Stop without deleting data
 
 ```bash
-npx -y witdem@stable-0-1 down  # NPX
+npx -y witdem@latest down  # NPX
 witdem down                # pipx
 ```
 

@@ -269,6 +269,19 @@ def test_unknown_model_keeps_cost_unavailable_with_a_specific_reason() -> None:
     assert operation.attributes["cost_unavailable_reason"] == "unknown_model"
 
 
+def test_non_model_span_does_not_invent_a_cost_unavailable_reason() -> None:
+    span = OTelEnvelopeNormalizer().normalize(
+        _span(
+            "component",
+            "fallback_generator",
+            attributes={"witdem.operation.type": "text_generation"},
+        )
+    )
+    operation = graph_from_spans([span], execution_id="execution", runtime="test", telemetry_path="otel").operations[0]
+
+    assert "cost_unavailable_reason" not in operation.attributes
+
+
 def test_configured_runtime_comes_from_otel_resource() -> None:
     assert _configured_runtime([{"resource": {"witdem.runtime": "anthropic/tool_loop"}}]) == "anthropic/tool_loop"
 

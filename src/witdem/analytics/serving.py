@@ -236,13 +236,18 @@ def build_serving_rows(
         operation
         for operation in operations
         if operation.kind == "model"
-        or (
-            model_value(operation) is not None
-            and operation_identity(operation)["family"] in {"inference", "media"}
-        )
+        or (model_value(operation) is not None and operation_identity(operation)["family"] in {"inference", "media"})
     ]
     model_identity_operations = [operation for operation in operations if model_value(operation) is not None]
-    tool_operations = [operation for operation in operations if operation.kind == "tool"]
+    tool_operations = [
+        operation
+        for operation in operations
+        if operation.kind == "tool"
+        or (
+            operation_identity(operation)["entity_kind"] == "operation"
+            and operation_identity(operation)["type"] in {"tool", "tool_execution"}
+        )
+    ]
     failures = [operation for operation in operations if operation.status == "error"]
     goal: dict[str, Any] = {}
     application_outcome: str | None = None

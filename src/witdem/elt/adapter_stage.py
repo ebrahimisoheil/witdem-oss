@@ -150,6 +150,7 @@ def transform_bundle(row: Mapping[str, Any]) -> dict[str, Any]:
     operation_classifications = []
     operation_measurement_facts = []
     descendant_measurements = _descendant_measurement_keys(operations)
+    operation_id_by_span = {operation.span_id: operation.operation_id for operation in operations if operation.span_id}
     for operation in operations:
         identity = operation_identity(operation)
         duration = (
@@ -162,11 +163,14 @@ def transform_bundle(row: Mapping[str, Any]) -> dict[str, Any]:
                 "operation_id": operation.operation_id,
                 "execution_id": operation.execution_id,
                 "taxonomy_version": identity["taxonomy_version"],
+                "entity_kind": identity["entity_kind"],
+                "plane": identity["plane"],
                 "family": identity["family"],
                 "operation_type": identity["type"],
                 "subtype": identity["subtype"],
                 "interface": identity["interface"],
                 "role": identity["role"],
+                "model_applicability": identity["model_applicability"],
                 "input_modalities": identity["input_modalities"],
                 "output_modalities": identity["output_modalities"],
                 "provider_id": _first(operation.attributes, "gen_ai.provider.name", "provider"),
@@ -180,6 +184,13 @@ def transform_bundle(row: Mapping[str, Any]) -> dict[str, Any]:
                 "vendor_id": _first(operation.attributes, "witdem.vendor.id", "model_vendor"),
                 "runtime_id": _first(operation.attributes, "witdem.runtime.id", "runtime"),
                 "framework_id": _first(operation.attributes, "witdem.framework.id", "framework"),
+                "implementation_id": _first(operation.attributes, "witdem.implementation.id", "implementation"),
+                "execution_source": _first(
+                    operation.attributes, "witdem.execution.source", "witdem.client.library", "otel.scope.name"
+                ),
+                "parent_operation_id": (
+                    operation_id_by_span.get(operation.parent_span_id) if operation.parent_span_id else None
+                ),
                 "duration_seconds": duration,
                 "status": operation.status,
                 "attributes": {

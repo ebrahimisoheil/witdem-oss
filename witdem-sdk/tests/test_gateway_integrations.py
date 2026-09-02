@@ -111,6 +111,32 @@ def test_litellm_ocr_reports_pages_without_inventing_tokens(monkeypatch: Any) ->
     assert "gen_ai.usage.total_tokens" not in attributes
 
 
+def test_litellm_embedding_uses_call_semantics_not_provider_or_model_name(monkeypatch: Any) -> None:
+    from witdem_sdk.integrations import litellm as integration
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(integration.trace, "get_tracer", provider.get_tracer)
+    callback = integration.WitdemLiteLLMCallback()
+    kwargs = {
+        "litellm_call_id": "embedding-call",
+        "model": "opaque/provider-model",
+        "custom_llm_provider": "opaque",
+        "call_type": "embedding",
+    }
+    response = {"model": "provider-model", "data": [{"embedding": [0.1, 0.2, 0.3]}], "usage": {"input_tokens": 7}}
+
+    callback.log_pre_api_call("opaque/provider-model", [], kwargs)
+    callback.log_success_event(kwargs, response, None, None)
+
+    attributes = exporter.get_finished_spans()[0].attributes
+    assert attributes["witdem.operation.type"] == "embedding"
+    assert attributes["gen_ai.operation.name"] == "embeddings"
+    assert attributes["gen_ai.usage.output_vectors"] == 1
+    assert attributes["gen_ai.usage.vector_dimensions"] == 3
+
+
 def test_openrouter_observer_keeps_content_out_and_extracts_route_facts() -> None:
     from witdem_sdk.integrations.openrouter import observe_response
 

@@ -28,6 +28,7 @@ For business-contract design rather than framework setup, use the [YAML contract
 | [`examples/openai/multi_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/openai/multi_agent) | OpenAI Agents handoff | [OpenAI Agents](integrations/openai-agents.md) |
 | [`examples/anthropic/basic_agent`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/basic_agent) | Anthropic Messages | [Anthropic](integrations/anthropic.md) |
 | [`examples/anthropic/tool_loop`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/anthropic/tool_loop) | Anthropic multi-turn tool-use IDs | [Anthropic](integrations/anthropic.md) |
+| [`examples/integrations/cuad_sdk_matrix.py`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/examples/integrations/cuad_sdk_matrix.py) | Direct Anthropic/OpenAI and LangGraph combinations over one CUAD contract | [Direct OpenAI](integrations/openai.md) |
 
 ## Provider tutorials
 

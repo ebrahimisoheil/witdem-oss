@@ -405,43 +405,97 @@ class Witdem:
             operation.cost(cost_usd, source="application_reported")
             yield operation
 
-    @contextmanager
     def operation(
         self,
-        name: str,
+        name: str | None = None,
         *,
         kind: str = "component",
         type: str | None = None,
+        family: str | None = None,
+        operation_type: str | None = None,
+        subtype: str | None = None,
         interface: str = "unknown",
         role: str = "application",
         input_modalities: list[str] | tuple[str, ...] = (),
         output_modalities: list[str] | tuple[str, ...] = (),
         provider: str | None = None,
+        provider_id: str | None = None,
         model: str | None = None,
+        model_id: str | None = None,
+        implementation: str | None = None,
+        implementation_id: str | None = None,
+        framework: str | None = None,
+        framework_id: str | None = None,
+        execution_source: str | None = None,
         gateway: str | None = None,
         vendor: str | None = None,
         attributes: Mapping[str, Any] | None = None,
-    ) -> Iterator[Operation]:
-        with self._tracer.start_as_current_span(name, kind=SpanKind.INTERNAL) as span:
-            span.set_attribute("witdem.runtime.kind", kind)
-            if type:
-                span.set_attribute("witdem.operation.type", type)
-            span.set_attribute("witdem.operation.interface", interface)
-            span.set_attribute("witdem.operation.role", role)
-            if input_modalities:
-                span.set_attribute("witdem.operation.input_modalities", list(input_modalities))
-            if output_modalities:
-                span.set_attribute("witdem.operation.output_modalities", list(output_modalities))
-            if provider:
-                span.set_attribute("gen_ai.provider.name", provider)
-            if model:
-                span.set_attribute("gen_ai.request.model", model)
-            if gateway:
-                span.set_attribute("witdem.gateway.id", gateway)
-            if vendor:
-                span.set_attribute("witdem.vendor.id", vendor)
-            _set_attributes(span, attributes)
-            yield Operation(span)
+    ) -> Any:
+        """Create a canonical operation context, or decorate a callable.
+
+        ``type``/``provider``/``model`` remain compatibility aliases for the
+        explicit ``operation_type``/``provider_id``/``model_id`` contract.
+        """
+
+        resolved_type = operation_type or type
+        resolved_provider = provider_id or provider
+        resolved_model = model_id or model
+        resolved_implementation = implementation_id or implementation
+        resolved_framework = framework_id or framework
+
+        @contextmanager
+        def operation_context(resolved_name: str) -> Iterator[Operation]:
+            with self._tracer.start_as_current_span(resolved_name, kind=SpanKind.INTERNAL) as span:
+                span.set_attribute("witdem.runtime.kind", kind)
+                if family:
+                    span.set_attribute("witdem.operation.family", family)
+                if resolved_type:
+                    span.set_attribute("witdem.operation.type", resolved_type)
+                if subtype:
+                    span.set_attribute("witdem.operation.subtype", subtype)
+                span.set_attribute("witdem.operation.interface", interface)
+                span.set_attribute("witdem.operation.role", role)
+                if input_modalities:
+                    span.set_attribute("witdem.operation.input_modalities", list(input_modalities))
+                if output_modalities:
+                    span.set_attribute("witdem.operation.output_modalities", list(output_modalities))
+                if resolved_provider:
+                    span.set_attribute("gen_ai.provider.name", resolved_provider)
+                if resolved_model:
+                    span.set_attribute("gen_ai.request.model", resolved_model)
+                if resolved_implementation:
+                    span.set_attribute("witdem.implementation.id", resolved_implementation)
+                if resolved_framework:
+                    span.set_attribute("witdem.framework.id", resolved_framework)
+                if execution_source:
+                    span.set_attribute("witdem.execution.source", execution_source)
+                if gateway:
+                    span.set_attribute("witdem.gateway.id", gateway)
+                if vendor:
+                    span.set_attribute("witdem.vendor.id", vendor)
+                _set_attributes(span, attributes)
+                yield Operation(span)
+
+        if name is not None:
+            return operation_context(name)
+
+        def decorator(function: _CallableT) -> _CallableT:
+            if inspect.iscoroutinefunction(function):
+                @wraps(function)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    with operation_context(function.__name__):
+                        return await function(*args, **kwargs)
+
+                return cast(_CallableT, async_wrapper)
+
+            @wraps(function)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                with operation_context(function.__name__):
+                    return function(*args, **kwargs)
+
+            return cast(_CallableT, wrapper)
+
+        return decorator
 
     @contextmanager
     def evaluation_campaign(

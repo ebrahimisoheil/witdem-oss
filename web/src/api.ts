@@ -31,6 +31,7 @@ export type ComparisonInsight = {
   model_family: string | null;
   vendor_id: string | null;
   scope: "cohort+direct-attribution";
+  cohort_key?: string;
   label: string;
   runs: number;
   avg_duration_seconds: number | null;
@@ -47,7 +48,7 @@ export type ComparisonInsight = {
   cost_measured_operations: number;
   token_eligible_operations: number;
   token_measured_operations: number;
-  evaluations?: Array<{ name: string; reported_runs: number; average_score: number | null; target?: number | string | boolean; direction: string }>;
+  evaluations?: Array<{ key: string; name: string; reported_runs: number; average_score: number | null; target?: number | string | boolean; direction: string }>;
 };
 export type WorkflowInsight = ComparisonInsight & { runtime_id: string };
 export type WorkflowStage = {
@@ -315,10 +316,25 @@ export type Meta = {
 export type DashboardFilters = {
   workflow?: string;
   workflow_id?: string;
+  tool?: string;
+  stage?: string;
   contract_hash?: string;
   provider?: string;
   model?: string;
   status?: string;
+  goal_status?: string;
+  assurance_status?: string;
+  application_outcome?: string;
+  blocker?: string;
+  evaluation_key?: string;
+  evaluation_status?: string;
+  cost_status?: string;
+  token_status?: string;
+  operation_type?: string;
+  operation_status?: string;
+  failure_location?: string;
+  has_failure?: boolean;
+  has_repeated_work?: boolean;
   start_date?: string;
   end_date?: string;
 };
@@ -362,7 +378,12 @@ export type RunDetail = {
         status?: string;
       }
     >;
-    edges: Array<{ source: string; target: string; relation: string }>;
+    edges: Array<{
+      source: string;
+      target: string;
+      relation: string;
+      attributes?: Record<string, unknown>;
+    }>;
   };
   semantic_records: Array<Record<string, unknown>>;
   workflow_replay?: WorkflowReplay | null;
@@ -396,11 +417,14 @@ export type OperationFact = {
   execution_id: string;
   workflow_id: string;
   node_id?: string | null;
+  entity_kind?: "execution" | "operation" | "business_event";
+  plane?: "control" | "work" | "business" | null;
   family: string;
   operation_type: string;
   subtype?: string | null;
   interface: string;
   role: string;
+  model_applicability?: "applicable" | "not_applicable";
   input_modalities: string[];
   output_modalities: string[];
   provider_id?: string | null;
@@ -409,6 +433,9 @@ export type OperationFact = {
   vendor_id?: string | null;
   runtime_id?: string | null;
   framework_id?: string | null;
+  implementation_id?: string | null;
+  execution_source?: string | null;
+  parent_operation_id?: string | null;
   duration_seconds: number;
   status: string;
   attributes: Record<string, unknown>;
@@ -416,6 +443,7 @@ export type OperationFact = {
 export type OperationTypeSummary = {
   type: string;
   family: string;
+  plane?: "control" | "work" | "business";
   operations: number;
   failed: number;
   active_seconds: number;
@@ -423,10 +451,21 @@ export type OperationTypeSummary = {
   interfaces: string[];
   providers: string[];
   models: string[];
+  implementations: string[];
+  model_applicability?: "applicable" | "not_applicable";
+  linked_children?: Array<{
+    type: string;
+    family: string;
+    operations: number;
+    providers: string[];
+    models: string[];
+    implementations: string[];
+  }>;
   measurements: Record<string, number>;
 };
 export type OperationSummary = {
   total_operations: number;
+  execution_containers?: number;
   failed_operations: number;
   types: OperationTypeSummary[];
 };
@@ -526,10 +565,10 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
     );
   return response.json() as Promise<T>;
 }
-const withFilters = (path: string, filters: Record<string, string | undefined> = {}) => {
+const withFilters = (path: string, filters: Record<string, string | boolean | undefined> = {}) => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
-    if (value) params.set(key, value);
+    if (value !== undefined && value !== "" && value !== false) params.set(key, String(value));
   });
   const query = params.toString();
   return query ? `${path}?${query}` : path;

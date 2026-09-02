@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { drilldownHref, evaluationMetTarget, measurementAttentionMessages } from "./pages";
+import { sharedCohortSize } from "./components";
+import type { ComparisonInsight } from "./api";
 import type { Overview } from "./api";
 
 describe("evaluationMetTarget", () => {
@@ -25,6 +27,16 @@ describe("drilldownHref", () => {
   it("carries model and goal filters into detail pages", () => {
     expect(drilldownHref("/goal-performance", { model: "gpt-5.4", contract_hash: "goal-1" }))
       .toBe("/goal-performance?model=gpt-5.4&contract_hash=goal-1");
+  });
+
+  it("creates bookmarkable semantic and failure drilldowns", () => {
+    expect(drilldownHref("/runs", {
+      contract_hash: "goal-1",
+      goal_status: "not_achieved",
+      evaluation_status: "failed",
+      has_failure: true,
+      ignored: false,
+    })).toBe("/runs?contract_hash=goal-1&goal_status=not_achieved&evaluation_status=failed&has_failure=true");
   });
 });
 
@@ -66,5 +78,17 @@ describe("measurementAttentionMessages", () => {
     };
     const data = { costs: { cost: complete, tokens: complete } } as unknown as Overview;
     expect(measurementAttentionMessages(data)).toEqual([]);
+  });
+});
+
+describe("sharedCohortSize", () => {
+  const participant = (cohort_key: string, runs = 11) => ({
+    cohort_key,
+    runs,
+  }) as ComparisonInsight;
+
+  it("detects when participant percentages describe the same runs", () => {
+    expect(sharedCohortSize([participant("same"), participant("same")])).toBe(11);
+    expect(sharedCohortSize([participant("one"), participant("two")])).toBeNull();
   });
 });

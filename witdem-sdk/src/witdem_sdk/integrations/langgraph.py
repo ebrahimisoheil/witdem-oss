@@ -18,6 +18,21 @@ ResultReporter = Callable[[Any], Mapping[str, Any] | None]
 class WitdemLangGraphCallback(WitdemCallbackHandler):
     """Callback handler for graph runs, nodes, tools, and model calls."""
 
+    def _start(
+        self,
+        run_id: Any,
+        name: str,
+        kind: str,
+        *,
+        parent_run_id: Any = None,
+        **attributes: Any,
+    ) -> None:
+        super()._start(run_id, name, kind, parent_run_id=parent_run_id, **attributes)
+        span = self._operations.get(str(run_id))
+        if span is not None:
+            span.set_attribute("witdem.framework.id", "langgraph")
+            span.set_attribute("witdem.execution.source", "langgraph")
+
     def on_chain_start(
         self,
         serialized: Any,
@@ -44,6 +59,9 @@ class WitdemLangGraphCallback(WitdemCallbackHandler):
             kind,
             parent_run_id=str(parent_run_id) if parent_run_id else None,
             **{
+                "witdem.operation.family": "orchestration",
+                "witdem.operation.type": "component" if graph_node else "workflow",
+                "witdem.operation.interface": "framework",
                 "langgraph.node": graph_node,
                 "langgraph.step": metadata.get("langgraph_step"),
                 "langgraph.checkpoint_ns": metadata.get("langgraph_checkpoint_ns"),

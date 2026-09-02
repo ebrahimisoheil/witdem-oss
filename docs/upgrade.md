@@ -3,7 +3,7 @@
 ## Check first
 
 ```bash
-npx -y witdem@stable-0-1 update --check
+npx -y witdem@latest update --check
 witdem update --check
 ```
 

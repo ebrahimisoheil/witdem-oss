@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "witdem-sdk"
-version = "0.1.1"
+version = "0.2.1"
 description = "Public client SDK for emitting Witdem business-semantic records correlated to the caller's active OpenTelemetry execution."
 readme = { text = "Witdem SDK provides optional application semantics and framework integrations for Witdem Analytics.", content-type = "text/markdown" }
 requires-python = ">=3.10,<3.14"
@@ -30,9 +30,9 @@ witdem-sdk = "witdem_sdk.cli:main"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.50,<1"]
-# openai-agents 0.21+ requires openai 3.x, while the supported LiteLLM
-# integration still requires openai <3. Keep the combined `all` extra solvable.
-openai = ["openai-agents>=0.0.10,<0.21"]
+# Keep OpenAI Agents below the release that requires OpenAI 3.x so the
+# direct SDK, Agents SDK, and LiteLLM extras remain jointly solvable.
+openai = ["openai>=1.68,<4", "openai-agents>=0.0.10,<0.21"]
 langchain = ["langchain-core>=0.3,<2"]
 langgraph = ["langgraph>=0.2,<2"]
 haystack = ["haystack-ai>=3.0,<4", "opentelemetry-haystack>=1,<2"]

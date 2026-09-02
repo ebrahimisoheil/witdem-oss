@@ -301,11 +301,14 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             template_hash VARCHAR,
             node_id VARCHAR,
             taxonomy_version VARCHAR,
+            entity_kind VARCHAR,
+            plane VARCHAR,
             family VARCHAR,
             operation_type VARCHAR,
             subtype VARCHAR,
             interface VARCHAR,
             role VARCHAR,
+            model_applicability VARCHAR,
             input_modalities VARCHAR,
             output_modalities VARCHAR,
             provider_id VARCHAR,
@@ -314,6 +317,9 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             vendor_id VARCHAR,
             runtime_id VARCHAR,
             framework_id VARCHAR,
+            implementation_id VARCHAR,
+            execution_source VARCHAR,
+            parent_operation_id VARCHAR,
             duration_seconds DOUBLE,
             status VARCHAR,
             attributes VARCHAR
@@ -393,6 +399,18 @@ def ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     ):
         connection.execute(f'ALTER TABLE workflow_execution_nodes ADD COLUMN IF NOT EXISTS "{column}" BIGINT')
     connection.execute('ALTER TABLE operation_measurement_facts ADD COLUMN IF NOT EXISTS "attempt" BIGINT')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "implementation_id" VARCHAR'
+    )
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "execution_source" VARCHAR')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "parent_operation_id" VARCHAR'
+    )
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "entity_kind" VARCHAR')
+    connection.execute('ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "plane" VARCHAR')
+    connection.execute(
+        'ALTER TABLE operation_classification_facts ADD COLUMN IF NOT EXISTS "model_applicability" VARCHAR'
+    )
     connection.execute('ALTER TABLE participant_execution_facts ADD COLUMN IF NOT EXISTS "vendor_id" VARCHAR')
 
 
@@ -689,8 +707,15 @@ def publish_transformed_bundle(
                     template_hash = str(association[1]) if association else None
                     for fact in operation_classifications:
                         connection.execute(
-                            "INSERT INTO operation_classification_facts VALUES "
-                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "INSERT INTO operation_classification_facts "
+                            "(operation_id, execution_id, workflow_id, template_hash, node_id, taxonomy_version, "
+                            "entity_kind, plane, family, operation_type, subtype, interface, role, "
+                            "model_applicability, "
+                            "input_modalities, output_modalities, "
+                            "provider_id, model_id, gateway_id, vendor_id, runtime_id, framework_id, "
+                            "implementation_id, execution_source, parent_operation_id, duration_seconds, "
+                            "status, attributes) VALUES "
+                            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [
                                 fact.get("operation_id"),
                                 execution_id,
@@ -698,11 +723,14 @@ def publish_transformed_bundle(
                                 template_hash,
                                 None,
                                 fact.get("taxonomy_version"),
+                                fact.get("entity_kind") or "operation",
+                                fact.get("plane") if "plane" in fact else "work",
                                 fact.get("family"),
                                 fact.get("operation_type"),
                                 fact.get("subtype"),
                                 fact.get("interface"),
                                 fact.get("role"),
+                                fact.get("model_applicability") or "not_applicable",
                                 json.dumps(fact.get("input_modalities") or []),
                                 json.dumps(fact.get("output_modalities") or []),
                                 fact.get("provider_id"),
@@ -711,6 +739,9 @@ def publish_transformed_bundle(
                                 fact.get("vendor_id"),
                                 fact.get("runtime_id"),
                                 fact.get("framework_id"),
+                                fact.get("implementation_id"),
+                                fact.get("execution_source"),
+                                fact.get("parent_operation_id"),
                                 fact.get("duration_seconds"),
                                 fact.get("status"),
                                 json.dumps(fact.get("attributes") or {}, sort_keys=True),
@@ -1083,8 +1114,14 @@ def store_operation_facts(
                 )
             for fact in classifications:
                 connection.execute(
-                    """INSERT INTO operation_classification_facts VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    """INSERT INTO operation_classification_facts (
+                        operation_id, execution_id, workflow_id, template_hash, node_id, taxonomy_version,
+                        entity_kind, plane, family, operation_type, subtype, interface, role, model_applicability,
+                        input_modalities, output_modalities,
+                        provider_id, model_id, gateway_id, vendor_id, runtime_id, framework_id,
+                        implementation_id, execution_source, parent_operation_id, duration_seconds, status, attributes
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )""",
                     [
                         fact.get("operation_id"),
@@ -1093,11 +1130,14 @@ def store_operation_facts(
                         fact.get("template_hash"),
                         fact.get("node_id"),
                         fact.get("taxonomy_version"),
+                        fact.get("entity_kind") or "operation",
+                        fact.get("plane") if "plane" in fact else "work",
                         fact.get("family"),
                         fact.get("operation_type"),
                         fact.get("subtype"),
                         fact.get("interface"),
                         fact.get("role"),
+                        fact.get("model_applicability") or "not_applicable",
                         json.dumps(fact.get("input_modalities") or []),
                         json.dumps(fact.get("output_modalities") or []),
                         fact.get("provider_id"),
@@ -1106,6 +1146,9 @@ def store_operation_facts(
                         fact.get("vendor_id"),
                         fact.get("runtime_id"),
                         fact.get("framework_id"),
+                        fact.get("implementation_id"),
+                        fact.get("execution_source"),
+                        fact.get("parent_operation_id"),
                         fact.get("duration_seconds"),
                         fact.get("status"),
                         json.dumps(fact.get("attributes") or {}, sort_keys=True, default=str),

@@ -34,6 +34,17 @@ def filters_from_values(
     tool: str | None = None,
     stage: str | None = None,
     contract_hash: str | None = None,
+    goal_status: str | None = None,
+    assurance_status: str | None = None,
+    application_outcome: str | None = None,
+    blocker: str | None = None,
+    evaluation_key: str | None = None,
+    evaluation_status: str | None = None,
+    cost_status: str | None = None,
+    token_status: str | None = None,
+    operation_type: str | None = None,
+    operation_status: str | None = None,
+    failure_location: str | None = None,
     has_repeated_work: bool = False,
     has_failure: bool = False,
     start_date: date | None = None,
@@ -47,6 +58,17 @@ def filters_from_values(
         tool=tool,
         stage=stage,
         contract_hash=contract_hash,
+        goal_status=goal_status,
+        assurance_status=assurance_status,
+        application_outcome=application_outcome,
+        blocker=blocker,
+        evaluation_key=evaluation_key,
+        evaluation_status=evaluation_status,
+        cost_status=cost_status,
+        token_status=token_status,
+        operation_type=operation_type,
+        operation_status=operation_status,
+        failure_location=failure_location,
         has_repeated_work=has_repeated_work,
         has_failure=has_failure,
         start_date=start_date,
@@ -89,7 +111,10 @@ def metadata(repo: AnalyticsRepository) -> dict[str, Any]:
 def overview(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
     with repo._overview_read_session():
         snapshot = repo.get_overview_snapshot(filters)
-        operation_facts, operation_measurements = repo.operation_health_facts()
+        all_operation_facts, all_operation_measurements = repo.operation_health_facts(filters)
+        operation_facts, operation_measurements = _operation_profile_inputs(
+            all_operation_facts, all_operation_measurements
+        )
     goals = snapshot.goals
     return cast(
         dict[str, Any],
@@ -116,7 +141,7 @@ def overview(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
                 "goal_trend": snapshot.goal_trend,
                 "goal_portfolio": snapshot.goal_portfolio,
                 "assurance_summary": snapshot.assurance_summary,
-                "operation_health": _operation_summary(operation_facts, operation_measurements),
+                "operation_health": _operation_summary(all_operation_facts, all_operation_measurements),
                 "operation_measurement_coverage": _measurement_coverage(operation_measurements),
                 "operation_measurement_alerts": _measurement_alerts(operation_facts, operation_measurements),
                 "paths": [],
@@ -192,7 +217,8 @@ def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] |
     projection = repo.workflow_projection(execution_id) if workflow is not None else None
     if projection is None and workflow is not None:
         projection = project_execution(workflow, execution=summary, graph=graph)
-    operation_facts, measurements = repo.execution_operation_facts(execution_id)
+    all_operation_facts, all_measurements = repo.execution_operation_facts(execution_id)
+    operation_facts, measurements = _operation_profile_inputs(all_operation_facts, all_measurements)
     evaluation_results = []
     for record in semantic_records:
         if str(record.get("kind") or "").casefold() != "evaluation":
@@ -207,7 +233,7 @@ def run_detail(repo: AnalyticsRepository, execution_id: str) -> dict[str, Any] |
                 "graph": graph,
                 "semantic_records": semantic_records,
                 "workflow_replay": projection,
-                "operation_summary": _operation_summary(operation_facts, measurements),
+                "operation_summary": _operation_summary(all_operation_facts, all_measurements),
                 "measurements": measurements,
                 "measurement_coverage": _measurement_coverage(measurements),
                 "evaluation_results": evaluation_results,
@@ -320,12 +346,13 @@ def _operation_facts(
                 )
     classifications: list[dict[str, Any]] = []
     measurements: list[dict[str, Any]] = []
+    operation_id_by_span = {operation.span_id: operation.operation_id for operation in operations if operation.span_id}
     for operation in operations:
         identity = operation_identity(operation)
         assigned_node_id, declared_type, expected, optional = operation_nodes.get(
             operation.operation_id, (None, None, [], [])
         )
-        if declared_type and identity["type"] in {"component", "x.witdem.unclassified"}:
+        if declared_type and identity["type"] in {"component", "unknown", "x.witdem.unclassified"}:
             identity = {**identity, "type": declared_type, "family": OPERATION_FAMILIES.get(declared_type, "custom")}
         if declared_type and identity["type"] != declared_type:
             expected = []
@@ -342,11 +369,14 @@ def _operation_facts(
                 "template_hash": template_hash,
                 "node_id": assigned_node_id,
                 "taxonomy_version": identity["taxonomy_version"],
+                "entity_kind": identity["entity_kind"],
+                "plane": identity["plane"],
                 "family": identity["family"],
                 "operation_type": identity["type"],
                 "subtype": identity["subtype"],
                 "interface": identity["interface"],
                 "role": identity["role"],
+                "model_applicability": identity["model_applicability"],
                 "input_modalities": identity["input_modalities"],
                 "output_modalities": identity["output_modalities"],
                 "provider_id": _explicit_attribute(attributes, "gen_ai.provider.name", "provider"),
@@ -355,6 +385,13 @@ def _operation_facts(
                 "vendor_id": _explicit_attribute(attributes, "witdem.vendor.id", "model_vendor"),
                 "runtime_id": _explicit_attribute(attributes, "witdem.runtime.id", "runtime"),
                 "framework_id": _explicit_attribute(attributes, "witdem.framework.id", "framework"),
+                "implementation_id": _explicit_attribute(attributes, "witdem.implementation.id", "implementation"),
+                "execution_source": _explicit_attribute(
+                    attributes, "witdem.execution.source", "witdem.client.library", "otel.scope.name"
+                ),
+                "parent_operation_id": (
+                    operation_id_by_span.get(operation.parent_span_id) if operation.parent_span_id else None
+                ),
                 "duration_seconds": duration,
                 "status": operation.status,
                 "attributes": {
@@ -742,13 +779,14 @@ def workflow_operations(repo: AnalyticsRepository, workflow_id: str) -> dict[str
     definitions = {**_persisted_definitions(repo), **load_registry().definitions}
     if workflow_id not in definitions:
         return None
-    operations, measurements = repo.workflow_operation_facts(workflow_id)
+    all_operations, all_measurements = repo.workflow_operation_facts(workflow_id)
+    operations, measurements = _operation_profile_inputs(all_operations, all_measurements)
     return cast(
         dict[str, Any],
         jsonable_encoder(
             {
                 "workflow_id": workflow_id,
-                "summary": _operation_summary(operations, measurements),
+                "summary": _operation_summary(all_operations, all_measurements),
                 "measurement_coverage": _measurement_coverage(measurements),
                 "operations": operations,
                 "measurements": measurements,
@@ -807,18 +845,48 @@ def evaluation_campaign(repo: AnalyticsRepository, campaign_id: str) -> dict[str
     return repo.evaluation_campaign(campaign_id)
 
 
+def _operation_profile_inputs(
+    operations: list[dict[str, Any]], measurements: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Exclude execution containers while retaining every actual operation."""
+
+    profile_operations = [
+        operation for operation in operations if str(operation.get("entity_kind") or "operation") != "execution"
+    ]
+    operation_ids = {str(operation.get("operation_id") or "") for operation in profile_operations}
+    return profile_operations, [
+        measurement
+        for measurement in measurements
+        if str(measurement.get("operation_id") or "") in operation_ids
+    ]
+
+
 def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict[str, Any]]) -> dict[str, Any]:
+    execution_containers = sum(
+        str(operation.get("entity_kind") or "operation") == "execution" for operation in operations
+    )
+    operations, measurements = _operation_profile_inputs(operations, measurements)
     measured_by_operation: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for measurement in measurements:
         measured_by_operation[str(measurement.get("operation_id") or "")].append(measurement)
+    operations_by_parent: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for operation in operations:
+        parent_id = str(operation.get("parent_operation_id") or "")
+        if parent_id:
+            operations_by_parent[parent_id].append(operation)
     groups: dict[str, dict[str, Any]] = {}
     for operation in operations:
-        operation_type = str(operation.get("operation_type") or "x.witdem.unclassified")
+        operation_type = str(operation.get("operation_type") or "unknown")
+        family = str(operation.get("family") or "custom")
+        plane = operation.get("plane") or (
+            "control" if family in {"orchestration", "agent_control"} else "work"
+        )
         bucket = groups.setdefault(
             operation_type,
             {
                 "type": operation_type,
-                "family": operation.get("family"),
+                "family": family,
+                "plane": plane,
                 "operations": 0,
                 "failed": 0,
                 "active_seconds": 0.0,
@@ -826,25 +894,61 @@ def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict
                 "interfaces": set(),
                 "providers": set(),
                 "models": set(),
+                "implementations": set(),
+                "model_applicability": "not_applicable",
+                "linked_children": {},
                 "measurements": defaultdict(float),
             },
         )
         bucket["operations"] += 1
         bucket["failed"] += int(str(operation.get("status") or "").casefold() in {"error", "failed"})
         bucket["active_seconds"] += float(operation.get("duration_seconds") or 0.0)
+        if operation.get("model_applicability") == "applicable":
+            bucket["model_applicability"] = "applicable"
         for key, target in (
             ("role", "roles"),
             ("interface", "interfaces"),
             ("provider_id", "providers"),
             ("model_id", "models"),
+            ("implementation_id", "implementations"),
         ):
             if operation.get(key):
                 bucket[target].add(str(operation[key]))
+        for child in operations_by_parent.get(str(operation.get("operation_id") or ""), []):
+            child_type = str(child.get("operation_type") or "unknown")
+            child_bucket = bucket["linked_children"].setdefault(
+                child_type,
+                {
+                    "type": child_type,
+                    "family": child.get("family"),
+                    "operations": 0,
+                    "providers": set(),
+                    "models": set(),
+                    "implementations": set(),
+                },
+            )
+            child_bucket["operations"] += 1
+            for key, target in (
+                ("provider_id", "providers"),
+                ("model_id", "models"),
+                ("implementation_id", "implementations"),
+            ):
+                if child.get(key):
+                    child_bucket[target].add(str(child[key]))
         for measurement in measured_by_operation.get(str(operation.get("operation_id") or ""), []):
             if measurement.get("measurement_status") == "measured" and measurement.get("value") is not None:
                 bucket["measurements"][str(measurement["measurement_key"])] += float(measurement["value"])
     items = []
     for bucket in groups.values():
+        linked_children = [
+            {
+                **child,
+                "providers": sorted(child["providers"]),
+                "models": sorted(child["models"]),
+                "implementations": sorted(child["implementations"]),
+            }
+            for child in bucket.pop("linked_children").values()
+        ]
         items.append(
             {
                 **bucket,
@@ -852,11 +956,14 @@ def _operation_summary(operations: list[dict[str, Any]], measurements: list[dict
                 "interfaces": sorted(bucket["interfaces"]),
                 "providers": sorted(bucket["providers"]),
                 "models": sorted(bucket["models"]),
+                "implementations": sorted(bucket["implementations"]),
+                "linked_children": sorted(linked_children, key=lambda child: str(child["type"])),
                 "measurements": dict(sorted(bucket["measurements"].items())),
             }
         )
     return {
         "total_operations": len(operations),
+        "execution_containers": execution_containers,
         "failed_operations": sum(
             int(str(item.get("status") or "").casefold() in {"error", "failed"}) for item in operations
         ),
@@ -878,6 +985,7 @@ def _measurement_coverage(measurements: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _measurement_alerts(operations: list[dict[str, Any]], measurements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    operations, measurements = _operation_profile_inputs(operations, measurements)
     operation_map = {str(item.get("operation_id") or ""): item for item in operations}
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     for measurement in measurements:
@@ -885,7 +993,7 @@ def _measurement_alerts(operations: list[dict[str, Any]], measurements: list[dic
             continue
         operation = operation_map.get(str(measurement.get("operation_id") or ""), {})
         key = (
-            str(operation.get("operation_type") or "x.witdem.unclassified"),
+            str(operation.get("operation_type") or "unknown"),
             str(measurement.get("measurement_key") or "unknown"),
         )
         bucket = groups.setdefault(
@@ -944,7 +1052,7 @@ def workflows(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]
 
 def issues(repo: AnalyticsRepository, filters: FilterState) -> dict[str, Any]:
     result = dict(repo.get_issue_insights(filters))
-    operations, measurements = repo.operation_health_facts()
+    operations, measurements = repo.operation_health_facts(filters)
     result["operation_failures"] = [
         item for item in _operation_summary(operations, measurements)["types"] if int(item["failed"]) > 0
     ]
