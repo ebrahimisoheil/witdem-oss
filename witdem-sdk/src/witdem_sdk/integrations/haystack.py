@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import contextmanager, suppress
@@ -26,6 +27,124 @@ _PROVIDERS = (
 )
 
 _MODEL_COMPONENT_MARKERS = ("generator", "embedder", "ranker")
+
+_TOPOLOGY_VERSION = "1"
+
+
+def _socket_name(value: Any) -> str | None:
+    name = getattr(value, "name", None)
+    return str(name) if isinstance(name, str) and name else None
+
+
+def _reachable(graph: Any, source: str, target: str) -> bool:
+    """Return whether ``target`` is reachable without importing NetworkX."""
+
+    pending = [source]
+    seen: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current == target:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        try:
+            pending.extend(str(item) for item in graph.successors(current))
+        except (AttributeError, KeyError, TypeError):
+            return False
+    return False
+
+
+def _pipeline_topology(pipeline: Any) -> dict[str, dict[str, Any]]:
+    """Describe Haystack's graph without serializing application data.
+
+    The result is intentionally component-local. Each component span receives
+    only its own identity and incident socket relationships, avoiding one
+    oversized graph attribute while retaining the authoritative DAG.
+    """
+
+    graph = getattr(pipeline, "graph", None)
+    if graph is None:
+        return {}
+    topology: dict[str, dict[str, Any]] = {}
+    try:
+        nodes = list(graph.nodes(data=True))
+        edges = list(graph.edges(data=True))
+    except (AttributeError, TypeError):
+        return {}
+    for raw_name, data in nodes:
+        name = str(raw_name)
+        node_data = data if isinstance(data, Mapping) else {}
+        instance = node_data.get("instance")
+        component_type = (
+            f"{type(instance).__module__}.{type(instance).__name__}"
+            if instance is not None
+            else "unknown"
+        )
+        topology[name] = {
+            "component_id": name,
+            "component_name": name,
+            "component_type": component_type,
+            "incoming": [],
+            "outgoing": [],
+        }
+    for raw_source, raw_target, data in edges:
+        source = str(raw_source)
+        target = str(raw_target)
+        edge_data = data if isinstance(data, Mapping) else {}
+        source_socket = _socket_name(edge_data.get("from_socket"))
+        target_socket = _socket_name(edge_data.get("to_socket"))
+        if source not in topology or target not in topology or not source_socket or not target_socket:
+            continue
+        socket_text = " ".join((source_socket, target_socket)).casefold()
+        edge = {
+            "source_component": source,
+            "source_socket": source_socket,
+            "target_component": target,
+            "target_socket": target_socket,
+            "cycle": _reachable(graph, target, source),
+            "retry": any(token in socket_text for token in ("retry", "feedback")),
+        }
+        topology[source]["outgoing"].append(edge)
+        topology[target]["incoming"].append(edge)
+    return topology
+
+
+def _topology_tags(component: Mapping[str, Any]) -> dict[str, Any]:
+    def encode(edge: Any) -> str:
+        return json.dumps(edge, sort_keys=True, separators=(",", ":"))
+
+    tags: dict[str, Any] = {
+        "witdem.haystack.topology.version": _TOPOLOGY_VERSION,
+        "witdem.haystack.component.id": str(component["component_id"]),
+        "witdem.haystack.component.name": str(component["component_name"]),
+        "witdem.haystack.component.type": str(component["component_type"]),
+    }
+    incoming = tuple(encode(edge) for edge in component.get("incoming", ()))
+    outgoing = tuple(encode(edge) for edge in component.get("outgoing", ()))
+    if incoming:
+        tags["witdem.haystack.topology.incoming"] = incoming
+    if outgoing:
+        tags["witdem.haystack.topology.outgoing"] = outgoing
+    return tags
+
+
+def _is_content_tag(key: str) -> bool:
+    lowered = key.casefold()
+    if lowered.endswith((".input_types", ".input_spec", ".output_spec")):
+        return False
+    return lowered.endswith(
+        (
+            ".input",
+            ".output",
+            ".input_data",
+            ".output_data",
+            ".prompt",
+            ".messages",
+            ".documents",
+            ".content",
+        )
+    )
 
 
 def _semantic_tags(operation_name: str, tags: Mapping[str, Any]) -> dict[str, Any]:
@@ -254,7 +373,9 @@ class _ObservedSpan:
     def set_content_tag(self, key: str, value: Any) -> None:
         with suppress(Exception):
             self._observe_output(key, value)
-        self._span.set_content_tag(key, value)
+            self._observe_runtime_sockets(key, value)
+        if self._tracer.capture_content:
+            self._span.set_content_tag(key, value)
 
     def raw_span(self) -> Any:
         return self._span.raw_span()
@@ -340,6 +461,19 @@ class _ObservedSpan:
         self.set_tags({key: value for key, value in attributes.items() if value is not None})
         self._tracer.usage_observations += 1
 
+    def _observe_runtime_sockets(self, key: str, value: Any) -> None:
+        """Record socket names only, even when Haystack exposes content here."""
+
+        if self._operation_name.casefold() != "haystack.component.run" or not isinstance(value, Mapping):
+            return
+        names = tuple(str(name) for name in value if isinstance(name, str) and name)
+        if not names:
+            return
+        if key.endswith(".input"):
+            self.set_tag("witdem.haystack.runtime.input_sockets", names)
+        elif key.endswith(".output"):
+            self.set_tag("witdem.haystack.runtime.emitted_sockets", names)
+
 
 class _ObservedTracer:
     def __init__(
@@ -348,10 +482,14 @@ class _ObservedTracer:
         *,
         by_component: dict[str, tuple[str, str]],
         identities: tuple[tuple[str, str], ...],
+        topology: Mapping[str, Mapping[str, Any]] | None = None,
+        capture_content: bool = False,
     ) -> None:
         self._tracer = tracer
         self.by_component = by_component
         self.identities = identities
+        self.topology = dict(topology or {})
+        self.capture_content = capture_content
         self.usage_observations = 0
         self._active_span: ContextVar[_ObservedSpan | None] = ContextVar(
             f"witdem_haystack_active_span_{id(self)}",
@@ -366,7 +504,15 @@ class _ObservedTracer:
         tags: dict[str, Any] | None = None,
         parent_span: Any = None,
     ) -> Any:
-        resolved_tags = {**dict(tags or {}), **_semantic_tags(operation_name, tags or {})}
+        resolved_tags = {
+            key: value
+            for key, value in dict(tags or {}).items()
+            if self.capture_content or not _is_content_tag(key)
+        }
+        resolved_tags.update(_semantic_tags(operation_name, resolved_tags))
+        component_name = resolved_tags.get("haystack.component.name")
+        if isinstance(component_name, str) and component_name in self.topology:
+            resolved_tags.update(_topology_tags(self.topology[component_name]))
         observed_parent = parent_span if isinstance(parent_span, _ObservedSpan) else self._active_span.get()
         if observed_parent is not None:
             observed_parent.observe_child(operation_name, resolved_tags)
@@ -478,7 +624,13 @@ def enable_haystack(
         raise ImportError("enable_haystack requires witdem-sdk[haystack] and haystack-ai") from exc
     by_component, identities = _configured_identities(pipeline)
     base_tracer = OpenTelemetryTracer(trace.get_tracer("witdem.haystack"))
-    tracer = _ObservedTracer(base_tracer, by_component=by_component, identities=identities)
+    tracer = _ObservedTracer(
+        base_tracer,
+        by_component=by_component,
+        identities=identities,
+        topology=_pipeline_topology(pipeline),
+        capture_content=capture_content,
+    )
     # The wrapper implements Haystack's tracer protocol by delegation, but
     # Haystack types this hook as its concrete Tracer class.
     enable_tracing(tracer)  # type: ignore[arg-type,unused-ignore]

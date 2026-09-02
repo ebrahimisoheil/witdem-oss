@@ -378,7 +378,12 @@ export type RunDetail = {
         status?: string;
       }
     >;
-    edges: Array<{ source: string; target: string; relation: string }>;
+    edges: Array<{
+      source: string;
+      target: string;
+      relation: string;
+      attributes?: Record<string, unknown>;
+    }>;
   };
   semantic_records: Array<Record<string, unknown>>;
   workflow_replay?: WorkflowReplay | null;
