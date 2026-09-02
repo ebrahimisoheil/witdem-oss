@@ -23,7 +23,9 @@ The canonical analytics tables and their definitions are unchanged. Workflow tem
 
 ## Configuration
 
-Place one `witdem.yml` in the project root. It owns service/telemetry configuration and registers workflow files:
+Register workflow files in the application's Witdem configuration. The default
+location created by `witdem-sdk init` is `.witdem/witdem.yaml`; definition paths
+are resolved relative to whichever configuration file was loaded:
 
 ```yaml
 version: 1
@@ -188,7 +190,7 @@ with an authored workflow definition and template hash.
 
 To make the execution open a workflow replay:
 
-1. Register the workflow definition in the project-root `witdem.yml`.
+1. Register the workflow definition in the application's loaded Witdem configuration.
 2. Set `default_workflow` when the application has one workflow, or pass the
    workflow ID when opening the execution.
 3. Make sure the workflow `match` rules identify the runtime/component names

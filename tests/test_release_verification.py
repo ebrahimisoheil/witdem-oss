@@ -116,6 +116,7 @@ def test_release_manifest_links_to_analytics_tag() -> None:
     )
 
     assert manifest["release_notes_url"].endswith("/releases/tag/analytics-v0.2.4")
+    assert manifest["evidence_bundle_schema_version"] == "1.0"
 
 
 @pytest.mark.parametrize("encoding", ["base64", "hex", "pem", "escaped_pem"])

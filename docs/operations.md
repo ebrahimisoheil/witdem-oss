@@ -134,6 +134,10 @@ See [Upgrade and compatibility](upgrade.md).
 ## Security
 
 Default ports bind to `127.0.0.1`. Set `WITDEM_API_KEY` to require bearer
-authentication on OTLP and SDK ingestion. Do not expose Uvicorn directly to
-the public internet. The source-only remote Compose profile and proxy setup
-are documented for operators in the repository's deployment configuration.
+authentication on OTLP and SDK ingestion. That key does not authenticate the
+dashboard or its read API. Keep both services on loopback or a trusted private
+network. Any remote dashboard deployment must put an authenticated,
+TLS-terminating reverse proxy or equivalent access-control layer in front of
+it. Do not expose Uvicorn directly to the public internet. The source-only
+remote Compose profile and proxy configuration are operator starting points,
+not a substitute for access control.

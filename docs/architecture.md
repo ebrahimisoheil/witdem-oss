@@ -19,7 +19,7 @@ OTLP or SDK request
   → canonical executions, operations, links, events, and semantic facts
   → serving.* projections
   → AnalyticsRepository
-  → dashboard API and React application
+  → dashboard API, neutral evidence-bundle export, and React application
 ```
 
 The corpus is authoritative. Canonical and serving projections are rebuildable. Ingestion acknowledges only after the original payload and decoded records are durable. Runtime/provider-specific data is normalized at adapter boundaries; provider-specific tables are not exposed to analytics consumers.
@@ -54,11 +54,18 @@ order that fallback, but it never overrides an explicit edge.
 
 The active dashboard is FastAPI plus React. The retired Streamlit implementation has been removed.
 
+The evidence-bundle export reads canonical records and existing diagnostics
+through `AnalyticsRepository`. It is a versioned read contract and does not
+expose the immutable corpus layout or serving-table implementation details.
+
 ## Compatibility
 
 | Analytics | SDK | Semantic protocol | Python |
 | --- | --- | --- | --- |
-| `0.2.x` | `>=0.2,<0.3` | `1.0` | `>=3.10` |
-| `0.3.x` | `>=0.2,<0.4` | `1.0` | `>=3.10,<3.14` |
+| `>=0.2,<0.3` | `>=0.1,<0.3` | `1.0` | `>=3.10,<3.14` |
+
+This table describes the currently declared release family, not a future
+roadmap. Exact tested package pairs and framework constraints are published in
+[`compatibility.json`](../compatibility.json).
 
 Compatibility aliases for old environment variables and raw-data migration remain deliberately isolated in configuration and ELT code. They protect existing installations and are not alternate product architectures.

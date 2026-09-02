@@ -6,9 +6,9 @@ LangGraph defines the application's possible graph. Witdem analyzes what actuall
 
 ## Requirements and installation
 
-- Python 3.10 or newer
+- Python 3.10–3.13
 - `langgraph>=0.2,<2`
-- `witdem-sdk[langgraph]` 0.3.x
+- A `witdem-sdk` release compatible with the running analytics release
 
 ```bash
 python -m pip install "witdem-sdk[langgraph]"

@@ -14,8 +14,8 @@ analytics backend, SDK integrations, dashboard, documentation, and examples.
 
 ## Development setup
 
-You need Python 3.10 or newer, [uv](https://docs.astral.sh/uv/), Node.js 20 or
-newer, and Docker with Compose.
+You need Python 3.10–3.13, [uv](https://docs.astral.sh/uv/), Node.js 20 or newer,
+and Docker with Compose.
 
 ```bash
 git clone https://github.com/ebrahimisoheil/witdem-oss.git

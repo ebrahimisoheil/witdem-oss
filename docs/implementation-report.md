@@ -1,5 +1,11 @@
 # Performance, lifecycle, and update implementation report
 
+> Historical acceptance record. The versions, execution IDs, test totals,
+> timings, costs, and localhost addresses below describe specific development
+> snapshots. They are not current product guarantees or live resources. Use the
+> task-oriented guides and machine-readable compatibility metadata for current
+> behavior.
+
 This report records the acceptance evidence for the coordinated performance,
 lifecycle, update, and documentation release. The dashboard interaction and
 visual design were intentionally preserved.

@@ -49,6 +49,10 @@ Issues links terminal/recovered failures, retry hotspots, below-target evaluatio
 
 Developer data links to the versioned read API. OpenAPI documentation is at `http://localhost:8501/api/docs`; dashboard endpoints live under `/api/v1`.
 
+The dashboard and read API do not use `WITDEM_API_KEY`; that key protects
+ingestion only. Keep the dashboard on loopback or behind an authenticated
+reverse proxy. See [Operations](operations.md#security).
+
 ## Metric rules
 
 - Runtime completion, failure, running state, and recovery are separate.

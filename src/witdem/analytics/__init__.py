@@ -11,6 +11,7 @@ from witdem.analytics.contracts import (
 )
 from witdem.analytics.core import Evaluation, Event, Execution, Link, Operation, Outcome
 from witdem.analytics.derived import derived_termination_category
+from witdem.analytics.evidence import EvaluationAssessment, EvidenceBundle, EvidenceBundleDiagnostics
 from witdem.analytics.identity import (
     canonical_operation_key,
     canonical_path_signature,
@@ -44,6 +45,9 @@ __all__ = [
     "Link",
     "Operation",
     "Outcome",
+    "EvaluationAssessment",
+    "EvidenceBundle",
+    "EvidenceBundleDiagnostics",
     "ExecutionSummary",
     "CostSummary",
     "ProviderSummary",

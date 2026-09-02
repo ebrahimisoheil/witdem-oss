@@ -1,5 +1,11 @@
 # Release notes
 
+## Unreleased
+
+- Added a public, deterministic evidence-bundle v1 export for canonical execution records and existing OSS diagnostics.
+- Exposed the same neutral contract through `AnalyticsRepository` and the versioned dashboard read API.
+- Added an oldest-supported v1 compatibility fixture and contract regression coverage.
+
 ## 0.2.4
 
 - Added concrete OpenAPI response schemas for every documented dashboard endpoint.
@@ -27,6 +33,20 @@
 - Verified direct Anthropic and OpenAI SDK calls, with and without LangGraph, against the CUAD contract-review workload using live provider APIs.
 - Updated the dashboard to display unfamiliar operation families and types without requiring provider-specific UI changes.
 
+## 0.2.0
+
+- Added the raw-first immutable corpus and Duckle raw-to-serving worker.
+- Added canonical serving projections and repository-backed dashboard reads.
+- Bundled the React dashboard and versioned FastAPI dashboard API.
+- Added OpenTelemetry-only and SDK-enriched integration paths.
+- Added one-point SDK wrappers across LangGraph, LangChain, OpenAI Agents, Anthropic, Haystack, Claude Agent streams, and generic provider calls, with explicit result mapping and LangGraph 1.x support.
+- Added explicit runtime/application/product-goal outcome semantics.
+- Added managed pricing with unavailable-cost diagnostics.
+- Added authenticated ingestion and an opt-in TLS remote deployment profile.
+- Added runtime examples for OpenAI, Anthropic, LangChain, LangGraph, Haystack, Azure, Bedrock, Vertex, and Ollama.
+- Consolidated overview reads and redesigned Compare, Workflows, Issues, and Runs pagination.
+- Removed the retired Streamlit dashboard and reconciled repository documentation.
+
 ## 0.1.4
 
 - Fixed the worker container's false-negative health status under DuckDB lock contention.
@@ -50,17 +70,3 @@
 - Made platform and SDK release identities tag-verified and immutable across PyPI, npm, and GHCR.
 - Added cross-version SDK/server compatibility tests and dependency security automation.
 - Assigned the shared `witdem` command exclusively to `witdem-analytics`; SDK-only commands use `witdem-sdk`.
-
-## 0.2.0
-
-- Added the raw-first immutable corpus and Duckle raw-to-serving worker.
-- Added canonical serving projections and repository-backed dashboard reads.
-- Bundled the React dashboard and versioned FastAPI dashboard API.
-- Added OpenTelemetry-only and SDK-enriched integration paths.
-- Added one-point SDK wrappers across LangGraph, LangChain, OpenAI Agents, Anthropic, Haystack, Claude Agent streams, and generic provider calls, with explicit result mapping and LangGraph 1.x support.
-- Added explicit runtime/application/product-goal outcome semantics.
-- Added managed pricing with unavailable-cost diagnostics.
-- Added authenticated ingestion and an opt-in TLS remote deployment profile.
-- Added runtime examples for OpenAI, Anthropic, LangChain, LangGraph, Haystack, Azure, Bedrock, Vertex, and Ollama.
-- Consolidated overview reads and redesigned Compare, Workflows, Issues, and Runs pagination.
-- Removed the retired Streamlit dashboard and reconciled repository documentation.

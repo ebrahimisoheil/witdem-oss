@@ -12,7 +12,9 @@ export WITDEM_ENDPOINT=http://localhost:4318
 export OPENAI_API_KEY=...
 ```
 
-The SDK extra currently supports `openai-agents>=0.0.10,<1`; the checked-in tutorials use `>=0.3,<1`.
+The SDK extra currently supports `openai-agents>=0.0.10,<0.21`. This narrower
+range keeps the direct OpenAI SDK, OpenAI Agents, and LiteLLM extras jointly
+solvable.
 
 ## Minimal integration
 
@@ -43,4 +45,6 @@ Runnable examples:
 - This adapter targets OpenAI Agents SDK tracing. Use the separate [direct OpenAI SDK integration](openai.md) for Responses, Chat Completions, or embeddings calls.
 - Content capture is disabled by default.
 - Cost requires provider-reported money or recognized model and usage evidence.
-- Native SDK trace fields can change before a 1.0 release; the supported dependency range remains `<1`.
+- Native SDK trace fields can change before a 1.0 release; use the dependency
+  range declared by the installed `witdem-sdk` release rather than forcing a
+  newer Agents SDK version.

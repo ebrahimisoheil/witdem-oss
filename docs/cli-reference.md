@@ -1,7 +1,9 @@
-# CLI reference
+# CLI command reference
 
-NPX and pipx expose the same lifecycle vocabulary. Use `witdem` below for a
-pipx installation or replace it with `npx -y witdem@latest` for Docker.
+NPX and pipx expose the same service-lifecycle commands. Use `witdem` below for
+a pipx installation or replace it with `npx -y witdem@latest` for Docker.
+
+## Shared lifecycle commands
 
 | Command | Purpose |
 | --- | --- |
@@ -14,15 +16,36 @@ pipx installation or replace it with `npx -y witdem@latest` for Docker.
 | `witdem update --check [--refresh\|--offline]` | Verify releases and print guidance; never mutate |
 | `witdem down` | Stop only validated services and preserve data |
 | `witdem workflow compile [--check\|--force]` | Validate/materialize workflow YAML |
-| `witdem eval validate <campaign.jsonl>` | Validate an offline evaluation campaign without writes |
-| `witdem eval import <campaign.jsonl> [--db PATH\|--data-dir PATH]` | Import framework-neutral campaign results |
 | `witdem workflow rebuild` | Rebuild serving projections under maintenance lock |
-| `witdem taxonomy reprocess` | Reclassify derived operation facts from preserved raw telemetry |
 | `witdem dev` | Run foreground contributor mode |
 
-Common options are `--receiver-port`, `--dashboard-port`, and `--data-dir`.
-NPX additionally accepts `--project-name` and `--image`. `--help` on any
-command is the authoritative option reference.
+Common options include `--receiver-port`, `--dashboard-port`, and `--data-dir`.
+NPX additionally accepts `--project-name` and `--image`.
 
-CI verifies that these documented command names are present in both launchers'
-generated help output.
+## Native administrative commands
+
+The pipx/native backend also exposes lower-level administration commands. They
+are not NPX launcher commands; with NPX, perform equivalent operations inside
+the version-matched stack rather than assuming the launcher accepts them.
+
+| Command | Purpose and safety |
+| --- | --- |
+| `witdem serve` | Run only the OTLP/SDK receiver |
+| `witdem dashboard` | Run only the dashboard and read API |
+| `witdem elt run` | Process currently pending corpus batches |
+| `witdem elt worker` | Continuously process committed corpus batches |
+| `witdem elt status` | Show corpus and transformation status |
+| `witdem eval validate <campaign.jsonl>` | Validate an offline evaluation campaign without writes |
+| `witdem eval import <campaign.jsonl> [--db PATH\|--data-dir PATH]` | Import a validated framework-neutral campaign |
+| `witdem taxonomy reprocess` | Reclassify derived operation facts from preserved raw telemetry |
+| `witdem inspect` | Inspect database tables and row counts |
+| `witdem prune --older-than 30d` | Preview time-based corpus retention; add `--yes` to delete |
+| `witdem reset --live --yes` | Reset explicitly targeted mutable local state; destructive and disabled without confirmation |
+
+Run `witdem <command> --help` or `npx -y witdem@latest <command> --help` for
+the exact options supported by the installed launcher version. Do not assume a
+native-only command exists in NPX merely because both paths share lifecycle
+commands.
+
+CI verifies that every shared lifecycle command above is present in both
+launchers' generated help output.

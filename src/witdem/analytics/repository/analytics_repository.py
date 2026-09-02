@@ -35,7 +35,16 @@ from witdem.analytics.contracts import (
     ProviderSummary,
     SemanticReplayRecord,
 )
-from witdem.analytics.core import Event, Execution, Link, Operation
+from witdem.analytics.core import Evaluation, Event, Execution, Link, Operation, Outcome
+from witdem.analytics.evidence import (
+    EvaluationAssessment,
+    EvidenceBundle,
+    EvidenceBundleDiagnostics,
+    explicit_evaluation_pass,
+    measurement_coverage,
+    operation_profile_inputs,
+    operation_summary,
+)
 from witdem.analytics.identity import (
     canonical_model_key,
     canonical_operation_key,
@@ -3503,6 +3512,91 @@ class AnalyticsRepository:
 
         graph, events, semantic_map = self._graph_inputs(execution_id)
         return derive_failure_stage(graph, events=events, semantic_stage_map=semantic_map)
+
+    def export_evidence_bundle(self, execution_id: str) -> EvidenceBundle:
+        """Export one coherent, deterministic bundle of canonical OSS evidence."""
+
+        with self._overview_read_session():
+            execution_rows = self._query(load_query("execution/execution_detail"), [execution_id])
+            if not execution_rows:
+                raise KeyError(execution_id)
+            execution = _execution_from_row(execution_rows[0])
+            operations = sorted(
+                self._operations(execution_id),
+                key=lambda item: (
+                    item.started_at is None,
+                    item.started_at.isoformat() if item.started_at is not None else "",
+                    item.operation_id,
+                ),
+            )
+            links = sorted(
+                (
+                    Link.model_validate({**row, "attributes": _json(row.get("attributes"))})
+                    for row in self._query(load_query("execution/links_for_execution"), [execution_id])
+                ),
+                key=lambda item: item.link_id,
+            )
+            events = sorted(
+                (
+                    Event.model_validate({**row, "payload": _json(row.get("payload"))})
+                    for row in self._query(load_query("execution/events_for_execution"), [execution_id])
+                ),
+                key=lambda item: (item.timestamp.isoformat(), item.event_id),
+            )
+            evaluations = sorted(
+                (
+                    Evaluation.model_validate(
+                        {
+                            **row,
+                            "value": _json_value(row.get("value")),
+                            "attributes": _json(row.get("attributes")),
+                        }
+                    )
+                    for row in self._query(load_query("execution/evaluations_for_execution"), [execution_id])
+                ),
+                key=lambda item: (item.name, item.evaluation_id),
+            )
+            outcomes = sorted(
+                (
+                    Outcome.model_validate(
+                        {
+                            **row,
+                            "value": _json_value(row.get("value")),
+                            "attributes": _json(row.get("attributes")),
+                        }
+                    )
+                    for row in self._query(load_query("execution/outcomes_for_execution"), [execution_id])
+                ),
+                key=lambda item: (item.timestamp.isoformat(), item.outcome_id),
+            )
+            operation_facts, raw_measurements = self.execution_operation_facts(execution_id)
+            _profile_operations, measurements = operation_profile_inputs(operation_facts, raw_measurements)
+            projection = self.workflow_projection(execution_id)
+            raw_discrepancies = projection.get("discrepancies") if projection is not None else None
+            discrepancies = dict(raw_discrepancies) if isinstance(raw_discrepancies, Mapping) else None
+            diagnostics = EvidenceBundleDiagnostics(
+                failure_explanation=self.failure_explanation(execution_id),
+                operation_summary=operation_summary(operation_facts, raw_measurements),
+                operation_measurements=measurements,
+                measurement_coverage=measurement_coverage(measurements),
+                evaluation_assessments=[
+                    EvaluationAssessment(
+                        evaluation_id=evaluation.evaluation_id,
+                        passed=explicit_evaluation_pass(evaluation.model_dump()),
+                    )
+                    for evaluation in evaluations
+                ],
+                workflow_discrepancies=discrepancies,
+            )
+            return EvidenceBundle(
+                execution=execution,
+                operations=operations,
+                links=links,
+                events=events,
+                evaluations=evaluations,
+                outcomes=outcomes,
+                diagnostics=diagnostics,
+            )
 
     def _graph_inputs(self, execution_id: str) -> tuple[Any, list[Event], dict[str, str]]:
         operations = self._operations(execution_id)

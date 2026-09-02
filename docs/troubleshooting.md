@@ -128,7 +128,9 @@ Run from the application directory:
 witdem-sdk validate
 ```
 
-The SDK searches the current directory and parents for `.witdem/witdem.yaml`. For workers launched elsewhere:
+The SDK searches the current directory and parents for root-level `witdem.yml`,
+root-level `witdem.yaml`, and `.witdem/witdem.yaml`. For workers launched
+elsewhere:
 
 ```bash
 export WITDEM_CONFIG=/absolute/path/to/.witdem/witdem.yaml
