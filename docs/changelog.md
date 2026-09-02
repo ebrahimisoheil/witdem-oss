@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.2.4
+
+- Added concrete OpenAPI response schemas for every documented dashboard endpoint.
+- Documented run summaries, execution graphs, operation identity, measurements, workflows, evaluations, and issue responses while preserving additive fields.
+- Grouped Swagger operations by system, metadata, analytics, runs, workflows, and evaluations for easier API discovery.
+
 ## 0.2.3
 
 - Added native MCP protocol normalization for connection initialization, capability discovery, resource reads, prompt retrieval, and tool execution.

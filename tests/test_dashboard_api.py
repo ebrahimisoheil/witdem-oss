@@ -30,20 +30,35 @@ def test_dashboard_serves_api_and_spa(tmp_path) -> None:
         "page_size": 10,
         "pages": 1,
     }
-    assert "Witdem Dashboard API" in client.get("/api/openapi.json").text
+    openapi = client.get("/api/openapi.json").json()
+    assert openapi["info"]["title"] == "Witdem Dashboard API"
+    assert openapi["paths"]["/api/v1/runs/{execution_id}"]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/RunDetailResponse"}
+    operation = openapi["components"]["schemas"]["OperationFact"]["properties"]
+    assert operation["family"]["type"] == "string"
+    assert operation["interface"]["type"] == "string"
+    assert operation["plane"]["anyOf"][0]["enum"] == ["control", "work", "business"]
+    summary = openapi["components"]["schemas"]["RunSummary"]["properties"]
+    assert summary["model_calls"]["default"] == 0
+    assert summary["tool_calls"]["default"] == 0
     assert client.get("/").status_code == 200
 
 
 def test_evaluation_pass_uses_explicit_direction_and_target() -> None:
-    assert service._explicit_evaluation_pass(
-        {"value": 0.9, "attributes": {"target": 0.7, "direction": "higher_is_better"}}
-    ) is True
-    assert service._explicit_evaluation_pass(
-        {"value": 0.9, "attributes": {"target": 0.7, "direction": "lower_is_better"}}
-    ) is False
-    assert service._explicit_evaluation_pass(
-        {"value": 1.0, "status": "valid", "attributes": {"label": "valid"}}
-    ) is None
+    assert (
+        service._explicit_evaluation_pass(
+            {"value": 0.9, "attributes": {"target": 0.7, "direction": "higher_is_better"}}
+        )
+        is True
+    )
+    assert (
+        service._explicit_evaluation_pass({"value": 0.9, "attributes": {"target": 0.7, "direction": "lower_is_better"}})
+        is False
+    )
+    assert (
+        service._explicit_evaluation_pass({"value": 1.0, "status": "valid", "attributes": {"label": "valid"}}) is None
+    )
 
 
 def test_dashboard_rejects_unknown_run(tmp_path) -> None:
