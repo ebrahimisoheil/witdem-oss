@@ -496,7 +496,7 @@ def workflow_catalog(repo: AnalyticsRepository) -> dict[str, Any]:
                         "id": definition.id,
                         "name": definition.name,
                         "description": definition.description,
-                        "framework": definition.framework,
+                        "framework": None,
                         "template_hash": definition.template_hash,
                         "stage_count": len(definition.stages),
                         "node_count": len(definition.nodes),

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Replaced configuration v1 with a smaller vendor-neutral v2 project index,
+  external contract and workflow files, and explicit named requirement facts.
+- Added contract-authored failure diagnostics and validated workflow
+  investigation targets; the dashboard can open the declared evidence node
+  without generating an explanation.
+- Added a deterministic CUAD configuration and direct/LangGraph example that
+  exercises both achieved and failed contract requirements without external
+  provider calls.
+- Split dashboard routes and stable vendor libraries into cacheable production
+  chunks, reducing the initial JavaScript bundle below the build warning limit.
 - Added a public, deterministic evidence-bundle v1 export for canonical execution records and existing OSS diagnostics.
 - Exposed the same neutral contract through `AnalyticsRepository` and the versioned dashboard read API.
 - Added an oldest-supported v1 compatibility fixture and contract regression coverage.

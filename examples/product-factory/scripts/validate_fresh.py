@@ -282,7 +282,7 @@ with configure() as witdem:
             witdem.report(
                 result='completed',
                 result_valid=True,
-                product_goal_achieved=True,
+                requirements={'useful_result': True},
             )
     assert witdem.flush()
 """

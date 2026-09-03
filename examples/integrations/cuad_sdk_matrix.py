@@ -14,7 +14,7 @@ from witdem_sdk import Witdem, configure
 from witdem_sdk.integrations.anthropic import instrument_anthropic
 from witdem_sdk.integrations.openai import instrument_openai
 
-Provider = Literal["anthropic", "openai"]
+Provider = Literal["anthropic", "openai", "deterministic"]
 Framework = Literal["direct", "langgraph"]
 
 
@@ -74,6 +74,15 @@ def _valid_json(text: str) -> bool:
 
 
 def _provider_call(provider: Provider, client: Any, evidence: list[str]) -> str:
+    if provider == "deterministic":
+        return json.dumps(
+            {
+                "risk_summary": "Deterministic CUAD fixture review.",
+                "renewal": None,
+                "termination": None,
+                "governing_law": None,
+            }
+        )
     prompt = _prompt(evidence)
     if provider == "anthropic":
         response = client.messages.create(
@@ -93,6 +102,8 @@ def _provider_call(provider: Provider, client: Any, evidence: list[str]) -> str:
 
 
 def _instrumented_client(provider: Provider, witdem: Witdem) -> Any:
+    if provider == "deterministic":
+        return None
     if provider == "anthropic":
         from anthropic import Anthropic
 
@@ -100,6 +111,26 @@ def _instrumented_client(provider: Provider, witdem: Witdem) -> Any:
     from openai import OpenAI
 
     return instrument_openai(OpenAI(api_key=os.environ["OPENAI_API_KEY"]), witdem=witdem)
+
+
+def _analyze(provider: Provider, client: Any, evidence: list[str], witdem: Witdem) -> str:
+    if provider != "deterministic":
+        return _provider_call(provider, client, evidence)
+    with witdem.operation(
+        "cuad.deterministic_analysis",
+        kind="model",
+        family="model",
+        operation_type="inference",
+        subtype="fixture",
+        interface="local",
+        implementation_id="deterministic_cuad_fixture",
+        provider_id="deterministic",
+        model_id="cuad-fixture-v1",
+        input_modalities=("text",),
+        output_modalities=("json",),
+        execution_source="python",
+    ):
+        return _provider_call(provider, client, evidence)
 
 
 def _retrieve(witdem: Witdem, contract: str) -> list[str]:
@@ -142,7 +173,7 @@ def _validate(witdem: Witdem, answer: str) -> bool:
 def _direct(provider: Provider, witdem: Witdem, contract: str) -> ReviewState:
     client = _instrumented_client(provider, witdem)
     evidence = _retrieve(witdem, contract)
-    answer = _provider_call(provider, client, evidence)
+    answer = _analyze(provider, client, evidence, witdem)
     return {"contract": contract, "evidence": evidence, "answer": answer, "valid": _validate(witdem, answer)}
 
 
@@ -156,7 +187,7 @@ def _langgraph(provider: Provider, witdem: Witdem, contract: str) -> ReviewState
         return {"evidence": _retrieve(witdem, state["contract"])}
 
     def analyze_node(state: ReviewState) -> dict[str, Any]:
-        return {"answer": _provider_call(provider, client, state["evidence"])}
+        return {"answer": _analyze(provider, client, state["evidence"], witdem)}
 
     def validate_node(state: ReviewState) -> dict[str, Any]:
         return {"valid": _validate(witdem, state["answer"])}
@@ -169,30 +200,40 @@ def _langgraph(provider: Provider, witdem: Witdem, contract: str) -> ReviewState
     builder.add_edge("retrieve", "analyze")
     builder.add_edge("analyze", "validate")
     builder.add_edge("validate", END)
-    callback = WitdemLangGraphCallback(
-        witdem,
-        provider=provider,
-        model=(
-            os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-            if provider == "anthropic"
-            else os.getenv("OPENAI_MODEL", "gpt-5.4")
-        ),
-    )
+    callbacks = []
+    if provider != "deterministic":
+        callbacks.append(
+            WitdemLangGraphCallback(
+                witdem,
+                provider=provider,
+                model=(
+                    os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+                    if provider == "anthropic"
+                    else os.getenv("OPENAI_MODEL", "gpt-5.4")
+                ),
+            )
+        )
     return cast(
         ReviewState,
         builder.compile().invoke(
             {"contract": contract, "evidence": [], "answer": "", "valid": False},
-            config={"callbacks": [callback]},
+            config={"callbacks": callbacks},
         ),
     )
 
 
-def run(provider: Provider, framework: Framework, contract_path: Path, endpoint: str) -> dict[str, Any]:
+def run(
+    provider: Provider,
+    framework: Framework,
+    contract_path: Path,
+    endpoint: str,
+    config_path: Path,
+) -> dict[str, Any]:
     started = time.perf_counter()
     contract = contract_path.read_text(encoding="utf-8")
     variant = f"{framework}-{provider}"
     with (
-        configure(service_name="cuad-sdk-matrix", runtime=framework, endpoint=endpoint) as witdem,
+        configure(runtime=framework, endpoint=endpoint, config_path=str(config_path)) as witdem,
         witdem.execution(
             f"CUAD {framework} {provider}",
             attributes={
@@ -231,6 +272,20 @@ def run(provider: Provider, framework: Framework, contract_path: Path, endpoint:
             status="success" if result["valid"] else "invalid",
             value={"valid": result["valid"], "variant": variant},
         )
+        witdem.report(
+            contract="review",
+            result="completed" if result["valid"] else "invalid",
+            result_valid=result["valid"],
+            requirements={
+                "evidence_retrieved": bool(result["evidence"]),
+                "structured_review": result["valid"],
+            },
+            dimensions={
+                "variant": variant,
+                "provider": provider,
+                "execution_style": framework,
+            },
+        )
     return {
         "variant": variant,
         "execution_id": execution_id,
@@ -243,13 +298,24 @@ def run(provider: Provider, framework: Framework, contract_path: Path, endpoint:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", choices=("anthropic", "openai"), required=True)
+    parser.add_argument("--provider", choices=("anthropic", "openai", "deterministic"), required=True)
     parser.add_argument("--framework", choices=("direct", "langgraph"), required=True)
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--endpoint", default=os.getenv("WITDEM_ENDPOINT", "http://127.0.0.1:4318"))
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(__file__).with_name("cuad") / "witdem.yml",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = run(args.provider, args.framework, args.contract.expanduser().resolve(), args.endpoint)
+    result = run(
+        args.provider,
+        args.framework,
+        args.contract.expanduser().resolve(),
+        args.endpoint,
+        args.config.expanduser().resolve(),
+    )
     encoded = json.dumps(result, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

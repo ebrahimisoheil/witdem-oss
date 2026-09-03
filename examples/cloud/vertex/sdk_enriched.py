@@ -15,5 +15,11 @@ observed_run = instrument(
     operation_name="vertex.generate_content",
     provider="google.vertex",
     model=model,
+    report_result=lambda response: {
+        "result": "completed" if response.answer else "unresolved",
+        "result_valid": bool(response.answer),
+        "requirements": {"non_empty_answer": bool(response.answer)},
+        "metrics": {"answer_characters": len(response.answer)},
+    },
 )
 print(observed_run().answer)

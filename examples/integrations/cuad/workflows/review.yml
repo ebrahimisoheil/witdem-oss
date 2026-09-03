@@ -1,0 +1,52 @@
+version: 2
+id: contract-review
+name: Contract review
+description: Load a contract, retrieve relevant evidence, analyze it, and validate the review.
+
+match:
+  service_names: [cuad-contract-review]
+
+stages:
+  - id: intake
+    name: Document intake
+    nodes:
+      - id: load
+        name: Load contract
+        match:
+          names: [cuad.document_loading]
+
+  - id: evidence
+    name: Evidence retrieval
+    depends_on: [intake]
+    nodes:
+      - id: retrieve
+        name: Retrieve relevant clauses
+        match:
+          names: [cuad.keyword_retrieval]
+        depends_on: [load]
+
+  - id: analysis
+    name: Contract analysis
+    depends_on: [evidence]
+    nodes:
+      - id: analyze
+        name: Generate structured review
+        match:
+          names: [cuad.deterministic_analysis]
+          kinds: [model]
+        depends_on: [retrieve]
+
+  - id: validation
+    name: Review validation
+    depends_on: [analysis]
+    nodes:
+      - id: validate
+        name: Validate review structure
+        match:
+          names: [cuad.structured_validation]
+        depends_on: [analyze]
+
+outcomes:
+  - id: reviewed
+    name: Contract reviewed
+    from: [validate]

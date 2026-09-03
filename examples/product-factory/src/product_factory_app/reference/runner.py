@@ -143,7 +143,13 @@ async def run_case(
                     decision=decision.observed_status.value,
                     expected_decision=case.expected_status.value,
                     decision_correct=goal.decision_correct,
-                    product_goal_achieved=goal.product_goal_achieved,
+                    requirements={
+                        "runtime_terminal": runtime_output.terminal,
+                        "valid_profile": decision.artifact_valid,
+                        "sufficient_evidence": decision.decision_evidence_sufficient,
+                        "required_path": goal.required_path_observed,
+                        "correct_decision": goal.decision_correct,
+                    },
                     metrics={"qualification_score": decision.qualification_score},
                     dimensions={
                         "case_id": case_id,
@@ -152,7 +158,6 @@ async def run_case(
                     },
                     evidence_sufficient=decision.decision_evidence_sufficient,
                     required_path_observed=goal.required_path_observed,
-                    closest_blocker=goal.closest_blocker,
                     threshold=case.policy.qualification_threshold,
                     threshold_margin=decision.threshold_margin,
                     attributes={

@@ -1,0 +1,11 @@
+version: 2
+
+service:
+  name: cuad-contract-review
+  description: Reviews contract clauses from the CUAD dataset.
+
+telemetry:
+  capture_content: false
+
+contracts: [contracts/review.yml]
+workflows: [workflows/review.yml]

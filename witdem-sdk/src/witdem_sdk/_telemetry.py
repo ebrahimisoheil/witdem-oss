@@ -28,10 +28,8 @@ from witdem_sdk._config import api_key as configured_api_key
 from witdem_sdk._config import configure_records_endpoint, records_endpoint
 from witdem_sdk._contract import (
     ContractResult,
-    DescriptiveContractSpec,
     WitdemProjectConfig,
     contract_definition,
-    evaluate_contract,
     load_project_config,
 )
 from witdem_sdk._transport import DeliveryStatus
@@ -626,7 +624,7 @@ class Witdem:
         self,
         *,
         result: str,
-        product_goal_achieved: bool,
+        requirements: Mapping[str, bool | None],
         contract: str | None = None,
         result_valid: bool = True,
         decision: str | bool | None = None,
@@ -637,7 +635,6 @@ class Witdem:
         dimensions: Mapping[str, Any] | None = None,
         evidence_sufficient: bool = True,
         required_path_observed: bool = True,
-        closest_blocker: str = "none",
         threshold: float | None = None,
         threshold_margin: float | None = None,
         attributes: Mapping[str, Any] | None = None,
@@ -660,15 +657,11 @@ class Witdem:
         spec = config.contracts.get(contract_name)
         if spec is None:
             raise ValueError(f"witdem_sdk: unknown contract {contract_name!r}")
-        if not isinstance(spec, DescriptiveContractSpec):
-            raise ValueError(
-                "witdem_sdk: Witdem.report(...) requires a metadata-only contract; "
-                "use Witdem.complete(...) for expression contracts"
-            )
-
         if spec.result.values and result not in spec.result.values:
             allowed = ", ".join(spec.result.values)
             raise ValueError(f"witdem_sdk: result {result!r} is not declared; expected one of: {allowed}")
+        if spec.decision is None and (decision is not None or expected_decision is not None):
+            raise ValueError(f"witdem_sdk: contract {contract_name!r} does not declare a decision")
         if (
             decision is not None
             and spec.decision
@@ -695,6 +688,45 @@ class Witdem:
                 f"witdem_sdk: dimensions not declared in contract {contract_name!r}: {unknown}; "
                 f"declared dimensions: {declared}"
             )
+        undeclared_evaluations = sorted(set(evaluations or {}) - set(spec.evaluations))
+        if undeclared_evaluations:
+            raise ValueError(
+                f"witdem_sdk: evaluations not declared in contract {contract_name!r}: "
+                + ", ".join(undeclared_evaluations)
+            )
+        undeclared_metrics = sorted(set(metrics or {}) - set(spec.metrics))
+        if undeclared_metrics:
+            raise ValueError(
+                f"witdem_sdk: metrics not declared in contract {contract_name!r}: "
+                + ", ".join(undeclared_metrics)
+            )
+        declared_requirements = set(spec.product_goal.requirements)
+        reported_requirements = set(requirements)
+        missing_requirements = sorted(declared_requirements - reported_requirements)
+        unknown_requirements = sorted(reported_requirements - declared_requirements)
+        if missing_requirements or unknown_requirements:
+            details: list[str] = []
+            if missing_requirements:
+                details.append(f"missing: {', '.join(missing_requirements)}")
+            if unknown_requirements:
+                details.append(f"undeclared: {', '.join(unknown_requirements)}")
+            raise ValueError(f"witdem_sdk: goal requirements do not match the contract ({'; '.join(details)})")
+        invalid_requirements = [
+            key for key, value in requirements.items() if value is not True and value is not False and value is not None
+        ]
+        if invalid_requirements:
+            raise ValueError(
+                "witdem_sdk: goal requirement values must be true, false, or null: "
+                + ", ".join(sorted(invalid_requirements))
+            )
+        failed_requirements = [key for key, value in requirements.items() if value is False]
+        unknown_goal_requirements = [key for key, value in requirements.items() if value is None]
+        product_goal_achieved = all(value is True for value in requirements.values())
+        evidence_sufficient = evidence_sufficient and not unknown_goal_requirements
+        closest_blocker = next(
+            (key for key in spec.product_goal.requirements if requirements[key] is not True),
+            "none",
+        )
         if decision_correct is None and expected_decision is not None and decision is not None:
             decision_correct = decision == expected_decision
 
@@ -710,7 +742,7 @@ class Witdem:
                 attributes={
                     "contract_name": contract_name,
                     "contract_hash": definition_hash,
-                    "contract_version": "1.0",
+                    "contract_version": "2.0",
                 },
                 execution_id=execution_id,
             )
@@ -730,7 +762,7 @@ class Witdem:
         }
         goal_attributes = {
             **shared,
-            "contract_version": "1.0",
+            "contract_version": "2.0",
             "expected_status": expected_decision,
             "observed_status": decision,
             "decision_correct": decision_correct,
@@ -739,6 +771,8 @@ class Witdem:
             "decision_evidence_sufficient": evidence_sufficient,
             "required_path_observed": required_path_observed,
             "closest_blocker": closest_blocker,
+            "failed_requirement_ids": failed_requirements,
+            "unknown_requirement_ids": unknown_goal_requirements,
         }
         if threshold is not None:
             goal_attributes["threshold"] = threshold
@@ -763,10 +797,32 @@ class Witdem:
             attributes=shared,
             execution_id=execution_id,
         )
+        for key, value in requirements.items():
+            requirement = spec.product_goal.requirements[key]
+            self.evaluation(
+                requirement.name,
+                value=value,
+                label="passed" if value is True else "failed" if value is False else "unknown",
+                attributes={
+                    **shared,
+                    "passed": value if isinstance(value, bool) else None,
+                    "evaluation_key": f"goal_requirement.{key}",
+                    "evaluation_description": requirement.description,
+                    "requirement_id": key,
+                    "requirement_failure_label": requirement.failure.label,
+                    "requirement_failure_description": requirement.failure.description,
+                    "investigation_stage": (
+                        requirement.failure.investigate.stage if requirement.failure.investigate else None
+                    ),
+                    "investigation_node": (
+                        requirement.failure.investigate.node if requirement.failure.investigate else None
+                    ),
+                },
+                execution_id=execution_id,
+            )
         for key, value in (evaluations or {}).items():
             definition_spec = spec.evaluations.get(key)
-            if definition_spec is None:
-                raise ValueError(f"witdem_sdk: evaluation {key!r} is not declared in contract {contract_name!r}")
+            assert definition_spec is not None
             evaluation_attributes = {
                 **shared,
                 "evaluation_key": key,
@@ -801,8 +857,7 @@ class Witdem:
                 )
         for key, value in (metrics or {}).items():
             metric_definition = spec.metrics.get(key)
-            if metric_definition is None:
-                raise ValueError(f"witdem_sdk: metric {key!r} is not declared in contract {contract_name!r}")
+            assert metric_definition is not None
             self.metric(
                 metric_definition.name,
                 value,
@@ -858,177 +913,12 @@ class Witdem:
         attributes: Mapping[str, Any] | None = None,
         execution_id: str | None = None,
     ) -> ContractResult:
-        """Evaluate one configured business contract and emit canonical meaning.
+        """Reject the removed v1 expression-contract completion path."""
 
-        Framework integrations continue to own physical telemetry. This method
-        is the single application-side handoff for result validity, decision
-        correctness, and product-goal success.
-        """
-
-        config = self.project_config
-        if config is None:
-            raise ValueError("witdem_sdk: no project contract loaded; run 'witdem-sdk init' or pass config_path")
-        contract_name = contract or config.default_contract
-        if not contract_name:
-            raise ValueError("witdem_sdk: specify contract= or set default_contract in .witdem/witdem.yaml")
-        spec = config.contracts.get(contract_name)
-        if spec is None:
-            raise ValueError(f"witdem_sdk: unknown contract {contract_name!r}")
-        if isinstance(spec, DescriptiveContractSpec):
-            raise ValueError(
-                "witdem_sdk: this metadata-only contract requires Witdem.report(...); "
-                "Witdem.complete(...) requires an expression contract"
-            )
-        evaluated = evaluate_contract(contract_name, spec, result)
-        from witdem_sdk._contract import evaluate, result_context
-
-        context = result_context(result)
-        configured_attributes = {key: evaluate(value, context) for key, value in spec.attributes.items()}
-        definition_hash, definition = contract_definition(config, contract_name, spec)
-        reported = getattr(self, "_reported_contract_definitions", None)
-        if reported is None:
-            reported = set()
-            self._reported_contract_definitions = reported
-        if definition_hash not in reported:
-            self.event(
-                "contract.definition",
-                definition,
-                attributes={
-                    "contract_name": contract_name,
-                    "contract_hash": definition_hash,
-                    "contract_version": "1.0",
-                },
-                execution_id=execution_id,
-            )
-            reported.add(definition_hash)
-        shared = {
-            **configured_attributes,
-            **dict(attributes or {}),
-            "contract_name": contract_name,
-            "contract_hash": definition_hash,
-            "contract_description": spec.description,
-            "result_name": spec.artifact.name,
-            "result_description": spec.artifact.description,
-            "decision_description": spec.decision.description,
-            "product_goal_name": spec.product_goal.name,
-            "product_goal_description": spec.product_goal.description,
-        }
-        self.event(
-            "contract.completed",
-            {
-                **shared,
-                "application_status": evaluated.application_status,
-                "artifact_valid": evaluated.artifact_valid,
-                "decision_correct": evaluated.decision_correct,
-                "product_goal_achieved": evaluated.product_goal_achieved,
-            },
-            execution_id=execution_id,
+        raise ValueError(
+            "witdem_sdk: Witdem.complete(...) was removed with configuration v1; "
+            "report named contract facts with Witdem.report(...)"
         )
-        self.evaluation(
-            f"{spec.artifact.name} validity",
-            score=1.0 if evaluated.artifact_valid else 0.0,
-            label="valid" if evaluated.artifact_valid else "invalid",
-            attributes=shared,
-            execution_id=execution_id,
-        )
-        semantic_outcome = spec.product_goal.semantic_outcome
-        semantic_score = evaluated.attributes.get("semantic_score")
-        if semantic_outcome is not None and isinstance(semantic_score, (int, float)):
-            self.evaluation(
-                semantic_outcome.name,
-                score=float(semantic_score),
-                label=str(evaluated.attributes.get("assurance_status")),
-                attributes={
-                    **shared,
-                    "evaluation_description": semantic_outcome.description,
-                    "unit": "ratio",
-                    "target": semantic_outcome.assurance_threshold,
-                    "direction": "higher_is_better",
-                    "achievement_threshold": semantic_outcome.threshold,
-                },
-                execution_id=execution_id,
-            )
-        for evaluation_spec in spec.evaluations:
-            self.evaluation(
-                evaluation_spec.name,
-                score=(float(evaluate(evaluation_spec.score, context)) if evaluation_spec.score is not None else None),
-                label=(str(evaluate(evaluation_spec.label, context)) if evaluation_spec.label is not None else None),
-                value=(evaluate(evaluation_spec.value, context) if evaluation_spec.value is not None else None),
-                attributes={
-                    **shared,
-                    "evaluation_description": evaluation_spec.description,
-                    "unit": evaluation_spec.unit,
-                    "target": evaluation_spec.target,
-                    "direction": evaluation_spec.direction,
-                    **{key: evaluate(value, context) for key, value in evaluation_spec.attributes.items()},
-                },
-                execution_id=execution_id,
-            )
-        for metric_spec in spec.metrics:
-            self.metric(
-                metric_spec.name,
-                evaluate(metric_spec.value, context),
-                attributes={
-                    **shared,
-                    "metric_description": metric_spec.description,
-                    "unit": metric_spec.unit,
-                    **{key: evaluate(value, context) for key, value in metric_spec.attributes.items()},
-                },
-                execution_id=execution_id,
-            )
-        self.decision(
-            spec.decision.name,
-            evaluated.observed_status,
-            attributes={
-                **shared,
-                "expected_status": evaluated.expected_status,
-                "observed_status": evaluated.observed_status,
-                "decision_correct": evaluated.decision_correct,
-                "decision_reason": evaluated.attributes.get("decision_reason"),
-                "outcome_description": spec.decision.outcomes.get(str(evaluated.observed_status)),
-            },
-            execution_id=execution_id,
-        )
-        self.outcome(
-            "application_outcome",
-            status=evaluated.application_status,
-            attributes=shared,
-            execution_id=execution_id,
-        )
-        self.outcome(
-            "product_goal",
-            status="achieved" if evaluated.product_goal_achieved else "failed",
-            attributes={**shared, **evaluated.attributes, **dict(attributes or {})},
-            execution_id=execution_id,
-        )
-        return evaluated
-
-    def observe(self, *, contract: str | None = None, name: str | None = None) -> Callable[[_CallableT], _CallableT]:
-        """Decorate a sync or async workload and complete its business contract."""
-
-        def decorate(function: _CallableT) -> _CallableT:
-            execution_name = name or function.__name__.replace("_", " ").title()
-            if inspect.iscoroutinefunction(function):
-
-                @wraps(function)
-                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                    with self.execution(execution_name):
-                        result = await function(*args, **kwargs)
-                        self.complete(result, contract=contract)
-                        return result
-
-                return cast(_CallableT, async_wrapper)
-
-            @wraps(function)
-            def wrapper(*args: Any, **kwargs: Any) -> Any:
-                with self.execution(execution_name):
-                    result = function(*args, **kwargs)
-                    self.complete(result, contract=contract)
-                    return result
-
-            return cast(_CallableT, wrapper)
-
-        return decorate
 
     def flush(self, timeout: float | None = None) -> bool:
         from witdem_sdk._transport import _flush_timeout
@@ -1089,7 +979,7 @@ def configure(
     resolved_service = service_name or (project_config.service.name if project_config else None)
     if not resolved_service:
         raise ValueError("witdem_sdk: service_name is required when no .witdem/witdem.yaml is available")
-    resolved_runtime = runtime or (project_config.service.runtime if project_config else None)
+    resolved_runtime = runtime
     resolved_endpoint = endpoint
     if resolved_endpoint is None and not os.getenv("WITDEM_ENDPOINT") and project_config is not None:
         resolved_endpoint = project_config.telemetry.endpoint

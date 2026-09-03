@@ -80,11 +80,12 @@ From the application project, create the YAML contract and then edit it to
 describe that application's result:
 
 ```bash
-witdem-sdk init --runtime haystack
+witdem-sdk init
 ```
 
-This creates `.witdem/witdem.yaml`. It does not inspect or rewrite application
-code, and it will not replace an existing contract unless `--force` is used.
+This creates a small `.witdem/witdem.yaml` index and a separate contract file.
+It does not inspect or rewrite application code, and it will not replace an
+existing project unless `--force` is used.
 
 Wrap the pipeline once. Its existing `run`, `run_async`, and `run_async_generator` calls stay unchanged:
 
@@ -95,30 +96,20 @@ pipeline = instrument(build_pipeline())
 result = pipeline.run(data)
 ```
 
-Add `.witdem/witdem.yaml` to describe what a useful result means:
+The project file only identifies the service and references definitions:
 
 ```yaml
-version: 1
+version: 2
 service:
   name: support-agent
-  runtime: haystack
 telemetry:
   capture_content: false
-contracts:
-  - name: answer
-    mode: expression
-    artifact:
-      name: Support answer
-      valid:
-        non_empty: $.answer
-    decision:
-      name: Result validity
-      expected: true
-      observed: $.witdem.artifact_valid
-    product_goal:
-      name: Useful answer returned
-      achieved: $.witdem.artifact_valid
+contracts: [contracts/answer.yml]
 ```
+
+The contract names the result and independently reportable goal requirements.
+Application code reports their values with `Witdem.report(...)`; Witdem never
+extracts business meaning from a framework-specific return object.
 
 Run the application normally. The execution and its business result appear at **http://localhost:8501**.
 

@@ -1,0 +1,42 @@
+version: 2
+id: review
+name: CUAD contract review
+description: Produce a structured, evidence-backed review of selected contract clauses.
+
+result:
+  name: Review result
+  values:
+    completed:
+      description: A structured contract review was produced.
+      tone: success
+    invalid:
+      description: The produced review did not satisfy the expected structure.
+      tone: failure
+
+goal:
+  name: Produce a usable contract review
+  description: Retrieve contract evidence and return a valid structured review.
+  requirements:
+    evidence_retrieved:
+      name: Relevant evidence was retrieved
+      failure:
+        label: No relevant contract evidence was retrieved
+        investigate:
+          stage: evidence
+          node: retrieve
+    structured_review:
+      name: The review has the required structure
+      failure:
+        label: The generated review was not valid structured JSON
+        description: The review must contain the required risk-summary field.
+        investigate:
+          stage: validation
+          node: validate
+
+dimensions:
+  variant:
+    name: Execution variant
+  provider:
+    name: Model provider
+  execution_style:
+    name: Execution style

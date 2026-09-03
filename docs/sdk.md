@@ -4,27 +4,31 @@ Witdem works without its SDK whenever an application emits standard OTLP/HTTP tr
 
 ## Declarative contract
 
-The application owns `.witdem/witdem.yaml`. Write it explicitly with the human names, descriptions, and final-result field mappings for outcomes, decisions, product goals, evaluations, metrics, and dimensions. Mappings are declarative data expressions; the SDK never generates or guesses them.
+The application owns a small `.witdem/witdem.yaml` project index and separate
+contract files. Contracts contain human names, descriptions, allowed values,
+and goal requirements. They never contain framework return paths or extraction
+expressions.
 
 `witdem.report(...)` sends values already known by the application. It does not infer runtime telemetry.
 
 Result and decision labels are owned by the contract; Witdem does not attach meaning to names such as `approved`, `rejected`, or `escalated`. A descriptive contract may optionally classify a value with a semantic dashboard tone:
 
 ```yaml
-contracts:
-  - name: research_report
-    result:
-      name: Editorial result
-      values:
-        approved:
-          description: The report passed editorial review.
-          tone: success
-        revision_limit_reached:
-          description: The report was not approved before the revision limit.
-          tone: warning
-    product_goal:
-      name: Approved research report
-      description: Deliver a report approved by the critic.
+version: 2
+id: research_report
+name: Research report
+result:
+  name: Editorial result
+  values:
+    approved: {description: The report passed review, tone: success}
+    revision_limit_reached: {description: The report needs review, tone: warning}
+goal:
+  name: Approved research report
+  requirements:
+    editorial_approval:
+      name: The report passed editorial review
+      failure:
+        label: The report did not pass editorial review
 ```
 
 Supported tones are `success`, `warning`, `failure`, and `neutral`. They select design-system colors rather than arbitrary hex values. Existing `value: Description` entries remain valid; values without a tone receive distinct categorical colors without implying success or failure.
@@ -66,31 +70,32 @@ Existing call sites stay unchanged:
 result = graph.invoke({"topic": "battery recycling"})
 ```
 
-If the final state contains application outcomes, declare the mapping in YAML. No Python mapper is required:
+If the final state contains application outcomes, report those facts explicitly
+through the integration callback:
 
-```yaml
-contracts:
-  - name: research_report
-    application_outcome: {status: $.editorial_decision}
-    artifact:
-      name: Research report
-      valid: {non_empty: $.report}
-    decision:
-      name: Editorial decision
-      expected: approved
-      observed: $.editorial_decision
-    product_goal:
-      name: Approved report
-      achieved: $.approved
+```python
+def report_result(state):
+    return {
+        "contract": "research_report",
+        "result": state["editorial_decision"],
+        "requirements": {"editorial_approval": state["approved"]},
+    }
+
+graph = instrument(builder.compile(), report_result=report_result)
 ```
 
-The wrapper evaluates the default YAML contract after `invoke` and `ainvoke`, when a final state exists. Streaming remains runtime-only because a stream may expose partial states rather than one authoritative final result. `report_result` remains an optional override for unusual results that cannot be represented declaratively.
+The callback is the authoritative boundary between application facts and
+Witdem's vendor-neutral contract. Streaming remains runtime-only unless the
+application can identify one authoritative final result.
 
 The provider and model may be passed to `instrument` or observed from framework metadata. Cost is measured only when provider, model, and usage are present and the server pricing catalog recognizes the model. Witdem reports an unavailable reason for unknown models instead of estimating a price.
 
 ## One-point integrations
 
-Every high-level integration owns SDK configuration, one execution, correlation, error recording, cleanup, and automatic evaluation of the explicit YAML contract. `report_result` is only an optional override.
+Every high-level integration owns SDK configuration, one execution,
+correlation, error recording, and cleanup. `report_result` supplies business
+facts when the application wants contract outcomes in addition to runtime
+telemetry.
 
 | Runtime | Integration point | Existing invocation |
 | --- | --- | --- |

@@ -11,47 +11,60 @@ from typing import Any, cast
 
 from witdem_sdk._contract import load_project_config
 
-_TEMPLATE = """version: 1
+_TEMPLATE = """version: 2
 service:
   name: {service_name}
   description: The agent or workflow being observed.
-  runtime: {runtime}
 telemetry:
   endpoint: http://localhost:4318
   mode: auto
   capture_content: false
-contracts:
-  - name: application_run
-    mode: reported
-    description: One completed application request.
-    result:
-      name: Application result
-      description: The useful result returned to the user.
-      values:
-        completed: A useful result was returned.
-        unresolved: The request could not be completed.
-    product_goal:
-      name: Useful result returned
-      description: The application returned the result the user needed.
-    dimensions:
-      request_type:
-        name: Request type
+contracts: [contracts/application-run.yml]
+"""
+
+_CONTRACT_TEMPLATE = """version: 2
+id: application_run
+name: Application run
+description: One completed application request.
+
+result:
+  name: Application result
+  description: The useful result returned to the user.
+  values:
+    completed: A useful result was returned.
+    unresolved: The request could not be completed.
+
+goal:
+  name: Useful result returned
+  description: The application returned the result the user needed.
+  requirements:
+    useful_result:
+      name: A useful result was returned
+      failure:
+        label: No useful result was returned
+
+dimensions:
+  request_type:
+    name: Request type
 """
 
 
-def init_project(directory: Path, *, service_name: str, runtime: str, force: bool = False) -> Path:
+def init_project(directory: Path, *, service_name: str, force: bool = False) -> Path:
     target_dir = directory / ".witdem"
     target = target_dir / "witdem.yaml"
     if target.exists() and not force:
         raise SystemExit(f"{target} already exists; use --force to replace it")
     target_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(_TEMPLATE.format(service_name=service_name, runtime=runtime), encoding="utf-8")
+    contract_dir = target_dir / "contracts"
+    contract_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(_TEMPLATE.format(service_name=service_name), encoding="utf-8")
+    (contract_dir / "application-run.yml").write_text(_CONTRACT_TEMPLATE, encoding="utf-8")
     return target
 
 
 def _delegate_to_analytics(argv: list[str]) -> int:
     try:
-        from witdem.cli import main as analytics_main  # type: ignore[import-not-found]
+        from witdem.cli import main as analytics_main
     except ImportError:
         raise SystemExit(f"unknown SDK command: {argv[0] if argv else ''}") from None
     original = sys.argv
@@ -72,7 +85,6 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="create a declarative Witdem application contract")
     init.add_argument("--service-name", help="defaults to the project directory name")
-    init.add_argument("--runtime", default="application")
     init.add_argument("--directory", type=Path, default=Path.cwd())
     init.add_argument("--force", action="store_true")
     validate = commands.add_parser("validate", help="validate .witdem/witdem.yaml")
@@ -82,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(arguments)
     if args.command == "init":
         service_name = args.service_name or args.directory.resolve().name
-        target = init_project(args.directory, service_name=service_name, runtime=args.runtime, force=args.force)
+        target = init_project(args.directory, service_name=service_name, force=args.force)
         print(f"Created {target}")
         return 0
     if args.command == "validate":

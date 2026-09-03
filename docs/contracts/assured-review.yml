@@ -1,0 +1,36 @@
+version: 2
+id: document_review
+name: Document review
+
+result:
+  name: Review result
+  values:
+    approved: {description: The document was approved, tone: success}
+    manual_review: {description: A person must review the document, tone: warning}
+    rejected: {description: The document was rejected, tone: failure}
+
+goal:
+  name: Produce an evidence-backed review
+  requirements:
+    valid_output:
+      name: The review output is valid
+      failure:
+        label: The review output was invalid
+        investigate: {stage: validation}
+    sufficient_evidence:
+      name: The decision has sufficient evidence
+      failure:
+        label: Decision evidence was insufficient
+        investigate: {stage: decision}
+
+evaluations:
+  evidence_coverage:
+    name: Evidence coverage
+    unit: ratio
+    target: 0.8
+    direction: higher_is_better
+
+metrics:
+  reviewed_clauses:
+    name: Reviewed clauses
+    unit: clauses

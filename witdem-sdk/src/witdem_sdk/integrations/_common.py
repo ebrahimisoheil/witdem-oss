@@ -10,7 +10,6 @@ from typing import Any, cast
 from opentelemetry import baggage
 
 from witdem_sdk import Witdem, configure
-from witdem_sdk._contract import DescriptiveContractSpec
 
 ResultReporter = Callable[[Any], Mapping[str, Any] | None]
 
@@ -21,11 +20,6 @@ def report_business_result(result: Any, witdem: Witdem, reporter: ResultReporter
         if values is not None:
             cast(Any, witdem.report)(**dict(values))
         return
-    config = getattr(witdem, "project_config", None)
-    contract_name = getattr(config, "default_contract", None)
-    contract = config.contracts.get(contract_name) if config is not None and contract_name else None
-    if contract is not None and not isinstance(contract, DescriptiveContractSpec):
-        witdem.complete(result, contract=contract_name)
 
 
 @dataclass(frozen=True)

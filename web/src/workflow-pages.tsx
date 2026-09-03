@@ -30,12 +30,15 @@ export const statePresentation = (state: string) => {
   return { label: "Completed", border: "#16864b", badge: "bg-green-50 text-green-800 ring-green-200" };
 };
 
+export const goalStageDotColor = (state: string, investigating: boolean) =>
+  investigating ? "#a8a29e" : statePresentation(state).border;
+
 type CardMetric = { label: string; value: string };
 type EvidenceGraphData = Record<string, unknown> & {
   eyebrow: string;
   title: string;
   detail?: string;
-  tone?: "root" | "operation" | "model" | "failure";
+  tone?: "success" | "recovered" | "running" | "operation" | "model" | "failure";
 };
 type EvidenceGraphNode = { id: string; position: { x: number; y: number }; data: EvidenceGraphData };
 type EvidenceGraphEdge = { id: string; source: string; target: string };
@@ -436,7 +439,7 @@ export function WorkflowExecutionPage() {
   return <div className="-mb-[21px]">
     <PageHeader compact eyebrow="Workflow replay" title={replay.workflow.name} description={`Execution ${executionId}`} action={<Link to="/workflows/$workflowId" params={{ workflowId }}><Button variant="outline">Workflow executions</Button></Link>} />
     {(operationSummary || evaluationResults.length) ? <div className="mb-3 grid grid-cols-4 gap-2"><CompactFact label="Operations" value={formatNumber(operationSummary?.total_operations)} /><CompactFact label="Operation types" value={formatNumber(operationSummary?.types.length)} /><CompactFact label="Operation failures" value={formatNumber(operationSummary?.failed_operations)} tone={operationSummary?.failed_operations ? "attention" : "default"} /><CompactFact label="Evaluations" value={formatNumber(evaluationResults.length)} /></div> : null}
-    <WorkflowReplayView replay={replay} />
+    <WorkflowReplayView replay={replay} evaluationResults={evaluationResults} />
   </div>;
 }
 
@@ -1063,7 +1066,7 @@ export function buildStepGraph(step: ProjectedWorkflowNode): { nodes: EvidenceGr
       eyebrow: step.kind || "Workflow step",
       title: step.name,
       detail: `${statePresentation(step.state).label} · ${seconds(step.duration_seconds)}`,
-      tone: step.state === "failed" ? "failure" : "root",
+      tone: step.state === "failed" ? "failure" : step.state === "recovered" ? "recovered" : "success",
     },
   }];
   records.forEach((record, id) => {
@@ -1111,7 +1114,7 @@ function evidenceKindLabel(kind: unknown, modelCall: boolean): string {
   return labels[raw] || raw.replaceAll("_", " ") || "Observed operation";
 }
 
-function StepGraphDialog({ step, onClose }: { step: ProjectedWorkflowNode; onClose: () => void }) {
+function StepGraphDialog({ step, diagnostic, onClose }: { step: ProjectedWorkflowNode; diagnostic?: GoalDiagnostic; onClose: () => void }) {
   const graph = useMemo(() => buildStepGraph(step), [step]);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -1130,6 +1133,22 @@ function StepGraphDialog({ step, onClose }: { step: ProjectedWorkflowNode; onClo
       </header>
       <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-h-[420px] overflow-y-auto border-r border-[#e8e5ee] bg-[#fafaf7] p-6 sm:p-8">
+          {diagnostic ? <div className="mx-auto mb-5 max-w-xl rounded-xl border border-red-200 bg-red-50 p-4">
+            <div className="text-[9px] font-semibold uppercase tracking-[0.13em] text-red-600">Failed business requirement · {diagnostic.requirementId}</div>
+            <div className="mt-1 text-sm font-semibold text-red-800">{diagnostic.label}</div>
+            {diagnostic.description ? <p className="mt-1 text-[10px] leading-4 text-red-700">{diagnostic.description}</p> : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full bg-red-100 px-2.5 py-1 text-[9px] font-semibold text-red-800 ring-1 ring-inset ring-red-200">Business check · Failed</span>
+              <span className={`rounded-full px-2.5 py-1 text-[9px] font-semibold ring-1 ring-inset ${statePresentation(step.state).badge}`}>Linked runtime step · {statePresentation(step.state).label}</span>
+            </div>
+          </div> : null}
+          <div className="mx-auto mb-4 flex max-w-xl flex-wrap gap-x-4 gap-y-2 text-[9px] font-medium text-[#746d78]" aria-label="Evidence color legend">
+            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#16864b]" />Completed</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#d58b24]" />Recovered</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#dc5a5a]" />Failed</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#79a7d4]" />Model call</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#c9c5ba]" />Observed operation</span>
+          </div>
           <VerticalEvidenceFlow graph={graph} />
         </div>
         <aside className="overflow-y-auto p-5">
@@ -1162,7 +1181,9 @@ function VerticalEvidenceFlow({ graph }: { graph: { nodes: EvidenceGraphNode[]; 
   ordered.slice(1).forEach((node) => totals.set(identity(node), (totals.get(identity(node)) || 0) + 1));
   const occurrences = new Map<string, number>();
   const tones = {
-    root: "border-[#7455bd] bg-[#f7f4ff]",
+    success: "border-[#16864b] bg-[#f4fbf7]",
+    recovered: "border-[#d58b24] bg-[#fff9ed]",
+    running: "border-[#4386c6] bg-[#f4f9ff]",
     operation: "border-[#c9c5ba] bg-white",
     model: "border-[#79a7d4] bg-[#f4f9ff]",
     failure: "border-[#dc5a5a] bg-[#fff6f6]",
@@ -1196,8 +1217,9 @@ function DeclaredOverview({ replay }: { replay: WorkflowReplay }) {
 }
 
 type WorkflowView = "logic" | "goals";
+type WorkflowNodeSelection = (node: ProjectedWorkflowNode, diagnostic?: GoalDiagnostic) => void;
 
-function WorkflowViewToggle({ replay, onSelect, firstScreen = false }: { replay: WorkflowReplay; onSelect?: (node: ProjectedWorkflowNode) => void; firstScreen?: boolean }) {
+function WorkflowViewToggle({ replay, evaluationResults = [], onSelect, firstScreen = false }: { replay: WorkflowReplay; evaluationResults?: EvaluationResult[]; onSelect?: WorkflowNodeSelection; firstScreen?: boolean }) {
   const [view, setView] = useState<WorkflowView>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "goals" ? "goals" : "logic");
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const selectView = (next: WorkflowView) => {
@@ -1217,7 +1239,7 @@ function WorkflowViewToggle({ replay, onSelect, firstScreen = false }: { replay:
     </div>
     {view === "logic"
       ? <WorkflowCanvas replay={replay} onSelect={onSelect} firstScreen={firstScreen} controlsHost={controlsHost} />
-      : <WorkflowGoalFlow replay={replay} firstScreen={firstScreen} />}
+      : <WorkflowGoalFlow replay={replay} evaluationResults={evaluationResults} onSelect={onSelect} firstScreen={firstScreen} />}
   </>;
 }
 
@@ -1231,9 +1253,40 @@ export function resolveGoalOutcome(outcomes: DeclaredWorkflow["outcomes"], execu
   };
 }
 
-function WorkflowGoalFlow({ replay, firstScreen }: { replay: WorkflowReplay; firstScreen: boolean }) {
+export type GoalDiagnostic = {
+  requirementId: string;
+  label: string;
+  description: string | null;
+  stageId: string | null;
+  nodeId: string | null;
+};
+
+const stringAttribute = (attributes: Record<string, unknown>, key: string) => {
+  const value = attributes[key];
+  return typeof value === "string" && value.trim() ? value : null;
+};
+
+export function resolveGoalDiagnostic(results: EvaluationResult[], closestBlocker?: string | null): GoalDiagnostic | null {
+  const requirements = results.filter((result) => stringAttribute(result.attributes, "requirement_id") && result.passed !== true);
+  const selected = requirements.find((result) => stringAttribute(result.attributes, "requirement_id") === closestBlocker)
+    || requirements.find((result) => result.passed === false)
+    || requirements[0];
+  if (!selected) return null;
+  const requirementId = stringAttribute(selected.attributes, "requirement_id")!;
+  return {
+    requirementId,
+    label: stringAttribute(selected.attributes, "requirement_failure_label") || selected.name,
+    description: stringAttribute(selected.attributes, "requirement_failure_description"),
+    stageId: stringAttribute(selected.attributes, "investigation_stage"),
+    nodeId: stringAttribute(selected.attributes, "investigation_node"),
+  };
+}
+
+function WorkflowGoalFlow({ replay, evaluationResults, onSelect, firstScreen }: { replay: WorkflowReplay; evaluationResults: EvaluationResult[]; onSelect?: WorkflowNodeSelection; firstScreen: boolean }) {
   const declaredOnly = replay.nodes.length === 0;
   const outcome = resolveGoalOutcome(replay.outcomes, replay.execution);
+  const diagnostic = outcome.achieved === false ? resolveGoalDiagnostic(evaluationResults, replay.execution.closest_blocker) : null;
+  const investigationNode = diagnostic?.nodeId ? replay.nodes.find((node) => node.id === diagnostic.nodeId) : undefined;
   const goalLabel = outcome.achieved === true ? "Achieved" : outcome.achieved === false ? "Needs attention" : declaredOnly ? "Declared" : "Not reported";
   const goalTone = outcome.achieved === true ? "bg-green-700 text-white ring-green-800" : outcome.achieved === false ? "bg-red-50 text-red-700 ring-red-200" : "bg-stone-100 text-stone-600 ring-stone-200";
   return <section aria-label="Goal flow" className={`${firstScreen ? "h-[clamp(280px,calc(100vh-387px),560px)]" : "h-[clamp(320px,calc(100vh-360px),620px)]"} overflow-auto rounded-2xl border border-[#dfdce5] bg-[radial-gradient(#ddd9e2_0.8px,transparent_0.8px)] [background-size:22px_22px] p-4`}>
@@ -1251,14 +1304,23 @@ function WorkflowGoalFlow({ replay, firstScreen }: { replay: WorkflowReplay; fir
           const state = declaredOnly ? "declared" : stage.state;
           const presentation = statePresentation(state);
           return <div key={stage.id} className="flex items-center">
-            <article className="flex h-[76px] w-32 shrink-0 flex-col justify-between rounded-lg border bg-white px-3 py-2.5" style={{ borderColor: presentation.border }}>
+            <article className={`relative flex h-[76px] w-32 shrink-0 flex-col justify-between rounded-lg border bg-white px-3 py-2.5 ${diagnostic?.stageId === stage.id ? "ring-2 ring-red-200" : ""}`} style={{ borderColor: diagnostic?.stageId === stage.id ? "#dc5a5a" : presentation.border }}>
+              {diagnostic?.stageId === stage.id ? <span className="absolute -top-2 right-2 rounded-full bg-red-50 px-1.5 py-0.5 text-[7px] font-semibold uppercase tracking-wide text-red-700 ring-1 ring-red-200">Investigate</span> : null}
               <div className="line-clamp-2 text-[11px] font-semibold leading-4 text-[#3d3742]">{index + 1}. {stage.name}</div>
-              <div className="flex items-center justify-between text-[9px] text-[#8a838d]"><span>{declaredOnly ? `${stage.nodes.length} steps` : `${stage.active_nodes}/${stage.nodes.length} reached`}</span><span className="size-2 rounded-full" style={{ background: presentation.border }} /></div>
+              <div className="flex items-center justify-between text-[9px] text-[#8a838d]"><span>{declaredOnly ? `${stage.nodes.length} steps` : `${stage.active_nodes}/${stage.nodes.length} reached`}</span><span className="size-2 rounded-full" style={{ background: goalStageDotColor(state, diagnostic?.stageId === stage.id) }} /></div>
             </article>
             {index < replay.stages.length - 1 ? <div className="flex w-6 shrink-0 items-center" aria-hidden="true"><span className="h-px flex-1 bg-[#a99dbb]" /><span className="text-[10px] text-[#786b91]">›</span></div> : null}
           </div>;
         })}
       </div>
+      {diagnostic ? <div className="mx-auto mt-3 flex w-full max-w-3xl items-start justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-left">
+        <div className="min-w-0">
+          <div className="text-[8px] font-semibold uppercase tracking-[.12em] text-red-600">Failed contract requirement · {diagnostic.requirementId}</div>
+          <div className="mt-0.5 text-[11px] font-semibold text-red-800">{diagnostic.label}</div>
+          {diagnostic.description ? <div className="mt-0.5 text-[9px] leading-4 text-red-700">{diagnostic.description}</div> : null}
+        </div>
+        {investigationNode && onSelect ? <button type="button" onClick={() => onSelect(investigationNode, diagnostic)} className="shrink-0 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-[9px] font-semibold text-red-700 hover:bg-red-100">Inspect {investigationNode.name}</button> : null}
+      </div> : null}
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 border-t border-[#ebe8ee] pt-2">
         <span className="mr-1 text-[8px] font-semibold uppercase tracking-[0.12em] text-[#969098]">Possible outcomes</span>
         {replay.outcomes.map((item) => {
@@ -1270,15 +1332,16 @@ function WorkflowGoalFlow({ replay, firstScreen }: { replay: WorkflowReplay; fir
   </section>;
 }
 
-function WorkflowReplayView({ replay }: { replay: WorkflowReplay }) {
-  const [selected, setSelected] = useState<ProjectedWorkflowNode | null>(null);
+function WorkflowReplayView({ replay, evaluationResults = [] }: { replay: WorkflowReplay; evaluationResults?: EvaluationResult[] }) {
+  const [selected, setSelected] = useState<{ step: ProjectedWorkflowNode; diagnostic?: GoalDiagnostic } | null>(null);
+  const selectNode: WorkflowNodeSelection = (step, diagnostic) => setSelected({ step, diagnostic });
   const discrepancyCount = replay.discrepancies.unexpected_operations.length + replay.discrepancies.unexpected_transitions.length;
   return <>
     <Panel title="Workflow replay" note="Switch between the complete runtime DAG and the product-goal journey. Inspect opens step evidence vertically.">
-      <WorkflowViewToggle replay={replay} onSelect={setSelected} firstScreen />
+      <WorkflowViewToggle replay={replay} evaluationResults={evaluationResults} onSelect={selectNode} firstScreen />
     </Panel>
-    <ExecutionAnalytics replay={replay} onSelect={setSelected} />
-    {selected ? <StepGraphDialog step={selected} onClose={() => setSelected(null)} /> : null}
+    <ExecutionAnalytics replay={replay} onSelect={(step) => selectNode(step)} />
+    {selected ? <StepGraphDialog step={selected.step} diagnostic={selected.diagnostic} onClose={() => setSelected(null)} /> : null}
     {discrepancyCount ? <Panel className="mt-4" title="Declared / observed differences" note="Witdem reports differences instead of forcing telemetry into the template."><div className="space-y-2 text-sm">{replay.discrepancies.unexpected_operations.map((item) => <div key={item.id} className="rounded-lg bg-amber-50 p-3">Unexpected {item.kind}: {item.name}</div>)}{replay.discrepancies.unexpected_transitions.map((item) => <div key={`${item.from}-${item.to}`} className="rounded-lg bg-amber-50 p-3">Unexpected transition: {item.from} → {item.to}</div>)}</div></Panel> : null}
   </>;
 }

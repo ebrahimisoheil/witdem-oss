@@ -12,23 +12,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class WorkflowReference(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(min_length=1)
-    definition: str = Field(min_length=1)
-
-
 class WorkflowDefinition(BaseModel):
     """Validated without importing a framework-specific graph type."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1] = 1
+    version: Literal[2]
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     description: str | None = None
-    framework: str | None = None
     match: dict[str, list[str]] = Field(default_factory=dict)
     ignore_observed: list[dict[str, Any]] = Field(default_factory=list)
     stages: list[dict[str, Any]] = Field(min_length=1)
@@ -55,14 +47,13 @@ class WorkflowDefinition(BaseModel):
 
 def load_workflow_definitions(raw: Mapping[str, Any], project_path: Path) -> dict[str, WorkflowDefinition]:
     references = raw.get("workflows", [])
-    if isinstance(references, Mapping):
-        references = [{"id": key, **dict(value)} for key, value in references.items()]
+    if not isinstance(references, list) or any(not isinstance(item, str) for item in references):
+        raise ValueError("workflows must be a YAML list of workflow file paths")
     result: dict[str, WorkflowDefinition] = {}
-    for item in references or []:
-        reference = WorkflowReference.model_validate(item)
-        path = (project_path.parent / reference.definition).resolve()
+    for reference in references:
+        path = (project_path.parent / reference).resolve()
         definition = WorkflowDefinition.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
-        if definition.id != reference.id:
-            raise ValueError(f"workflow reference {reference.id!r} points to definition with id {definition.id!r}")
+        if definition.id in result:
+            raise ValueError(f"duplicate workflow id {definition.id!r}")
         result[definition.id] = definition
     return result

@@ -14,7 +14,13 @@ pipeline = instrument(
     build_pipeline(
         use_openai=True,
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-    )
+    ),
+    report_result=lambda result: {
+        "result": "completed" if result.get("answer", {}).get("answer") else "unresolved",
+        "result_valid": bool(result.get("answer", {}).get("answer")),
+        "requirements": {"non_empty_answer": bool(result.get("answer", {}).get("answer"))},
+        "metrics": {"answer_characters": len(str(result.get("answer", {}).get("answer", "")))},
+    },
 )
 result = asyncio.run(
     pipeline.run_async(

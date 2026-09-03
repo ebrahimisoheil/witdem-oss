@@ -1,0 +1,17 @@
+version: 2
+id: answer
+name: Useful answer
+
+result:
+  name: Answer result
+  values:
+    completed: A useful answer was returned.
+    unresolved: The request was not resolved.
+
+goal:
+  name: Return a useful answer
+  requirements:
+    useful_answer:
+      name: The answer is useful
+      failure:
+        label: No useful answer was returned

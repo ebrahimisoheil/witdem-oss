@@ -1,0 +1,23 @@
+version: 2
+id: answer
+name: Useful answer
+description: Return one useful answer to the user.
+
+result:
+  name: Agent answer
+  values:
+    completed: {description: A useful answer was returned, tone: success}
+    unresolved: {description: No useful answer was returned, tone: failure}
+
+goal:
+  name: Useful answer returned
+  requirements:
+    non_empty_answer:
+      name: The answer is not empty
+      failure:
+        label: The answer was empty
+
+metrics:
+  answer_characters:
+    name: Answer characters
+    unit: characters

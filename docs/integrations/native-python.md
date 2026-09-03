@@ -36,11 +36,17 @@ def run_workflow(question: str) -> dict:
                 "approved": approved,
                 "sources": sources,
             }
-            witdem.complete(result, contract="approved_report")
+            witdem.report(
+                contract="approved_report",
+                result=result["editorial_decision"],
+                requirements={"editorial_approval": approved},
+                metrics={"sources": len(sources)},
+            )
             return result
 ```
 
-The matching YAML can define the result, decision, goal, and metrics without Python key-by-key reporting; see [multi-step workflow configuration](../configuration.md#example-3-multi-step-workflow).
+The matching YAML names the result, goal requirements, and metrics without
+extracting them from application objects. See [YAML configuration](../configuration.md).
 
 ## Model and tool operations
 
@@ -62,7 +68,7 @@ Record provider-reported money with `call.cost(amount_usd)`. Otherwise the serve
 
 ## Explicit business reporting
 
-Use a metadata-only YAML contract when the application already computes every business fact:
+Report the business facts named by the contract:
 
 ```python
 witdem.report(
@@ -71,14 +77,15 @@ witdem.report(
     result_valid=True,
     decision="expected_route",
     expected_decision="expected_route",
-    product_goal_achieved=True,
+    requirements={"correct_resolution": True},
     evaluations={"reference_coverage": 0.92},
     metrics={"retrieved_documents": 8},
     dimensions={"customer_tier": "enterprise"},
 )
 ```
 
-Prefer `complete(result)` when YAML expressions can describe the return shape. Use `report(...)` when the facts already exist but cannot or should not be reconstructed from one result object.
+`report(...)` is the only contract-completion path in version 2. Runtime
+instrumentation and business reporting remain separate and independently clear.
 
 ## Existing OpenTelemetry setup
 

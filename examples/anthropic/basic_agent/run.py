@@ -80,7 +80,7 @@ def main() -> None:
             witdem.report(
                 result="completed" if final_answer else "unresolved",
                 result_valid=bool(final_answer),
-                product_goal_achieved=bool(final_answer),
+                requirements={"non_empty_answer": bool(final_answer)},
                 metrics={"answer_characters": len(final_answer)},
             )
             print(final_answer)
