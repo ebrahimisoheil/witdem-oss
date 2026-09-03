@@ -64,7 +64,7 @@ def init_project(directory: Path, *, service_name: str, force: bool = False) -> 
 
 def _delegate_to_analytics(argv: list[str]) -> int:
     try:
-        from witdem.cli import main as analytics_main
+        from witdem.cli import main as analytics_main  # type: ignore[import-not-found]
     except ImportError:
         raise SystemExit(f"unknown SDK command: {argv[0] if argv else ''}") from None
     original = sys.argv
