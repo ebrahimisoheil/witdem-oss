@@ -2,9 +2,8 @@
 
 ## Unreleased
 
-- Made `witdem-sdk init` generate a minimal `.witdem/skills/witdem` coding-agent
-  skill and added opt-in `.agents/skills/witdem` discovery without duplicating
-  the canonical skill.
+## 0.2.5
+
 - Replaced configuration v1 with a smaller vendor-neutral v2 project index,
   external contract and workflow files, and explicit named requirement facts.
 - Added contract-authored failure diagnostics and validated workflow
@@ -15,6 +14,8 @@
   provider calls.
 - Split dashboard routes and stable vendor libraries into cacheable production
   chunks, reducing the initial JavaScript bundle below the build warning limit.
+- Added stable URL-backed dashboard drilldowns for filtered goals, runs, system
+  health, measured spend, charts, and issues.
 - Added a public, deterministic evidence-bundle v1 export for canonical execution records and existing OSS diagnostics.
 - Exposed the same neutral contract through `AnalyticsRepository` and the versioned dashboard read API.
 - Added an oldest-supported v1 compatibility fixture and contract regression coverage.
