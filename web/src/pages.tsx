@@ -1008,6 +1008,83 @@ function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { m
   );
 }
 
+export const executionFilterOptions = (metadata: Meta) => {
+  const outcomes = new Set<string>();
+  const evaluations = new Map<string, string>();
+  const blockers = new Map<string, string>();
+  metadata.contracts.forEach((contract) => {
+    Object.keys(contract.result?.values || {}).forEach((value) => outcomes.add(value));
+    Object.keys(contract.decision?.values || {}).forEach((value) => outcomes.add(value));
+    contract.evaluations?.forEach((evaluation) => {
+      if (evaluation.key) evaluations.set(evaluation.key, evaluation.name || evaluation.key);
+    });
+    Object.entries(contract.product_goal?.requirements || {}).forEach(([key, requirement]) => {
+      blockers.set(key, requirement.name || key);
+    });
+  });
+  return {
+    outcomes: [...outcomes].sort(),
+    evaluations: [...evaluations].sort((left, right) => left[1].localeCompare(right[1])),
+    blockers: [...blockers].sort((left, right) => left[1].localeCompare(right[1])),
+  };
+};
+
+function ExecutionFilterBar({
+  metadata,
+  shared,
+  semantic,
+  onSharedChange,
+  onSemanticChange,
+}: {
+  metadata: Meta;
+  shared: SharedFilterValues;
+  semantic: DashboardFilters;
+  onSharedChange: (values: SharedFilterValues) => void;
+  onSemanticChange: (key: keyof DashboardFilters, value: string | boolean | undefined) => void;
+}) {
+  const options = executionFilterOptions(metadata);
+  const select = (key: keyof DashboardFilters, label: string, values: Array<[string, string]>) => (
+    <FilterSelect value={String(semantic[key] || "")} onChange={(value) => onSemanticChange(key, value || undefined)} label={label}>
+      {values.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+    </FilterSelect>
+  );
+  return (
+    <div className="mb-4 rounded-xl border border-[#e4e2da] bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs font-semibold text-[#555]">Filter executions</span>
+        <FilterSelect value={shared.contractHash} onChange={(value) => onSharedChange({ ...shared, contractHash: value })} label="All business goals">
+          {metadata.contracts.map((item) => <option key={item.contract_hash} value={item.contract_hash}>{item.product_goal?.name || item.contract_name}</option>)}
+        </FilterSelect>
+        {select("goal_status", "All goal results", [["achieved", "Achieved"], ["not_achieved", "Not achieved"], ["reported", "Reported"], ["unreported", "Unassessed"]])}
+        {select("assurance_status", "All assurance states", [["assured", "Assured"], ["needs_attention", "Needs attention"], ["unassessed", "Unassessed"]])}
+        {select("application_outcome", "All business results", options.outcomes.map((value) => [value, value.replaceAll("_", " ")]))}
+        <FilterSelect value={shared.status} onChange={(value) => onSharedChange({ ...shared, status: value })} label="All runtime states">
+          <option value="completed">Completed or recovered</option><option value="recovered">Recovered</option><option value="failed">Failed</option><option value="running">Running</option>
+        </FilterSelect>
+        <FilterSelect value={shared.range} onChange={(value) => onSharedChange({ ...shared, range: value })} label="All time" includeEmpty={false}>
+          <option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option>
+        </FilterSelect>
+      </div>
+      <details className="mt-3 border-t border-[#eceae4] pt-3" open={Object.entries(semantic).some(([key, value]) => !["goal_status", "assurance_status", "application_outcome"].includes(key) && value != null)}>
+        <summary className="cursor-pointer text-xs font-semibold text-[#5a35c8]">More filters</summary>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {select("workflow", "All workflows", (metadata.filters.workflow || []).map((value) => [value, value]))}
+          <FilterSelect value={shared.provider} onChange={(value) => onSharedChange({ ...shared, provider: value })} label="All providers">{(metadata.filters.provider || []).map((value) => <option key={value} value={value}>{providerDisplayName(value)}</option>)}</FilterSelect>
+          <FilterSelect value={shared.model} onChange={(value) => onSharedChange({ ...shared, model: value })} label="All models">{(metadata.filters.model || []).map((value) => <option key={value} value={value}>{value}</option>)}</FilterSelect>
+          {select("evaluation_key", "All evaluations", options.evaluations)}
+          {select("evaluation_status", "All evaluation results", [["passed", "Passed"], ["failed", "Needs attention"], ["unassessed", "Unassessed"]])}
+          {select("blocker", "All blockers", options.blockers)}
+          {select("operation_status", "All operation states", [["completed", "Completed"], ["failed", "Failed"]])}
+          {select("cost_status", "All cost coverage", [["complete", "Complete"], ["partial", "Partial"], ["missing", "Missing"], ["not_applicable", "Not applicable"]])}
+          {select("token_status", "All token coverage", [["complete", "Complete"], ["partial", "Partial"], ["missing", "Missing"], ["not_applicable", "Not applicable"]])}
+          <label className="flex items-center gap-2 rounded-lg border border-[#dddcd6] bg-white px-3 py-2 text-xs text-[#555]"><input type="checkbox" checked={semantic.has_failure === true} onChange={(event) => onSemanticChange("has_failure", event.target.checked || undefined)} />Has failures</label>
+          <label className="flex items-center gap-2 rounded-lg border border-[#dddcd6] bg-white px-3 py-2 text-xs text-[#555]"><input type="checkbox" checked={semantic.has_repeated_work === true} onChange={(event) => onSemanticChange("has_repeated_work", event.target.checked || undefined)} />Has retries</label>
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function ContractBanner({ contract }: { contract: ContractDefinition }) {
   return (
     <div className="mb-4 rounded-xl border border-[#ded7f8] bg-[#f5f2ff] px-5 py-4">
@@ -1075,15 +1152,23 @@ export function measurementAttentionMessages(data: Overview): string[] {
 
 export function RunsPage() {
   const [filterValues, setFilterValues] = useState<SharedFilterValues>(sharedFilterValuesFromRoute);
+  const [semanticFilters, setSemanticFilters] = useState<DashboardFilters>(() => ({
+    ...semanticRouteFilters(),
+    workflow: routeParam("workflow") || undefined,
+  }));
   const [page, setPage] = useState(1);
   const executionId = routeParam("id");
   const workflow = routeParam("workflow");
   const workflowId = routeParam("workflow_id");
   const unavailableReplay = routeParam("unavailable_replay");
-  const filters = { ...resolvedFilters(filterValues), ...semanticRouteFilters(), workflow: workflow || undefined, workflow_id: workflowId || undefined };
+  const filters = {
+    ...resolvedFilters(filterValues),
+    ...Object.fromEntries(Object.entries(semanticFilters).filter(([, value]) => value != null)),
+    workflow_id: workflowId || undefined,
+  };
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
   const q = useQuery({
-    queryKey: ["runs", executionId, workflow, workflowId, filterValues, page],
+    queryKey: ["runs", executionId, workflow, workflowId, filterValues, semanticFilters, page],
     queryFn: async () => {
       if (!executionId) return api.runs(filters, page, 10);
       const detail = await api.run(executionId);
@@ -1092,6 +1177,14 @@ export function RunsPage() {
     placeholderData: keepPreviousData,
   });
   const preserveViewport = useViewportAnchor(q.isFetching);
+  const updateSemanticFilter = (key: keyof DashboardFilters, value: string | boolean | undefined) => preserveViewport(() => {
+    setSemanticFilters((current) => ({ ...current, [key]: value }));
+    const url = new URL(window.location.href);
+    if (value == null || value === "" || value === false) url.searchParams.delete(key);
+    else url.searchParams.set(key, String(value));
+    window.history.replaceState(window.history.state, "", url);
+    setPage(1);
+  });
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (meta.error) return <ErrorPage error={meta.error} />;
@@ -1111,7 +1204,7 @@ export function RunsPage() {
         </div>
       ) : null}
       {workflow || workflowId ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow || workflowId}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
-      {!executionId ? <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); replaceSharedFilterUrl(values); setPage(1); })} /> : null}
+      {!executionId ? <ExecutionFilterBar metadata={meta.data!} shared={filterValues} semantic={semanticFilters} onSharedChange={(values) => preserveViewport(() => { setFilterValues(values); replaceSharedFilterUrl(values); setPage(1); })} onSemanticChange={updateSemanticFilter} /> : null}
       <ActiveFilterChips filters={filters} contracts={meta.data!.contracts} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
       {!executionId ? <div className="mt-4 flex items-center justify-between text-sm">

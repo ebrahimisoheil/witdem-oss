@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activeFilterLabel, drilldownHref, evaluationMetTarget, goalPortfolioRunsHref, issueSignalCount, measurementAttentionMessages } from "./pages";
+import { activeFilterLabel, drilldownHref, evaluationMetTarget, executionFilterOptions, goalPortfolioRunsHref, issueSignalCount, measurementAttentionMessages } from "./pages";
 import { sharedCohortSize } from "./components";
 import type { ComparisonInsight, GoalPortfolioItem } from "./api";
 import type { Overview } from "./api";
@@ -53,6 +53,26 @@ describe("activeFilterLabel", () => {
 
   it("still hides the full hash when metadata is unavailable", () => {
     expect(activeFilterLabel("contract_hash", "904e42e67d80b0dd")).toBe("Goal revision: 904e42e6");
+  });
+});
+
+describe("executionFilterOptions", () => {
+  it("derives selectable business filters from contract metadata", () => {
+    const options = executionFilterOptions({
+      product: "Witdem AI",
+      mode: "runtime + business meaning",
+      filters: {},
+      contracts: [{
+        contract_hash: "goal-1",
+        run_count: 2,
+        result: { values: { approved: "Approved", escalated: "Escalated" } },
+        product_goal: { requirements: { evidence_ready: { name: "Evidence is ready" } } },
+        evaluations: [{ key: "quality", name: "Quality" }],
+      }],
+    });
+    expect(options.outcomes).toEqual(["approved", "escalated"]);
+    expect(options.evaluations).toEqual([["quality", "Quality"]]);
+    expect(options.blockers).toEqual([["evidence_ready", "Evidence is ready"]]);
   });
 });
 

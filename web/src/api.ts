@@ -289,8 +289,14 @@ export type ContractDefinition = {
       string | { description?: string; tone?: "success" | "warning" | "failure" | "neutral" }
     >;
   };
-  product_goal?: { name?: string; description?: string; subject?: string };
+  product_goal?: {
+    name?: string;
+    description?: string;
+    subject?: string;
+    requirements?: Record<string, { name?: string; description?: string }>;
+  };
   evaluations?: Array<{
+    key?: string;
     name?: string;
     description?: string;
     unit?: string;
