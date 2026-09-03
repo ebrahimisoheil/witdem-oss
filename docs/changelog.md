@@ -19,6 +19,13 @@
 - Exposed the same neutral contract through `AnalyticsRepository` and the versioned dashboard read API.
 - Added an oldest-supported v1 compatibility fixture and contract regression coverage.
 
+## SDK 0.2.2
+
+- Added configuration v2 project, contract, workflow, requirement-fact, and
+  contract-authored investigation support.
+- Made `witdem-sdk init` generate a minimal `.witdem/skills/witdem` coding-agent
+  skill with opt-in `.agents/skills/witdem` discovery.
+
 ## 0.2.4
 
 - Added concrete OpenAPI response schemas for every documented dashboard endpoint.
