@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, goalStageDotColor, groupEvaluations, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
+import { buildStepGraph, goalStageDotColor, groupEvaluations, observedOutcomeTone, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
 
 describe("workflow presentation", () => {
@@ -59,6 +59,12 @@ describe("workflow presentation", () => {
       nodeId: "retrieve",
     });
     expect(resolveGoalDiagnostic([], "evidence_retrieved")).toBeNull();
+  });
+
+  it("marks a non-achieving observed outcome as a failure", () => {
+    expect(observedOutcomeTone(true, false)).toContain("text-red-700");
+    expect(observedOutcomeTone(true, true)).toContain("text-[#5839a6]");
+    expect(observedOutcomeTone(false, false)).toContain("text-[#777178]");
   });
 
   it("places dependencies in later columns without overlapping siblings", () => {

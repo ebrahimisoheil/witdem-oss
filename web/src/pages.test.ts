@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { drilldownHref, evaluationMetTarget, measurementAttentionMessages } from "./pages";
+import { drilldownHref, evaluationMetTarget, goalPortfolioRunsHref, issueSignalCount, measurementAttentionMessages } from "./pages";
 import { sharedCohortSize } from "./components";
-import type { ComparisonInsight } from "./api";
+import type { ComparisonInsight, GoalPortfolioItem } from "./api";
 import type { Overview } from "./api";
+import type { Issues } from "./api";
 
 describe("evaluationMetTarget", () => {
   it("reads SDK scores from semantic attributes", () => {
@@ -37,6 +38,21 @@ describe("drilldownHref", () => {
       has_failure: true,
       ignored: false,
     })).toBe("/runs?contract_hash=goal-1&goal_status=not_achieved&evaluation_status=failed&has_failure=true");
+  });
+});
+
+describe("goalPortfolioRunsHref", () => {
+  it("opens a single goal run directly and filters multi-run goals", () => {
+    const item = {
+      runs: 1,
+      single_execution_id: "run-123",
+      contract_hash: "goal-1",
+      contract_hashes: ["goal-1"],
+    } as GoalPortfolioItem;
+
+    expect(goalPortfolioRunsHref(item, { provider: "acme" })).toBe("/runs?id=run-123");
+    expect(goalPortfolioRunsHref({ ...item, runs: 2, single_execution_id: null }, { provider: "acme" }))
+      .toBe("/runs?provider=acme&contract_hash=goal-1");
   });
 });
 
@@ -78,6 +94,24 @@ describe("measurementAttentionMessages", () => {
     };
     const data = { costs: { cost: complete, tokens: complete } } as unknown as Overview;
     expect(measurementAttentionMessages(data)).toEqual([]);
+  });
+});
+
+describe("issueSignalCount", () => {
+  it("counts visible issue signals and deduplicates retry runs", () => {
+    const issues = {
+      failures: [{ execution_id: "failed" }],
+      quality_gaps: [{ execution_id: "quality" }],
+      outliers: [],
+      operation_failures: [{ type: "retrieval" }],
+      missing_required_measurements: [{ operation_type: "generation", measurement_key: "cost.usd" }],
+      retries: [
+        { runs: [{ execution_id: "retried" }, { execution_id: "retried" }] },
+        { runs: [{ execution_id: "retried" }, { execution_id: "retried-again" }] },
+      ],
+    } as unknown as Issues;
+
+    expect(issueSignalCount(issues)).toBe(6);
   });
 });
 

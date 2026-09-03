@@ -419,6 +419,42 @@ def test_goal_assurance_respects_declared_evaluation_targets() -> None:
     assert _goal_assurance_state({"product_goal_achieved": True}) == "unassessed"
 
 
+def test_goal_portfolio_exposes_an_execution_id_only_for_single_run_goals(monkeypatch) -> None:
+    repository = object.__new__(AnalyticsRepository)
+    repository._serving_tables = set()
+    rows = [
+        {
+            "execution_id": "latest-run",
+            "product_goal_reported": True,
+            "product_goal_achieved": False,
+            "contract_hash": "goal-v1",
+            "contract_name": "Resolve request",
+        },
+        {
+            "execution_id": "older-run",
+            "product_goal_reported": True,
+            "product_goal_achieved": False,
+            "contract_hash": "goal-v1",
+            "contract_name": "Resolve request",
+        },
+        {
+            "execution_id": "single-run",
+            "product_goal_reported": True,
+            "product_goal_achieved": False,
+            "contract_hash": "review-v1",
+            "contract_name": "Review request",
+        },
+    ]
+    monkeypatch.setattr(repository, "execution_rows", lambda _filters, limit=None: rows)
+    monkeypatch.setattr(repository, "contract_definitions", lambda _filters: [])
+
+    portfolio, _summary = repository.goal_assurance(FilterState())
+
+    goals = {item["goal_name"]: item for item in portfolio}
+    assert goals["Resolve request"]["single_execution_id"] is None
+    assert goals["Review request"]["single_execution_id"] == "single-run"
+
+
 def test_operation_health_facts_are_scoped_to_filtered_executions(monkeypatch) -> None:
     repository = object.__new__(AnalyticsRepository)
     repository._tables = {"operation_classification_facts"}

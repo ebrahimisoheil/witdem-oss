@@ -1487,6 +1487,7 @@ class AnalyticsRepository:
                     "contract_name": row.get("contract_name") or definition.get("contract_name"),
                     "goal_name": goal_name,
                     "description": description,
+                    "single_execution_id": str(row["execution_id"]),
                     "runs": 0,
                     "achieved_runs": 0,
                     "assured_runs": 0,
@@ -1560,6 +1561,7 @@ class AnalyticsRepository:
             portfolio.append(
                 {
                     **item,
+                    "single_execution_id": item["single_execution_id"] if int(item["runs"]) == 1 else None,
                     "contract_hash": item["contract_hashes"][0] if len(item["contract_hashes"]) == 1 else None,
                     "contract_count": len(item["contract_hashes"]),
                     "success_rate": achieved_runs / int(item["runs"]) if item["runs"] else 0.0,

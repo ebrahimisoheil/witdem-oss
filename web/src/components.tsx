@@ -168,11 +168,13 @@ export function PageHeader({
 }
 export function Panel({
   title,
+  titleHref,
   note,
   children,
   className = "",
 }: React.PropsWithChildren<{
   title: string;
+  titleHref?: string;
   note?: string;
   className?: string;
 }>) {
@@ -181,7 +183,9 @@ export function Panel({
       className={`min-w-0 overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,.02)] ${className}`}
     >
       <div className="mb-4">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 className="text-sm font-semibold">
+          {titleHref ? <a href={titleHref} className="hover:text-[#603bd1] hover:underline">{title} →</a> : title}
+        </h2>
         {note && <p className="mt-1 text-xs text-[#7a7a74]">{note}</p>}
       </div>
       {children}
