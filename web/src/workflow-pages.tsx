@@ -812,12 +812,18 @@ function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = 
       <div className="relative" style={{ width: layout.width * zoom + PAN_PADDING * 2, height: layout.height * zoom + PAN_PADDING * 2 }}>
         <div className="absolute origin-top-left" style={{ left: PAN_PADDING, top: PAN_PADDING, width: layout.width, height: layout.height, transform: `scale(${zoom})` }}>
           <svg className="pointer-events-none absolute inset-0 z-0" width={layout.width} height={layout.height} aria-hidden="true">
-            <defs><marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c1cbe0" /></marker></defs>
+            <defs>
+              <marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#5ee7ff" /></marker>
+              <marker id="workflow-branch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c084fc" /></marker>
+              <marker id="workflow-attention-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#facc15" /></marker>
+            </defs>
             {replay.transitions.map((transition, index) => {
               const edge = layout.edges[index];
               if (!edge?.points.length) return null;
               const attention = transition.type === "fallback" || transition.type === "loop";
-              return <path key={`${transition.from}-${transition.to}-${index}`} d={polylinePath(edge.points)} fill="none" stroke={attention ? "#f2b85b" : transition.type === "branch" ? "#b6a2f2" : "#91a0bd"} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={transition.type === "loop" ? "7 5" : undefined} markerEnd="url(#workflow-arrow)" />;
+              const color = attention ? "#facc15" : transition.type === "branch" ? "#c084fc" : "#5ee7ff";
+              const marker = attention ? "workflow-attention-arrow" : transition.type === "branch" ? "workflow-branch-arrow" : "workflow-arrow";
+              return <path key={`${transition.from}-${transition.to}-${index}`} d={polylinePath(edge.points)} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={transition.type === "loop" ? "7 5" : undefined} markerEnd={`url(#${marker})`} style={{ filter: `drop-shadow(0 0 3px ${color})` }} />;
             })}
           </svg>
           {replay.transitions.map((transition, index) => {
