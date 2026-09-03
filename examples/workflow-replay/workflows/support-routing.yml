@@ -1,8 +1,7 @@
-version: 1
+version: 2
 id: support-routing
 name: Support routing
 description: A LangGraph workflow whose route changes per execution without changing its template.
-framework: langgraph
 match:
   runtime_names: [langgraph/support-routing]
 

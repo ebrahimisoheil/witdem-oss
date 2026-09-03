@@ -1,8 +1,7 @@
-version: 1
+version: 2
 id: company-qualification
 name: Company qualification
 description: Research a company, repair incomplete evidence, build a validated profile, and make an evidence-backed qualification decision.
-framework: multi-runtime
 match:
   runtime_names:
     - anthropic_messages

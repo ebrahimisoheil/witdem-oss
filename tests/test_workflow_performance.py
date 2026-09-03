@@ -18,7 +18,7 @@ SIZES = (10, 100, 1_000, 10_000)
 def _definition(workflow_id: str) -> WorkflowDefinition:
     return WorkflowDefinition.model_validate(
         {
-            "version": 1,
+            "version": 2,
             "id": workflow_id,
             "name": f"Benchmark {workflow_id}",
             "stages": [
@@ -89,7 +89,10 @@ def test_materialized_workflow_queries_scale_to_ten_thousand(
                 ]
             )
     config = tmp_path / "witdem.yaml"
-    config.write_text(yaml.safe_dump({"version": 1, "workflows": references}), encoding="utf-8")
+    config.write_text(
+        yaml.safe_dump({"version": 2, "workflows": [item["definition"] for item in references]}),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("WITDEM_CONFIG", str(config))
     connection = duckdb.connect(str(database))
     try:

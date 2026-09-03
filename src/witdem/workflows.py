@@ -22,8 +22,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from witdem.analytics.operations import token_measurement_applicable
 from witdem.config import storage_root
 
-WORKFLOW_MANIFEST_SCHEMA_VERSION = 1
-WORKFLOW_COMPILER_VERSION = "1"
+WORKFLOW_MANIFEST_SCHEMA_VERSION = 2
+WORKFLOW_COMPILER_VERSION = "2"
 WORKFLOW_PROJECTOR_VERSION = "2"
 
 
@@ -147,11 +147,10 @@ class WorkflowDefinition(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    version: Literal[1] = 1
+    version: Literal[2]
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     description: str | None = None
-    framework: str | None = None
     match: WorkflowMatch = Field(default_factory=WorkflowMatch)
     ignore_observed: list[NodeMatch] = Field(default_factory=list)
     stages: list[WorkflowStage] = Field(min_length=1)
@@ -243,13 +242,6 @@ class WorkflowDefinition(BaseModel):
         return sha256(payload.encode("utf-8")).hexdigest()
 
 
-class WorkflowReference(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(min_length=1)
-    definition: str = Field(min_length=1)
-
-
 class WorkflowRegistry:
     def __init__(self, definitions: Iterable[WorkflowDefinition] = ()) -> None:
         self.definitions = {definition.id: definition for definition in definitions}
@@ -301,15 +293,16 @@ def load_registry(path: str | Path | None = None) -> WorkflowRegistry:
         return WorkflowRegistry()
     raw = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
     references = raw.get("workflows", []) if isinstance(raw, Mapping) else []
-    if isinstance(references, Mapping):
-        references = [{"id": key, **dict(value)} for key, value in references.items()]
+    if not isinstance(references, list) or any(not isinstance(item, str) for item in references):
+        raise ValueError("workflows must be a YAML list of workflow file paths")
     definitions: list[WorkflowDefinition] = []
-    for item in references:
-        reference = WorkflowReference.model_validate(item)
-        definition_path = (resolved.parent / reference.definition).resolve()
+    seen: set[str] = set()
+    for reference in references:
+        definition_path = (resolved.parent / reference).resolve()
         definition = WorkflowDefinition.model_validate(yaml.safe_load(definition_path.read_text(encoding="utf-8")))
-        if definition.id != reference.id:
-            raise ValueError(f"workflow reference {reference.id!r} points to definition with id {definition.id!r}")
+        if definition.id in seen:
+            raise ValueError(f"duplicate workflow id {definition.id!r}")
+        seen.add(definition.id)
         definitions.append(definition)
     return WorkflowRegistry(definitions)
 

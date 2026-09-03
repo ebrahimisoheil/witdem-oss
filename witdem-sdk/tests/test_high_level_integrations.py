@@ -91,7 +91,7 @@ def test_generic_instrument_records_provider_result_and_business_result(client: 
         provider="provider",
         model="model-v1",
         observe_result=lambda result: {"response_model": result.model, "total_tokens": result.tokens},
-        report_result=lambda result: {"result": result.answer, "product_goal_achieved": True},
+        report_result=lambda result: {"result": result.answer, "requirements": {"useful_answer": True}},
         service_name="service",
     )
 
@@ -101,7 +101,7 @@ def test_generic_instrument_records_provider_result_and_business_result(client: 
         "response_model": "model-v2",
         "usage": {"total_tokens": 7},
     }
-    assert client.reports == [{"result": "done", "product_goal_achieved": True}]
+    assert client.reports == [{"result": "done", "requirements": {"useful_answer": True}}]
     assert (
         instrument(
             observed,
@@ -113,7 +113,7 @@ def test_generic_instrument_records_provider_result_and_business_result(client: 
     )
 
 
-def test_instrument_automatically_completes_a_yaml_selector_contract(client: _FakeWitdem) -> None:
+def test_instrument_does_not_infer_business_facts_from_a_runtime_result(client: _FakeWitdem) -> None:
     from witdem_sdk.integrations.generic import instrument
 
     client.project_config = SimpleNamespace(
@@ -128,9 +128,9 @@ def test_instrument_automatically_completes_a_yaml_selector_contract(client: _Fa
         service_name="service",
     )
 
-    result = observed()
-
-    assert client.completed == [(result, "answer")]
+    assert observed() == {"answer": "done"}
+    assert client.completed == []
+    assert client.reports == []
 
 
 def test_anthropic_instrument_injects_one_client_for_the_whole_workload(client: _FakeWitdem) -> None:
@@ -223,7 +223,7 @@ def test_langchain_and_haystack_proxies_preserve_native_invocation(
     assert lifecycle == ["enable", "disable"]
 
 
-def test_haystack_exposes_final_message_text_to_yaml_contracts(
+def test_haystack_reports_only_explicitly_mapped_business_facts(
     client: _FakeWitdem,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -249,14 +249,19 @@ def test_haystack_exposes_final_message_text_to_yaml_contracts(
         ),
     )
     native_result = {"last_message": Message(), "token_usage": {"total_tokens": 7}}
-    observed = haystack.instrument(SimpleNamespace(run=lambda: native_result), service_name="service")
+    observed = haystack.instrument(
+        SimpleNamespace(run=lambda: native_result),
+        service_name="service",
+        report_result=lambda result: {
+            "result": "completed",
+            "requirements": {"useful_answer": bool(result["last_message"].text)},
+        },
+    )
 
     assert observed.run() is native_result
-    reported, contract = client.completed[0]
-    assert contract == "answer"
-    assert reported["last_message"]["text"] == "grounded answer"
-    assert reported["last_message"]["content"][0] == {"reasoning": "hidden"}
-    assert reported["token_usage"] == {"total_tokens": 7}
+    assert client.reports == [
+        {"result": "completed", "requirements": {"useful_answer": True}}
+    ]
 
 
 def test_haystack_records_agent_usage_and_generator_identity(
@@ -399,13 +404,22 @@ def test_haystack_async_generator_preserves_native_stream_and_reports_final_resu
             yield {"answer": {"text": "done"}}
 
     async def collect() -> list[dict[str, Any]]:
-        observed = haystack.instrument(Pipeline(), service_name="service")
+        observed = haystack.instrument(
+            Pipeline(),
+            service_name="service",
+            report_result=lambda result: {
+                "result": "completed",
+                "requirements": {"useful_answer": bool(result.get("answer"))},
+            },
+        )
         return [item async for item in observed.run_async_generator()]
 
     outputs = asyncio.run(collect())
 
     assert outputs[-1] == {"answer": {"text": "done"}}
-    assert client.completed == [(outputs[-1], "answer")]
+    assert client.reports == [
+        {"result": "completed", "requirements": {"useful_answer": True}}
+    ]
     assert lifecycle == ["disable"]
 
 

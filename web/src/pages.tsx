@@ -77,7 +77,7 @@ const useViewportAnchor = (isFetching: boolean) => {
 };
 
 export function OverviewPage() {
-  const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
+  const [filterValues, setFilterValues] = useState(sharedFilterValuesFromRoute);
   const filters = resolvedFilters(filterValues);
   const q = useQuery({
     queryKey: ["overview", "portfolio", filterValues],
@@ -94,16 +94,27 @@ export function OverviewPage() {
     queryFn: () => api.compare("provider", filters),
     placeholderData: keepPreviousData,
   });
-  const preserveViewport = useViewportAnchor(q.isFetching || models.isFetching || providers.isFetching);
-  if (q.isLoading || models.isLoading || providers.isLoading) return <LoadingPage />;
+  const issues = useQuery({
+    queryKey: ["issues", "overview", filterValues],
+    queryFn: () => api.issues(filters),
+    placeholderData: keepPreviousData,
+  });
+  const preserveViewport = useViewportAnchor(q.isFetching || models.isFetching || providers.isFetching || issues.isFetching);
+  if (q.isLoading || models.isLoading || providers.isLoading || issues.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (models.error) return <ErrorPage error={models.error} />;
   if (providers.error) return <ErrorPage error={providers.error} />;
+  if (issues.error) return <ErrorPage error={issues.error} />;
   const d = q.data!;
   const assurance = d.assurance_summary;
   const runtimeAttention = d.execution.attention_runs;
   const completionRate = d.execution.runtime_success_rate;
   const costIncomplete = d.costs.cost.partial_runs + d.costs.cost.missing_runs > 0;
+  const routeBase = sharedFilterRouteValues(filterValues);
+  const goalHref = drilldownHref("/goal-performance", routeBase);
+  const healthHref = drilldownHref("/system-health", routeBase);
+  const issuesHref = drilldownHref("/issues", routeBase);
+  const issueCount = issueSignalCount(issues.data!);
   return (
     <>
       <PageHeader
@@ -114,43 +125,52 @@ export function OverviewPage() {
       <SharedFilterBar
         metadata={d.metadata}
         values={filterValues}
-        onChange={(values) => preserveViewport(() => setFilterValues(values))}
+        onChange={(values) => preserveViewport(() => {
+          setFilterValues(values);
+          replaceSharedFilterUrl(values);
+        })}
         includeGoal={false}
       />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_.72fr_.48fr]">
-        <section className="overflow-hidden rounded-2xl bg-[#231b3d] p-6 text-white shadow-[0_12px_35px_rgba(43,29,83,.14)]">
-          <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#bdaaff]">Business outcomes</div>
-          <div className="mt-3 flex flex-wrap items-end justify-between gap-6">
-            <div>
-              <div className="text-4xl font-semibold tracking-[-.04em]">{percent(d.goals.success_rate)}</div>
-              <div className="mt-2 text-sm text-[#d5cdea]">{formatNumber(d.goals.achieved_runs)} of {formatNumber(d.goals.reported_runs)} reported goals achieved</div>
+        <section className="relative overflow-hidden rounded-2xl bg-[#231b3d] p-6 text-white shadow-[0_12px_35px_rgba(43,29,83,.14)]">
+          <a href={goalHref} aria-label="Explore goal performance" className="absolute inset-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bdaaff] focus-visible:ring-inset" />
+          <div className="pointer-events-none relative">
+            <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#bdaaff]">Business outcomes</div>
+            <div className="mt-3 flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <div className="text-4xl font-semibold tracking-[-.04em]">{percent(d.goals.success_rate)}</div>
+                <div className="mt-2 text-sm text-[#d5cdea]">{formatNumber(d.goals.achieved_runs)} of {formatNumber(d.goals.reported_runs)} reported goals achieved</div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                <a href={drilldownHref("/goal-performance", { ...routeBase, assurance_status: "assured" })} className="pointer-events-auto rounded-md hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ee0aa]"><div className="text-2xl font-semibold text-[#7ee0aa]">{formatNumber(assurance.assured_runs)}</div><div className="text-[#bdb5cf]">assured</div></a>
+                <a href={drilldownHref("/goal-performance", { ...routeBase, assurance_status: "needs_attention" })} className="pointer-events-auto rounded-md hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffc267]"><div className="text-2xl font-semibold text-[#ffc267]">{formatNumber(assurance.attention_runs)}</div><div className="text-[#bdb5cf]">assurance attention</div></a>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
-              <div><div className="text-2xl font-semibold text-[#7ee0aa]">{formatNumber(assurance.assured_runs)}</div><div className="text-[#bdb5cf]">assured</div></div>
-              <div><div className="text-2xl font-semibold text-[#ffc267]">{formatNumber(assurance.attention_runs + assurance.unassessed_runs)}</div><div className="text-[#bdb5cf]">assurance attention</div></div>
-            </div>
+            <a href={goalHref} className="pointer-events-auto mt-6 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Explore goal performance →</a>
           </div>
-          <a href="/goal-performance" className="mt-6 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Explore goal performance →</a>
         </section>
-        <section className="flex flex-col rounded-2xl border border-[#e2e1db] bg-white p-6 shadow-[0_8px_30px_rgba(40,40,30,.05)]">
-          <div className="flex items-center justify-between gap-4">
-            <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#6f6f69]">System health</div>
-            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 ${runtimeAttention ? "bg-[#fff4e7]" : "bg-[#edf9f2]"}`}>
-              <span className={`text-sm font-semibold ${runtimeAttention ? "text-[#a96108]" : "text-[#167a47]"}`}>{formatNumber(runtimeAttention)}</span>
-              <span className="text-[11px] text-[#777]">need attention</span>
+        <section className="relative flex flex-col rounded-2xl border border-[#e2e1db] bg-white p-6 shadow-[0_8px_30px_rgba(40,40,30,.05)]">
+          <a href={healthHref} aria-label="Explore system health" className="absolute inset-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#603bd1] focus-visible:ring-inset" />
+          <div className="pointer-events-none relative flex h-full flex-col">
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#6f6f69]">System health</div>
+              <a href={drilldownHref("/system-health", { ...routeBase, has_failure: true })} className={`pointer-events-auto inline-flex items-center gap-2 rounded-full px-3 py-1.5 hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#603bd1] ${runtimeAttention ? "bg-[#fff4e7]" : "bg-[#edf9f2]"}`}>
+                <span className={`text-sm font-semibold ${runtimeAttention ? "text-[#a96108]" : "text-[#167a47]"}`}>{formatNumber(runtimeAttention)}</span>
+                <span className="text-[11px] text-[#777]">need attention</span>
+              </a>
             </div>
+            <div className="mt-4">
+              <div className="text-4xl font-semibold tracking-[-.04em] text-[#252522]">{percent(completionRate)}</div>
+              <div className="mt-1 text-sm font-medium text-[#55554f]">Runtime completion</div>
+              <div className="mt-1 text-xs text-[#888880]">Across {formatNumber(d.execution.total_runs)} terminal runs</div>
+            </div>
+            <div className="mt-5 grid grid-cols-3 gap-2 border-t border-[#ecebe6] pt-4 text-xs">
+              <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">Avg duration</div></div>
+              <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">Avg measured cost</div></div>
+              <div><div className="font-semibold text-[#333]">{percent(d.costs.cost.coverage)}</div><div className="mt-1 text-[#777]">Cost coverage</div></div>
+            </div>
+            <a href={healthHref} className="pointer-events-auto mt-auto inline-flex pt-5 text-xs font-semibold text-[#603bd1]">Explore system health →</a>
           </div>
-          <div className="mt-4">
-            <div className="text-4xl font-semibold tracking-[-.04em] text-[#252522]">{percent(completionRate)}</div>
-            <div className="mt-1 text-sm font-medium text-[#55554f]">Runtime completion</div>
-            <div className="mt-1 text-xs text-[#888880]">Across {formatNumber(d.execution.total_runs)} terminal runs</div>
-          </div>
-          <div className="mt-5 grid grid-cols-3 gap-2 border-t border-[#ecebe6] pt-4 text-xs">
-            <div><div className="font-semibold text-[#333]">{seconds(d.execution.avg_duration_seconds)}</div><div className="mt-1 text-[#777]">Avg duration</div></div>
-            <div><div className="font-semibold text-[#333]">{money(d.costs.measured_cost_per_run)}</div><div className="mt-1 text-[#777]">Avg measured cost</div></div>
-            <div><div className="font-semibold text-[#333]">{percent(d.costs.cost.coverage)}</div><div className="mt-1 text-[#777]">Cost coverage</div></div>
-          </div>
-          <a href="/system-health" className="mt-auto inline-flex pt-5 text-xs font-semibold text-[#603bd1]">Explore system health →</a>
         </section>
         <section className="flex min-w-0 flex-col rounded-2xl border border-[#ded7f3] bg-[#f8f5ff] p-6 shadow-[0_8px_30px_rgba(62,42,112,.06)]">
           <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">{costIncomplete ? "Known subtotal" : "Measured spend"}</div>
@@ -171,48 +191,56 @@ export function OverviewPage() {
               <span className="font-semibold text-[#3e3458]">{money(d.costs.measured_cost_per_run)}</span>
             </div>
           </div>
-          <a href="/system-health" className="mt-auto pt-5 text-xs font-semibold text-[#603bd1]">Inspect spend →</a>
+          <div className="mt-auto flex flex-wrap gap-x-4 gap-y-2 pt-5 text-xs font-semibold text-[#603bd1]">
+            <a href={drilldownHref("/system-health", { ...routeBase, cost_status: "complete" })}>Measured billable →</a>
+            <a href={drilldownHref("/system-health", { ...routeBase, cost_status: "not_applicable" })}>Non-billable activity →</a>
+          </div>
         </section>
       </div>
-      {(d.operation_health.failed_operations > 0 || d.operation_measurement_alerts.length > 0) ? <a href="/issues" className="mt-3 flex items-center justify-between rounded-xl border border-[#ead9c8] bg-[#fff9f1] px-4 py-2.5 text-xs text-[#805527]"><span><strong>{formatNumber(d.operation_health.failed_operations)} operation failures</strong>{d.operation_measurement_alerts.length ? ` · ${formatNumber(d.operation_measurement_alerts.length)} required measurement gaps` : ""}</span><span className="font-semibold">Inspect issues →</span></a> : null}
+      <a href={issuesHref} className={`mt-3 flex items-center justify-between rounded-xl border px-4 py-3 text-xs transition hover:brightness-[.98] ${issueCount ? "border-[#ead9c8] bg-[#fff9f1] text-[#805527]" : "border-[#d7e9dc] bg-[#f3faf5] text-[#286b45]"}`}>
+        <span><strong>{issueCount ? `${formatNumber(issueCount)} issue signals` : "No active issue signals"}</strong><span className="ml-2">Failures, quality gaps, retry pressure, outliers, and missing evidence.</span></span>
+        <span className="shrink-0 font-semibold">Open issues →</span>
+      </a>
       <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-stretch">
         <Panel
           className="xl:col-span-7"
           title="Business goals"
+          titleHref={goalHref}
           note="Achievement and assurance are separate. Select a goal for its complete breakdown."
         >
-          <GoalPortfolio items={d.goal_portfolio.slice(0, 5)} destination="/goal-performance" compact />
+          <GoalPortfolio items={d.goal_portfolio.slice(0, 5)} destination="/goal-performance" compact drilldownBase={routeBase} />
         </Panel>
         <div className="grid min-w-0 gap-4 xl:col-span-5 xl:grid-rows-[minmax(0,1fr)_auto]">
           <Panel
             className="h-full"
             title="Goal performance over time"
+            titleHref={goalHref}
             note="Achievement, time, and cost for the complete selected population."
           >
-            <GoalTrendChart items={d.goal_trend} />
+            <GoalTrendChart items={d.goal_trend} onSelect={(item, metric) => window.location.assign(drilldownHref("/goal-performance", { ...routeBase, range: undefined, start_date: item.date, end_date: item.date, goal_status: metric === "success" ? "reported" : "achieved", cost_status: metric === "cost" ? "complete" : undefined }))} />
           </Panel>
-          <Panel title="Where systems break" note="Highest-volume operational breakpoints. Select one to investigate the affected runs.">
-            <OverviewFailures data={d} />
+          <Panel title="Where systems break" titleHref={healthHref} note="Highest-volume operational breakpoints. Select one to investigate the affected runs.">
+            <OverviewFailures data={d} healthHref={healthHref} issuesHref={issuesHref} />
           </Panel>
         </div>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Panel className="h-full" title="Run-cohort success versus model cost" note="Shared run outcomes for runs involving each model versus that model’s directly attributed cost; this is not causal model attribution.">
-          <GoalTradeoffChart items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { model: item.label }))} />
+        <Panel className="h-full" title="Run-cohort success versus model cost" titleHref={goalHref} note="Shared run outcomes for runs involving each model versus that model’s directly attributed cost; this is not causal model attribution.">
+          <GoalTradeoffChart items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { ...routeBase, model: item.label }))} />
         </Panel>
-        <Panel className="h-full" title="Model call latency distribution" note="Direct model-call p50 and p95 latency. Select a model to inspect System Health.">
-          <LatencyVariabilityChart height={360} items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/system-health", { model: item.label }))} />
+        <Panel className="h-full" title="Model call latency distribution" titleHref={healthHref} note="Direct model-call p50 and p95 latency. Select a model to inspect System Health.">
+          <LatencyVariabilityChart height={360} items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/system-health", { ...routeBase, model: item.label }))} />
         </Panel>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3 xl:items-stretch">
-        <Panel className="h-full" title="Runtime state mix" note="Completed, recovered, failed, and still-running executions.">
+        <Panel className="h-full" title="Runtime state mix" titleHref={healthHref} note="Completed, recovered, failed, and still-running executions.">
           <RuntimeDonutChart height={310} data={d.runtime_breakdown} colors={{ completed: "#24a267", recovered: "#168e89", failed: "#d95858", running: "#2477e6", unknown: "#9aa1ad" }} />
         </Panel>
-        <Panel className="h-full" title="Provider goal outcomes" note="Achievement and decision correctness for runs involving each provider.">
-          <GoalRateColumns height={310} items={providers.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { provider: item.provider_id || item.label }))} />
+        <Panel className="h-full" title="Provider goal outcomes" titleHref={goalHref} note="Achievement and decision correctness for runs involving each provider.">
+          <GoalRateColumns height={310} items={providers.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { ...routeBase, provider: item.provider_id || item.label }))} />
         </Panel>
-        <Panel className="h-full" title="Provider share of measured spend" note="Operational spend composition for the same population. Select a segment to inspect System Health.">
-          <ProviderSpendChart height={310} items={d.providers} breakdown="provider" onSelect={(item) => window.location.assign(drilldownHref("/system-health", { provider: item.label }))} />
+        <Panel className="h-full" title="Provider share of measured spend" titleHref={healthHref} note="Operational spend composition for the same population. Select a segment to inspect System Health.">
+          <ProviderSpendChart height={310} items={d.providers} breakdown="provider" onSelect={(item) => window.location.assign(drilldownHref("/system-health", { ...routeBase, provider: item.label }))} />
         </Panel>
       </div>
     </>
@@ -230,14 +258,17 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     range === "all"
       ? undefined
       : browserDateDaysAgo(Number(range));
+  const semanticFilters = semanticRouteFilters();
   const filters: DashboardFilters = {
     contract_hash: contractHash || undefined,
     provider: provider || undefined,
     model: model || undefined,
     status: status || undefined,
     start_date: startDate,
+    ...semanticFilters,
   };
   const drilldownBase = {
+    ...semanticFilters,
     contract_hash: contractHash || undefined,
     provider: provider || undefined,
     model: model || undefined,
@@ -247,12 +278,12 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
   const runsHref = (extra: Record<string, string | number | boolean | null | undefined> = {}) =>
     drilldownHref("/runs", { ...drilldownBase, ...extra });
   const q = useQuery({
-    queryKey: ["overview", contractHash, provider, model, status, range],
+    queryKey: ["overview", contractHash, provider, model, status, range, semanticFilters],
     queryFn: () => api.overview(filters),
     placeholderData: keepPreviousData,
   });
   const goalComparison = useQuery({
-    queryKey: ["compare", "goal-performance", breakdown, contractHash, provider, model, status, range],
+    queryKey: ["compare", "goal-performance", breakdown, contractHash, provider, model, status, range, semanticFilters],
     queryFn: () => api.compare(breakdown, filters),
     enabled: mode === "goals",
     placeholderData: keepPreviousData,
@@ -333,6 +364,7 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
             <option value="30">Last 30 days</option>
           </FilterSelect>
       </div>
+      <ActiveFilterChips filters={semanticFilters} />
       {selectedContract && <ContractBanner contract={selectedContract} />}
       {mode === "health" ? (
         <>
@@ -573,19 +605,19 @@ export const drilldownHref = (
   return query ? `${destination}?${query}` : destination;
 };
 
-function OverviewFailures({ data }: { data: Overview }) {
+function OverviewFailures({ data, healthHref, issuesHref }: { data: Overview; healthHref: string; issuesHref: string }) {
   if (!data.failures.length) {
     return (
       <div className="flex items-center justify-between rounded-lg bg-[#f1faf5] px-4 py-3 text-sm">
         <span className="font-medium text-[#167a47]">No terminal failure locations reported</span>
-        <a href="/system-health" className="text-xs font-semibold text-[#603bd1]">Inspect health →</a>
+        <a href={healthHref} className="text-xs font-semibold text-[#603bd1]">Inspect health →</a>
       </div>
     );
   }
   const failure = data.failures[0];
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-      <a href="/issues" className="min-w-0 flex-1 rounded-lg border border-[#f4ddd7] bg-[#fff5f2] px-4 py-3 hover:bg-[#ffefe9]">
+      <a href={issuesHref} className="min-w-0 flex-1 rounded-lg border border-[#f4ddd7] bg-[#fff5f2] px-4 py-3 hover:bg-[#ffefe9]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-[#713a30]">{failure.failure_location}</div>
@@ -594,7 +626,7 @@ function OverviewFailures({ data }: { data: Overview }) {
           <span className="shrink-0 rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[.08em] text-[#9a5b4d]">Top breakpoint</span>
         </div>
       </a>
-      <a href="/issues" className="shrink-0 text-xs font-semibold text-[#603bd1] hover:underline">
+      <a href={issuesHref} className="shrink-0 text-xs font-semibold text-[#603bd1] hover:underline">
         See all issues →
       </a>
     </div>
@@ -735,6 +767,13 @@ function SystemBreakdownList({
   );
 }
 
+export const goalPortfolioRunsHref = (
+  item: GoalPortfolioItem,
+  drilldownBase: Record<string, string | number | boolean | null | undefined> = {},
+) => item.runs === 1 && item.single_execution_id
+  ? drilldownHref("/runs", { id: item.single_execution_id })
+  : drilldownHref("/runs", { ...drilldownBase, contract_hash: item.contract_hash || item.contract_hashes[0] });
+
 function GoalPortfolio({ items, destination, compact = false, drilldownBase }: { items: GoalPortfolioItem[]; destination?: string; compact?: boolean; drilldownBase?: Record<string, string | number | boolean | null | undefined> }) {
   if (!items.length) return <Empty>No business goals were reported in this view.</Empty>;
   return (
@@ -749,19 +788,20 @@ function GoalPortfolio({ items, destination, compact = false, drilldownBase }: {
           { label: "Unassessed", count: item.unassessed_runs, color: "bg-[#9aa1ad]", filters: { goal_status: "achieved", assurance_status: "unassessed" } },
         ];
         const segmentHref = (filters: Record<string, string | undefined>) => drilldownHref("/runs", { ...drilldownBase, contract_hash: contract, ...filters });
+        const runsHref = goalPortfolioRunsHref(item, drilldownBase);
         return (
           <div key={item.goal_id} className="rounded-xl border border-[#e9e8e2] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 {destination ? (
-                  <a href={drilldownHref(destination, { contract_hash: item.contract_hash || item.contract_hashes[0] })} className="text-sm font-semibold text-[#3d2b76] hover:text-[#6d4aff]">{item.goal_name} →</a>
+                  <a href={drilldownHref(destination, { ...drilldownBase, contract_hash: item.contract_hash || item.contract_hashes[0] })} className="text-sm font-semibold text-[#3d2b76] hover:text-[#6d4aff]">{item.goal_name} →</a>
                 ) : <div className="text-sm font-semibold">{item.goal_name}</div>}
                 {!compact && item.description && <div className="mt-1 max-w-3xl text-xs leading-5 text-[#71716b]">{item.description}</div>}
               </div>
               <div className="flex gap-4 text-right text-xs">
-                <div><div className="font-semibold text-[#333]">{percent(item.success_rate)}</div><div className="text-[#7a7a74]">achieved</div></div>
-                <div><div className="font-semibold text-[#333]">{percent(item.assurance_rate)}</div><div className="text-[#7a7a74]">assured</div></div>
-                <div><div className="font-semibold text-[#333]">{formatNumber(item.runs)}</div><div className="text-[#7a7a74]">runs · {formatNumber(item.contract_count)} contract{item.contract_count === 1 ? "" : "s"}</div></div>
+                <a href={segmentHref({ goal_status: "achieved" })} className="rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"><div className="font-semibold text-[#333]">{percent(item.success_rate)}</div><div className="text-[#7a7a74]">achieved</div></a>
+                <a href={segmentHref({ goal_status: "achieved", assurance_status: "assured" })} className="rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"><div className="font-semibold text-[#333]">{percent(item.assurance_rate)}</div><div className="text-[#7a7a74]">assured</div></a>
+                <a href={runsHref} className="rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"><div className="font-semibold text-[#333]">{formatNumber(item.runs)}</div><div className="text-[#7a7a74]">runs · {formatNumber(item.contract_count)} contract{item.contract_count === 1 ? "" : "s"}</div></a>
               </div>
             </div>
             <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-[#efefeb]" aria-label={`${item.goal_name} assurance breakdown`}>
@@ -825,6 +865,28 @@ const EMPTY_FILTERS: SharedFilterValues = {
   status: "",
   range: "all",
 };
+const sharedFilterValuesFromRoute = (): SharedFilterValues => ({
+  contractHash: routeParam("contract_hash"),
+  provider: routeParam("provider"),
+  model: routeParam("model"),
+  status: routeParam("status"),
+  range: routeParam("range") || "all",
+});
+const sharedFilterRouteValues = (values: SharedFilterValues) => ({
+  contract_hash: values.contractHash || undefined,
+  provider: values.provider || undefined,
+  model: values.model || undefined,
+  status: values.status || undefined,
+  range: values.range === "all" ? undefined : values.range,
+});
+const replaceSharedFilterUrl = (values: SharedFilterValues) => {
+  const url = new URL(window.location.href);
+  Object.entries(sharedFilterRouteValues(values)).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  });
+  window.history.replaceState(window.history.state, "", url);
+};
 const resolvedFilters = (values: SharedFilterValues): DashboardFilters => ({
   contract_hash: values.contractHash || undefined,
   provider: values.provider || undefined,
@@ -835,6 +897,14 @@ const resolvedFilters = (values: SharedFilterValues): DashboardFilters => ({
       ? undefined
       : browserDateDaysAgo(Number(values.range)),
 });
+
+export const issueSignalCount = (data: Issues) =>
+  data.failures.length
+  + data.quality_gaps.length
+  + data.outliers.length
+  + data.operation_failures.length
+  + data.missing_required_measurements.length
+  + new Set(data.retries.flatMap((retry) => retry.runs.map((run) => run.execution_id))).size;
 
 const semanticRouteFilters = (): DashboardFilters => ({
   start_date: routeParam("start_date") || undefined,
@@ -994,21 +1064,23 @@ export function measurementAttentionMessages(data: Overview): string[] {
 }
 
 export function RunsPage() {
-  const [filterValues, setFilterValues] = useState<SharedFilterValues>(() => ({
-    ...EMPTY_FILTERS,
-    contractHash: routeParam("contract_hash"),
-    provider: routeParam("provider"),
-    model: routeParam("model"),
-    status: routeParam("status"),
-    range: routeParam("range") || "all",
-  }));
+  const [filterValues, setFilterValues] = useState<SharedFilterValues>(sharedFilterValuesFromRoute);
   const [page, setPage] = useState(1);
+  const executionId = routeParam("id");
   const workflow = routeParam("workflow");
   const workflowId = routeParam("workflow_id");
   const unavailableReplay = routeParam("unavailable_replay");
   const filters = { ...resolvedFilters(filterValues), ...semanticRouteFilters(), workflow: workflow || undefined, workflow_id: workflowId || undefined };
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
-  const q = useQuery({ queryKey: ["runs", workflow, workflowId, filterValues, page], queryFn: () => api.runs(filters, page, 10), placeholderData: keepPreviousData });
+  const q = useQuery({
+    queryKey: ["runs", executionId, workflow, workflowId, filterValues, page],
+    queryFn: async () => {
+      if (!executionId) return api.runs(filters, page, 10);
+      const detail = await api.run(executionId);
+      return { items: [{ ...detail.summary, canonical_url: detail.canonical_url }], count: 1, page: 1, page_size: 1, pages: 1 };
+    },
+    placeholderData: keepPreviousData,
+  });
   const preserveViewport = useViewportAnchor(q.isFetching);
   if (q.isLoading || meta.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
@@ -1016,8 +1088,8 @@ export function RunsPage() {
   return (
     <>
       <PageHeader
-        title="All executions"
-        description="Open executions that are associated with an authored YAML workflow contract."
+        title={executionId ? "Selected execution" : "All executions"}
+        description={executionId ? `Execution ${executionId}` : "Open executions that are associated with an authored YAML workflow contract."}
       />
       {unavailableReplay ? (
         <div className="mb-4 flex items-center justify-between rounded-xl border border-[#e8dfc6] bg-[#fffaf0] px-4 py-3 text-sm">
@@ -1029,16 +1101,16 @@ export function RunsPage() {
         </div>
       ) : null}
       {workflow || workflowId ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow || workflowId}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); setPage(1); })} />
+      {!executionId ? <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); replaceSharedFilterUrl(values); setPage(1); })} /> : null}
       <ActiveFilterChips filters={filters} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
-      <div className="mt-4 flex items-center justify-between text-sm">
+      {!executionId ? <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-[#74746e]">Page {q.data!.page} of {q.data!.pages} · {formatNumber(q.data!.count)} runs</span>
         <div className="flex gap-2">
           <button disabled={q.data!.page <= 1} onClick={() => preserveViewport(() => setPage((value) => Math.max(1, value - 1)))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
           <button disabled={q.data!.page >= q.data!.pages} onClick={() => preserveViewport(() => setPage((value) => value + 1))} className="rounded-lg border bg-white px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-40">Next</button>
         </div>
-      </div>
+      </div> : null}
     </>
   );
 }
@@ -1164,7 +1236,7 @@ export function WorkflowsPage() {
   );
 }
 export function IssuesPage() {
-  const [filterValues, setFilterValues] = useState(EMPTY_FILTERS);
+  const [filterValues, setFilterValues] = useState(sharedFilterValuesFromRoute);
   const filters = resolvedFilters(filterValues);
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
   const q = useQuery({ queryKey: ["issues", filterValues], queryFn: () => api.issues(filters), placeholderData: keepPreviousData });
@@ -1195,7 +1267,7 @@ export function IssuesPage() {
         title="Issues"
         description="A prioritized investigation queue for failures, quality regressions, retry pressure, resource outliers, and missing evidence."
       />
-      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => setFilterValues(values))} />
+      <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); replaceSharedFilterUrl(values); })} />
       <section className={`mb-4 overflow-hidden rounded-xl border ${hasFailure ? "border-red-200 bg-red-50/50" : hasAttention ? "border-amber-200 bg-[#fffdf7]" : "border-emerald-200 bg-emerald-50/40"}`}>
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(440px,.75fr)] lg:items-center">
           <div className="min-w-0">

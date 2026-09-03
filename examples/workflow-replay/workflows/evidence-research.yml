@@ -1,8 +1,7 @@
-version: 1
+version: 2
 id: evidence-research
 name: Evidence research
 description: A Haystack research pipeline with parallel retrieval, convergence, validation retries, and fallback.
-framework: haystack
 match:
   runtime_names: [haystack/evidence-research]
 

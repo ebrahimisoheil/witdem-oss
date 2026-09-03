@@ -48,7 +48,7 @@ def test_enriched_entrypoints_use_the_native_minimal_integration() -> None:
         if name in {"cloud/azure", "cloud/bedrock", "cloud/vertex", "ollama/basic"}:
             assert "from witdem_sdk.integrations.generic import instrument" in source
         assert "instrument(" in source
-        assert "report_result=" not in source
+        assert "report_result=" in source
         assert "observe_result=" not in source
         assert "capture_content=" not in source
         assert 'with_name(".env")' in source
@@ -61,23 +61,21 @@ def test_sdk_tutorials_use_one_declarative_application_contract() -> None:
     for name in TUTORIALS:
         directory = ROOT / "examples" / name
         source = (directory / "sdk_enriched.py").read_text(encoding="utf-8")
-        assert "report_result" not in source
+        assert "report_result" in source
         assert "observe_result" not in source
         assert not any(
             semantic_method in source
             for semantic_method in ("witdem.decision(", "witdem.evaluation(", "witdem.metric(", "witdem.outcome(")
         )
-        contract = (directory / ".witdem" / "witdem.yaml").read_text(encoding="utf-8")
-        parsed = yaml.safe_load(contract)
-        assert isinstance(parsed["contracts"], list)
-        configured = parsed["contracts"][0]
-        assert parsed["telemetry"]["capture_content"] is False
-        assert configured["application_outcome"]["status"]
-        assert configured["artifact"]["valid"]
-        assert configured["decision"]["observed"]
-        assert configured["product_goal"]["description"]
+        project = yaml.safe_load((directory / ".witdem" / "witdem.yaml").read_text(encoding="utf-8"))
+        assert project["version"] == 2
+        assert isinstance(project["contracts"], list)
+        contract_path = (directory / ".witdem" / project["contracts"][0]).resolve()
+        configured = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+        assert project["telemetry"]["capture_content"] is False
+        assert configured["result"]["values"]
+        assert configured["goal"]["requirements"]
         assert configured["metrics"]
-        assert "{" not in contract and "}" not in contract
 
 
 def test_anthropic_tool_loop_never_contains_a_fabricated_tool_id() -> None:

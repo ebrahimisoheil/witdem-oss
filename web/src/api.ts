@@ -252,6 +252,7 @@ export type GoalPortfolioItem = {
   contract_name?: string;
   goal_name: string;
   description?: string;
+  single_execution_id?: string | null;
   runs: number;
   achieved_runs: number;
   assured_runs: number;
@@ -363,6 +364,7 @@ export type Run = Record<string, unknown> & {
   workflow_providers?: string[];
   contract_hash?: string;
   contract_name?: string;
+  closest_blocker?: string | null;
   canonical_url?: string | null;
 };
 export type RunDetail = {
@@ -390,7 +392,7 @@ export type RunDetail = {
   operation_summary?: OperationSummary;
   measurements?: OperationMeasurement[];
   measurement_coverage?: OperationMeasurementCoverage;
-  evaluation_results?: Array<Record<string, unknown>>;
+  evaluation_results?: EvaluationResult[];
   canonical_url?: string | null;
 };
 
@@ -514,7 +516,7 @@ export type WorkflowDefinitionSummary = {
 export type WorkflowProjectionAnalytics = Pick<Overview, "models" | "providers" | "stages">;
 
 export type DeclaredWorkflow = {
-  version: 1;
+  version: 2;
   id: string;
   name: string;
   description?: string | null;

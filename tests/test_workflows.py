@@ -21,7 +21,7 @@ from witdem.workflows import (
 def _definition() -> WorkflowDefinition:
     return WorkflowDefinition.model_validate(
         {
-            "version": 1,
+            "version": 2,
             "id": "answer-flow",
             "name": "Answer flow",
             "match": {"runtime_names": ["langgraph/answer"]},
@@ -71,7 +71,7 @@ def test_compile_registry_writes_hashed_manifest_and_check_is_read_only(tmp_path
     config = tmp_path / "witdem.yml"
     definition = _definition()
     config.write_text(
-        "version: 1\nworkflows:\n  - id: answer-flow\n    definition: workflows/answer.yml\n",
+        "version: 2\nworkflows: [workflows/answer.yml]\n",
         encoding="utf-8",
     )
     (workflow_dir / "answer.yml").write_text(
@@ -325,7 +325,7 @@ def test_project_config_registers_separate_yaml_workflows(tmp_path: Path) -> Non
     workflow_dir = tmp_path / "workflows"
     workflow_dir.mkdir()
     (tmp_path / "witdem.yml").write_text(
-        "version: 1\nservice:\n  name: demo\nworkflows:\n  - id: answer-flow\n    definition: workflows/answer.yml\n",
+        "version: 2\nservice:\n  name: demo\nworkflows: [workflows/answer.yml]\n",
         encoding="utf-8",
     )
     (workflow_dir / "answer.yml").write_text(
@@ -426,7 +426,7 @@ def test_historical_and_new_executions_share_one_persisted_template(tmp_path: Pa
     workflow_dir.mkdir()
     config_path = tmp_path / "witdem.yml"
     config_path.write_text(
-        "version: 1\nservice:\n  name: demo\nworkflows:\n  - id: answer-flow\n    definition: workflows/answer.yml\n",
+        "version: 2\nservice:\n  name: demo\nworkflows: [workflows/answer.yml]\n",
         encoding="utf-8",
     )
     (workflow_dir / "answer.yml").write_text(
@@ -489,7 +489,7 @@ def test_historical_and_new_executions_share_one_persisted_template(tmp_path: Pa
     assert catalog["items"][0]["execution_count"] == 2
     assert filtered_runs["count"] == 2
     assert {run["execution_id"] for run in filtered_runs["items"]} == {"historical-run", "new-run"}
-    assert catalog["items"][0]["version"] == 1
+    assert catalog["items"][0]["version"] == 2
     assert all(run["workflow_total_steps"] == 4 for run in workflow["executions"])
     assert all(run["workflow_active_steps"] == 2 for run in workflow["executions"])
     assert all(run["workflow_attempts"] == 2 for run in workflow["executions"])

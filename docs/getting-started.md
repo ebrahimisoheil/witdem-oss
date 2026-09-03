@@ -73,42 +73,28 @@ For a receiver protected by a bearer key, also set `WITDEM_API_KEY`. Do not comm
 Initialize `.witdem/witdem.yaml` from the application repository:
 
 ```bash
-witdem-sdk init --runtime haystack
+witdem-sdk init
 ```
 
-Replace `haystack` with the application's runtime. The command only creates a
-valid YAML starting point; it does not detect frameworks or modify application
-code. It refuses to overwrite an existing contract unless `--force` is passed.
+The command creates a small project index and a separate contract. It does not
+detect frameworks or modify application code. It refuses to overwrite an
+existing project unless `--force` is passed.
 
 Edit the generated contract to describe what a useful application result
 means. For example:
 
 ```yaml
-version: 1
+version: 2
 service:
   name: my-agent
-  runtime: haystack
 telemetry:
   capture_content: false
-contracts:
-  answer:
-    mode: expression
-    artifact:
-      name: Agent answer
-      valid:
-        non_empty: $.witdem.result
-    decision:
-      name: Result validity
-      expected: true
-      observed: $.witdem.artifact_valid
-    product_goal:
-      name: Useful answer returned
-      achieved: $.witdem.artifact_valid
+contracts: [contracts/answer.yml]
 ```
 
-The paths refer to the JSON-shaped value returned by your application.
-`$.witdem.result` normalizes common agent and chat return shapes. Validate the
-file from the application directory:
+The contract declares allowed results and named goal requirements. Application
+code reports those facts explicitly; the YAML contains no framework-specific
+return paths. Validate all referenced files from the application directory:
 
 ```bash
 witdem-sdk validate
@@ -130,7 +116,9 @@ pipeline = instrument(build_pipeline())
 result = pipeline.run(data)
 ```
 
-The integration loads the YAML, opens one correlated execution, observes the framework, evaluates the final result, flushes telemetry, and closes its resources.
+The integration loads the YAML, opens one correlated execution, observes the
+framework, flushes telemetry, and closes its resources. Report business facts
+with `Witdem.report(...)` or an integration's `report_result` callback.
 
 ## 6. Verify the first run
 

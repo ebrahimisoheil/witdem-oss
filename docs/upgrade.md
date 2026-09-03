@@ -1,5 +1,32 @@
 # Upgrade and compatibility
 
+## Configuration version 2
+
+Configuration version 2 is intentionally incompatible with version 1. Witdem
+does not silently reinterpret a version 1 project or contract.
+
+Migrate by making the project file a small index of external definitions:
+
+```yaml
+version: 2
+service:
+  name: my-service
+contracts:
+  - contracts/application-run.yml
+workflows:
+  - workflows/application-run.yml
+```
+
+In each contract, replace executable expressions and modes with named
+requirements. Application code reports each requirement as `true`, `false`, or
+`null` through `Witdem.report(...)`. Put deterministic diagnostic wording and
+its workflow investigation target under the requirement's `failure` field.
+See [Configuration](configuration.md) for the complete v2 shape.
+
+Run `witdem-sdk config validate --config <path>` before starting the
+application. The validator rejects version 1 and rejects investigation links
+that do not resolve to the referenced workflow.
+
 ## Check first
 
 ```bash

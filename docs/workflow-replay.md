@@ -28,27 +28,22 @@ location created by `witdem-sdk init` is `.witdem/witdem.yaml`; definition paths
 are resolved relative to whichever configuration file was loaded:
 
 ```yaml
-version: 1
+version: 2
 service:
   name: support-service
-  runtime: langgraph/support-routing
 telemetry:
   capture_content: false
-workflows:
-  - id: support-routing
-    definition: workflows/support-routing.yml
-default_workflow: support-routing
+workflows: [workflows/support-routing.yml]
 ```
 
 Each workflow is ordinary YAML. Nested objects are YAML mappings, never JSON strings:
 
 ```yaml
-version: 1
+version: 2
 id: support-routing
 name: Support routing
-framework: langgraph
 match:
-  runtime_names: [langgraph/support-routing]
+  service_names: [support-service]
 stages:
   - id: understand
     name: Understand

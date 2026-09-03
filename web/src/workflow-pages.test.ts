@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
+import { buildStepGraph, goalStageDotColor, groupEvaluations, observedOutcomeTone, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
 
 describe("workflow presentation", () => {
@@ -35,6 +35,38 @@ describe("workflow presentation", () => {
     });
   });
 
+  it("resolves failure guidance only from authored contract attributes", () => {
+    const results: EvaluationResult[] = [{
+      evaluation_id: "evaluation-1",
+      execution_id: "run-1",
+      subject_id: "run-1",
+      name: "Relevant evidence was retrieved",
+      passed: false,
+      attributes: {
+        requirement_id: "evidence_retrieved",
+        requirement_failure_label: "No relevant contract evidence was retrieved",
+        requirement_failure_description: "Inspect the retrieval evidence.",
+        investigation_stage: "evidence",
+        investigation_node: "retrieve",
+      },
+    }];
+
+    expect(resolveGoalDiagnostic(results, "evidence_retrieved")).toEqual({
+      requirementId: "evidence_retrieved",
+      label: "No relevant contract evidence was retrieved",
+      description: "Inspect the retrieval evidence.",
+      stageId: "evidence",
+      nodeId: "retrieve",
+    });
+    expect(resolveGoalDiagnostic([], "evidence_retrieved")).toBeNull();
+  });
+
+  it("marks a non-achieving observed outcome as a failure", () => {
+    expect(observedOutcomeTone(true, false)).toContain("text-red-700");
+    expect(observedOutcomeTone(true, true)).toContain("text-[#5839a6]");
+    expect(observedOutcomeTone(false, false)).toContain("text-[#777178]");
+  });
+
   it("places dependencies in later columns without overlapping siblings", () => {
     const nodes = [
       { id: "start" },
@@ -62,6 +94,11 @@ describe("workflow presentation", () => {
     expect(statePresentation("recovered").border).toBe("#d58b24");
     expect(statePresentation("running").border).toBe("#4386c6");
     expect(statePresentation("completed").border).toBe("#16864b");
+  });
+
+  it("uses a neutral stage dot when business investigation overrides runtime health", () => {
+    expect(goalStageDotColor("completed", true)).toBe("#a8a29e");
+    expect(goalStageDotColor("completed", false)).toBe("#16864b");
   });
 
   it("summarizes workflow-level results without treating missing measurements as zero", () => {
@@ -101,6 +138,7 @@ describe("workflow presentation", () => {
     });
 
     expect(graph.nodes.map((node) => node.id)).toEqual(["step:research", "operation", "model-call"]);
+    expect(graph.nodes[0].data.tone).toBe("success");
     expect(graph.edges.map((edge) => [edge.source, edge.target])).toEqual([
       ["step:research", "operation"],
       ["operation", "model-call"],

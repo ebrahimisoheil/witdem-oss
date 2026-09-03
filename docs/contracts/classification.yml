@@ -1,0 +1,34 @@
+version: 2
+id: qualification
+name: Company qualification
+
+result:
+  name: Qualification result
+  values:
+    accepted: {description: The company qualifies, tone: success}
+    rejected: {description: The company does not qualify, tone: failure}
+    escalated: {description: Human review is required, tone: warning}
+
+decision:
+  name: Qualification decision
+  values:
+    accepted: The company qualifies.
+    rejected: The company does not qualify.
+    escalated: Human review is required.
+
+goal:
+  name: Correct company qualification
+  requirements:
+    valid_profile:
+      name: The company profile is valid
+      failure:
+        label: The company profile was incomplete
+        investigate: {stage: evidence}
+    correct_decision:
+      name: The expected decision was selected
+      failure:
+        label: The qualification decision was incorrect
+        investigate: {stage: decision}
+
+dimensions:
+  case_id: {name: Case ID}

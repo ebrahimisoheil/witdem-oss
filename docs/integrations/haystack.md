@@ -52,28 +52,20 @@ result = pipeline.run({"answer": {"question": "What is observability?"}})
 print(result["answer"]["answer"])
 ```
 
-Use this matching `.witdem/witdem.yaml`:
+Use this matching `.witdem/witdem.yaml` project file:
 
 ```yaml
-version: 1
+version: 2
 service:
   name: haystack-answer
-  runtime: haystack
 telemetry:
   capture_content: false
-contracts:
-  - name: answer
-    artifact:
-      name: Agent answer
-      valid: {non_empty: $.answer.answer}
-    decision:
-      name: Result validity
-      expected: true
-      observed: $.witdem.artifact_valid
-    product_goal:
-      name: Useful answer returned
-      achieved: $.witdem.artifact_valid
+contracts: [contracts/answer.yml]
 ```
+
+The contract uses the vendor-neutral v2 format described in
+[YAML configuration](../configuration.md). Supply business facts with the
+integration's `report_result` callback; framework observation remains automatic.
 
 The wrapper exposes the underlying pipeline's normal attributes and supports:
 

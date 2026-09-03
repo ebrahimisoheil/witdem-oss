@@ -1,12 +1,7 @@
-version: 1
+version: 2
 service:
   name: witdem-workflow-replay-fixtures
-  runtime: workflow-replay
 telemetry:
   capture_content: false
-workflows:
-  - id: evidence-research
-    definition: workflows/evidence-research.yml
-  - id: support-routing
-    definition: workflows/support-routing.yml
+workflows: [workflows/evidence-research.yml, workflows/support-routing.yml]
 default_workflow: evidence-research

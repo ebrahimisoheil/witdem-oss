@@ -1,0 +1,59 @@
+version: 2
+id: company_qualification
+name: Company qualification
+description: Decide whether a company qualifies, should be rejected, or needs escalation.
+
+result:
+  name: Qualification outcome
+  description: The evidence-backed result returned by the qualification workflow.
+  values:
+    accepted: {description: The company qualifies, tone: success}
+    rejected: {description: The company does not qualify, tone: failure}
+    escalated: {description: The evidence requires human review, tone: warning}
+
+decision:
+  name: Company qualification
+  description: The final deterministic qualification decision.
+  values:
+    accepted: {description: The company qualifies, tone: success}
+    rejected: {description: The company does not qualify, tone: failure}
+    escalated: {description: The evidence requires human review, tone: warning}
+
+goal:
+  name: Correct company qualification
+  description: Reach the expected, evidence-supported outcome through the required workflow path.
+  requirements:
+    runtime_terminal:
+      name: The workflow reached a terminal state
+      failure:
+        label: The workflow did not reach a terminal state
+    valid_profile:
+      name: The company profile is valid
+      failure:
+        label: The company profile is invalid
+        investigate: {stage: profile}
+    sufficient_evidence:
+      name: Decision evidence is sufficient
+      failure:
+        label: Decision evidence is insufficient
+        investigate: {stage: evidence}
+    required_path:
+      name: The required workflow path was observed
+      failure:
+        label: The required workflow path was not observed
+    correct_decision:
+      name: The business decision matches the expected outcome
+      failure:
+        label: The business decision was incorrect
+        investigate: {stage: qualification}
+
+dimensions:
+  case_id: {name: Evidence case}
+  runtime_id: {name: Agent runtime}
+  model_profile: {name: Model profile}
+
+metrics:
+  qualification_score:
+    name: Qualification score
+    description: Weighted evidence-backed qualification score.
+    unit: score

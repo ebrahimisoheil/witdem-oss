@@ -56,7 +56,7 @@ def test_primary_tutorial_is_a_symmetric_external_consumer(relative: Path) -> No
         assert "from witdem_sdk.integrations.generic import instrument" in enriched
     assert "instrument(" in enriched
     assert "observe_result=" not in enriched
-    assert "report_result=" not in enriched
+    assert "report_result=" in enriched
     assert "capture_content=" not in enriched
     assert "WITDEM_EXECUTION_ID=" not in enriched
     assert "with configure()" not in enriched

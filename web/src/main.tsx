@@ -1,10 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, RouterProvider } from "@tanstack/react-router";
 import { Shell } from "./components";
-import { ComparePage, DeveloperPage, GoalPerformancePage, IssuesPage, OverviewPage, RunsPage, SystemHealthPage } from "./pages";
-import { WorkflowDefinitionPage, WorkflowDefinitionsPage, WorkflowEvaluationsPage, WorkflowExecutionPage, WorkflowExecutionsPage, WorkflowOperationsPage } from "./workflow-pages";
 import "./styles.css";
 
 // Recover an open tab whose previous deployment references a lazy chunk that
@@ -23,7 +21,9 @@ if (typeof window !== "undefined") {
 }
 
 const root=createRootRoute({component:Shell});
-const routes=[createRoute({getParentRoute:()=>root,path:"/",component:OverviewPage}),createRoute({getParentRoute:()=>root,path:"/system-health",component:SystemHealthPage}),createRoute({getParentRoute:()=>root,path:"/goal-performance",component:GoalPerformancePage}),createRoute({getParentRoute:()=>root,path:"/runs",component:RunsPage}),createRoute({getParentRoute:()=>root,path:"/compare",component:ComparePage}),createRoute({getParentRoute:()=>root,path:"/workflows",component:WorkflowDefinitionsPage}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId",component:WorkflowDefinitionPage}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/operations",component:WorkflowOperationsPage}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/evaluations",component:WorkflowEvaluationsPage}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/executions",component:WorkflowExecutionsPage}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/executions/$executionId",component:WorkflowExecutionPage}),createRoute({getParentRoute:()=>root,path:"/issues",component:IssuesPage}),createRoute({getParentRoute:()=>root,path:"/developer",component:DeveloperPage})];
+const pages=()=>import("./pages");
+const workflowPages=()=>import("./workflow-pages");
+const routes=[createRoute({getParentRoute:()=>root,path:"/",component:lazyRouteComponent(pages,"OverviewPage")}),createRoute({getParentRoute:()=>root,path:"/system-health",component:lazyRouteComponent(pages,"SystemHealthPage")}),createRoute({getParentRoute:()=>root,path:"/goal-performance",component:lazyRouteComponent(pages,"GoalPerformancePage")}),createRoute({getParentRoute:()=>root,path:"/runs",component:lazyRouteComponent(pages,"RunsPage")}),createRoute({getParentRoute:()=>root,path:"/compare",component:lazyRouteComponent(pages,"ComparePage")}),createRoute({getParentRoute:()=>root,path:"/workflows",component:lazyRouteComponent(workflowPages,"WorkflowDefinitionsPage")}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId",component:lazyRouteComponent(workflowPages,"WorkflowDefinitionPage")}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/operations",component:lazyRouteComponent(workflowPages,"WorkflowOperationsPage")}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/evaluations",component:lazyRouteComponent(workflowPages,"WorkflowEvaluationsPage")}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/executions",component:lazyRouteComponent(workflowPages,"WorkflowExecutionsPage")}),createRoute({getParentRoute:()=>root,path:"/workflows/$workflowId/executions/$executionId",component:lazyRouteComponent(workflowPages,"WorkflowExecutionPage")}),createRoute({getParentRoute:()=>root,path:"/issues",component:lazyRouteComponent(pages,"IssuesPage")}),createRoute({getParentRoute:()=>root,path:"/developer",component:lazyRouteComponent(pages,"DeveloperPage")})];
 const router=createRouter({routeTree:root.addChildren(routes),defaultPreload:"intent"});
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }
 const queryClient=new QueryClient({defaultOptions:{queries:{staleTime:15_000,retry:1}}});

@@ -33,22 +33,17 @@ chain = instrument(chain, provider="openai", model="gpt-4o-mini")
 answer = chain.invoke("What is observability?")
 ```
 
-Because this runnable returns a string, contract paths use `$.result`:
+The project references a vendor-neutral contract instead of describing the
+LangChain return shape:
 
 ```yaml
-contracts:
-  - name: answer
-    artifact:
-      name: Agent answer
-      valid: {non_empty: $.result}
-    decision:
-      name: Result validity
-      expected: true
-      observed: $.witdem.artifact_valid
-    product_goal:
-      name: Useful answer returned
-      achieved: $.witdem.artifact_valid
+version: 2
+service: {name: langchain-answer}
+contracts: [contracts/answer.yml]
 ```
+
+Use `report_result` to translate the final application result into the named
+contract facts.
 
 The complete checked-in example is [`examples/langchain/runnable_pipeline`](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/langchain/runnable_pipeline).
 
