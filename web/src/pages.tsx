@@ -926,9 +926,19 @@ const semanticRouteFilters = (): DashboardFilters => ({
   has_repeated_work: routeParam("has_repeated_work") === "true" || undefined,
 });
 
-const filterLabel = (key: string, value: string) => {
+export const activeFilterLabel = (
+  key: string,
+  value: string,
+  contracts: ContractDefinition[] = [],
+) => {
+  if (key === "contract_hash") {
+    const contract = contracts.find((item) => item.contract_hash === value);
+    const goalName = contract?.product_goal?.name || contract?.contract_name;
+    return goalName
+      ? `Goal: ${goalName} · ${value.slice(0, 8)}`
+      : `Goal revision: ${value.slice(0, 8)}`;
+  }
   const names: Record<string, string> = {
-    contract_hash: "Goal",
     provider: "Provider",
     model: "Model",
     status: "Runtime",
@@ -951,7 +961,7 @@ const filterLabel = (key: string, value: string) => {
   return `${names[key] || key}: ${value.replaceAll("_", " ")}`;
 };
 
-function ActiveFilterChips({ filters }: { filters: DashboardFilters }) {
+function ActiveFilterChips({ filters, contracts = [] }: { filters: DashboardFilters; contracts?: ContractDefinition[] }) {
   const entries = Object.entries(filters).filter(([, value]) => value != null && value !== "");
   if (!entries.length) return null;
   return (
@@ -961,7 +971,7 @@ function ActiveFilterChips({ filters }: { filters: DashboardFilters }) {
         const params = new URLSearchParams(window.location.search);
         params.delete(key);
         const href = `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`;
-        return <a key={key} href={href} className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-[#5a35c8] ring-1 ring-[#d8cff3] hover:bg-[#f0ebff]">{filterLabel(key, String(value))} ×</a>;
+        return <a key={key} href={href} title={key === "contract_hash" ? String(value) : undefined} className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-[#5a35c8] ring-1 ring-[#d8cff3] hover:bg-[#f0ebff]">{activeFilterLabel(key, String(value), contracts)} ×</a>;
       })}
       <a href={window.location.pathname} className="ml-auto font-semibold text-[#6b6470] hover:text-[#5a35c8]">Clear all</a>
     </div>
@@ -1102,7 +1112,7 @@ export function RunsPage() {
       ) : null}
       {workflow || workflowId ? <div className="mb-4 flex items-center justify-between rounded-xl border border-[#dcd5ef] bg-[#f7f4ff] px-4 py-3 text-sm"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#4e348c]">Workflow filter</span><span className="text-[#6f6877]">{workflow || workflowId}</span>{filterValues.model ? <Badge color="purple">Model · {filterValues.model}</Badge> : null}{filterValues.provider ? <Badge color="purple">Provider · {filterValues.provider}</Badge> : null}</div><a href="/runs" className="text-xs font-semibold text-[#5c35c8] hover:underline">Clear filters</a></div> : null}
       {!executionId ? <SharedFilterBar metadata={meta.data!} values={filterValues} onChange={(values) => preserveViewport(() => { setFilterValues(values); replaceSharedFilterUrl(values); setPage(1); })} /> : null}
-      <ActiveFilterChips filters={filters} />
+      <ActiveFilterChips filters={filters} contracts={meta.data!.contracts} />
       <RunsTable rows={q.data!.items} count={q.data!.count} />
       {!executionId ? <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-[#74746e]">Page {q.data!.page} of {q.data!.pages} · {formatNumber(q.data!.count)} runs</span>
