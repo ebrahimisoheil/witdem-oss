@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.2.6
+
+- Made workflow failures visible directly in replay and distinguished diagnostic
+  attention from successful step completion.
+- Added readable goal revisions and native, URL-backed filters to execution lists.
+- Improved workflow-canvas contrast with a navy background and high-visibility
+  connectors for normal, branch, retry, and fallback paths.
+
 ## 0.2.5
 
 - Replaced configuration v1 with a smaller vendor-neutral v2 project index,

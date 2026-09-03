@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { drilldownHref, evaluationMetTarget, goalPortfolioRunsHref, issueSignalCount, measurementAttentionMessages } from "./pages";
+import { activeFilterLabel, drilldownHref, evaluationMetTarget, executionFilterOptions, goalPortfolioRunsHref, issueSignalCount, measurementAttentionMessages } from "./pages";
 import { sharedCohortSize } from "./components";
 import type { ComparisonInsight, GoalPortfolioItem } from "./api";
 import type { Overview } from "./api";
@@ -38,6 +38,41 @@ describe("drilldownHref", () => {
       has_failure: true,
       ignored: false,
     })).toBe("/runs?contract_hash=goal-1&goal_status=not_achieved&evaluation_status=failed&has_failure=true");
+  });
+});
+
+describe("activeFilterLabel", () => {
+  it("shows a goal name and short revision instead of a raw contract hash", () => {
+    const hash = "48e5fc12b34d8b1c5e1bbec02902ca547170a3a2f6894859e8067876ebf82ed7";
+    expect(activeFilterLabel("contract_hash", hash, [{
+      contract_hash: hash,
+      run_count: 1,
+      product_goal: { name: "Evidence-backed contract review completed" },
+    }])).toBe("Goal: Evidence-backed contract review completed · 48e5fc12");
+  });
+
+  it("still hides the full hash when metadata is unavailable", () => {
+    expect(activeFilterLabel("contract_hash", "904e42e67d80b0dd")).toBe("Goal revision: 904e42e6");
+  });
+});
+
+describe("executionFilterOptions", () => {
+  it("derives selectable business filters from contract metadata", () => {
+    const options = executionFilterOptions({
+      product: "Witdem AI",
+      mode: "runtime + business meaning",
+      filters: {},
+      contracts: [{
+        contract_hash: "goal-1",
+        run_count: 2,
+        result: { values: { approved: "Approved", escalated: "Escalated" } },
+        product_goal: { requirements: { evidence_ready: { name: "Evidence is ready" } } },
+        evaluations: [{ key: "quality", name: "Quality" }],
+      }],
+    });
+    expect(options.outcomes).toEqual(["approved", "escalated"]);
+    expect(options.evaluations).toEqual([["quality", "Quality"]]);
+    expect(options.blockers).toEqual([["evidence_ready", "Evidence is ready"]]);
   });
 });
 

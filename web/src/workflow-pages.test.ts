@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, goalStageDotColor, groupEvaluations, observedOutcomeTone, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
-import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
+import { buildStepGraph, effectiveNodeState, goalStageDotColor, groupEvaluations, nodeFailureRecords, observedOutcomeTone, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
+import type { EvaluationResult, OperationFact, OperationMeasurement, ProjectedWorkflowNode } from "./api";
 
 describe("workflow presentation", () => {
   it("links global execution drilldowns by authored workflow identity", () => {
@@ -99,6 +99,25 @@ describe("workflow presentation", () => {
   it("uses a neutral stage dot when business investigation overrides runtime health", () => {
     expect(goalStageDotColor("completed", true)).toBe("#a8a29e");
     expect(goalStageDotColor("completed", false)).toBe("#16864b");
+  });
+
+  it("makes a recovered child failure visible on an otherwise completed step", () => {
+    const node: ProjectedWorkflowNode = {
+      id: "ocr",
+      name: "Extract document with OCR",
+      state: "completed",
+      attempts: 1,
+      duration_seconds: 0.4,
+      known_cost: null,
+      total_tokens: null,
+      providers: ["mistral"],
+      models: ["mistral-ocr-latest"],
+      observations: [],
+      model_calls: [{ id: "ocr-call", name: "Mistral OCR", status: "error" }],
+    };
+
+    expect(effectiveNodeState(node)).toBe("recovered");
+    expect(nodeFailureRecords(node)).toHaveLength(1);
   });
 
   it("summarizes workflow-level results without treating missing measurements as zero", () => {

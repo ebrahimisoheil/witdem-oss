@@ -2,7 +2,7 @@ import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { Graph as DagreGraph, layout as runDagreLayout, type Point } from "@dagrejs/dagre";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationMeasurement, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
+import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
 import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
 
@@ -417,8 +417,32 @@ function evaluationSourceLabel(source?: string | null) { return source === "sdk"
 
 function MetricToggle<T extends string>({ choices, active, onChange, labels }: { choices: readonly T[]; active: T; onChange: (choice: T) => void; labels: Record<T, string> }) { return <div className="flex flex-wrap justify-end gap-1">{choices.map((choice) => <button key={choice} type="button" onClick={() => onChange(choice)} className={`rounded-md px-2.5 py-1 text-[10px] font-medium ${active === choice ? "bg-[#6d4aff] text-white" : "bg-[#f2f1ed] text-[#666]"}`}>{labels[choice]}</button>)}</div>; }
 
-function CompactFact({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "attention" }) {
-  return <div className="rounded-md border border-[#e7e4e8] bg-[#fbfbf9] px-2.5 py-2"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className={`mt-0.5 text-xs font-semibold ${tone === "attention" ? "text-[#b84040]" : "text-[#39343e]"}`}>{value}</div></div>;
+function CompactFact({ label, value, tone = "default", active = false, onClick }: { label: string; value: string; tone?: "default" | "attention"; active?: boolean; onClick?: () => void }) {
+  const content = <><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className={`mt-0.5 text-xs font-semibold ${tone === "attention" ? "text-[#b84040]" : "text-[#39343e]"}`}>{value}</div></>;
+  const className = `rounded-md border px-2.5 py-2 text-left transition ${active ? "border-[#7658bd] bg-[#f6f2ff] ring-1 ring-[#7658bd]/20" : "border-[#e7e4e8] bg-[#fbfbf9] hover:border-[#cfc6ef] hover:bg-white"}`;
+  return onClick ? <button type="button" onClick={onClick} aria-expanded={active} className={className}>{content}</button> : <div className={className}>{content}</div>;
+}
+
+type ExecutionSummaryView = "operations" | "types" | "failures" | "evaluations";
+
+function ExecutionSummaryDetails({ view, replay, operationSummary, evaluationResults }: { view: ExecutionSummaryView; replay: WorkflowReplay; operationSummary?: OperationSummary; evaluationResults: EvaluationResult[] }) {
+  const activeNodes = replay.nodes.filter((node) => node.state !== "inactive");
+  const stateCounts = activeNodes.reduce((counts, node) => {
+    const state = effectiveNodeState(node);
+    counts[state] = (counts[state] || 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
+  if (view === "operations") return <div className="grid gap-2 sm:grid-cols-4">
+    {(["completed", "recovered", "failed", "inactive"] as const).map((state) => <div key={state} className="rounded-md border border-[#e8e5ea] bg-white px-3 py-2"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{state === "inactive" ? "Not used" : state}</div><div className="mt-1 text-sm font-semibold text-[#39343e]">{formatNumber(state === "inactive" ? replay.nodes.length - activeNodes.length : stateCounts[state] || 0)} steps</div></div>)}
+  </div>;
+  if (view === "types") return <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    {(operationSummary?.types || []).map((item) => <div key={`${item.plane}-${item.type}`} className={`rounded-md border bg-white px-3 py-2 ${item.failed ? "border-red-200" : "border-[#e8e5ea]"}`}><div className="text-[10px] font-semibold text-[#3d3742]">{operationLabel(item.type)}</div><div className="mt-1 text-[9px] text-[#7b757d]">{formatNumber(item.operations)} operations{item.failed ? ` · ${formatNumber(item.failed)} failed` : ""}</div></div>)}
+  </div>;
+  if (view === "failures") {
+    const failures = replay.nodes.flatMap((node) => nodeFailureRecords(node).map((record) => ({ node, record })));
+    return failures.length ? <div className="space-y-2">{failures.map(({ node, record }, index) => <div key={`${node.id}-${String(record.id || index)}`} className="flex items-start justify-between gap-4 rounded-md border border-red-200 bg-red-50 px-3 py-2"><div><div className="text-[10px] font-semibold text-red-800">{node.name}</div><div className="mt-0.5 text-[9px] text-red-700">{String(record.display_name || record.name || "Failed operation")}</div></div><span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[8px] font-semibold uppercase text-red-700 ring-1 ring-red-200">{String(record.status || "failed")}</span></div>)}</div> : <div className="rounded-md border border-[#e8e5ea] bg-white px-3 py-3 text-xs text-[#6f6971]">No failed operations were observed in this execution.</div>;
+  }
+  return evaluationResults.length ? <div className="grid gap-2 sm:grid-cols-2">{evaluationResults.map((result) => <div key={result.evaluation_id} className="flex items-center justify-between gap-3 rounded-md border border-[#e8e5ea] bg-white px-3 py-2"><div className="min-w-0"><div className="truncate text-[10px] font-semibold text-[#3d3742]" title={result.name}>{result.name}</div><div className="mt-0.5 text-[9px] text-[#7b757d]">{evaluationValue(result)}</div></div><EvaluationState result={result} /></div>)}</div> : <div className="rounded-md border border-[#e8e5ea] bg-white px-3 py-3 text-xs text-[#6f6971]">No evaluations were reported for this execution.</div>;
 }
 
 const operationLabel = (value: string) => {
@@ -430,15 +454,17 @@ const operationLabel = (value: string) => {
 
 export function WorkflowExecutionPage() {
   const { workflowId, executionId } = useParams({ from: "/workflows/$workflowId/executions/$executionId" });
+  const [summaryView, setSummaryView] = useState<ExecutionSummaryView | null>(null);
   const q = useQuery({ queryKey: ["workflow-execution", workflowId, executionId], queryFn: () => api.workflowExecution(workflowId, executionId) });
   if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   const replay = q.data!.workflow_replay!;
   const operationSummary = q.data!.operation_summary;
   const evaluationResults = q.data!.evaluation_results || [];
+  const toggleSummary = (view: ExecutionSummaryView) => setSummaryView((current) => current === view ? null : view);
   return <div className="-mb-[21px]">
     <PageHeader compact eyebrow="Workflow replay" title={replay.workflow.name} description={`Execution ${executionId}`} action={<Link to="/workflows/$workflowId" params={{ workflowId }}><Button variant="outline">Workflow executions</Button></Link>} />
-    {(operationSummary || evaluationResults.length) ? <div className="mb-3 grid grid-cols-4 gap-2"><CompactFact label="Operations" value={formatNumber(operationSummary?.total_operations)} /><CompactFact label="Operation types" value={formatNumber(operationSummary?.types.length)} /><CompactFact label="Operation failures" value={formatNumber(operationSummary?.failed_operations)} tone={operationSummary?.failed_operations ? "attention" : "default"} /><CompactFact label="Evaluations" value={formatNumber(evaluationResults.length)} /></div> : null}
+    {(operationSummary || evaluationResults.length) ? <><div className="mb-2 grid grid-cols-4 gap-2"><CompactFact label="Operations" value={formatNumber(operationSummary?.total_operations)} active={summaryView === "operations"} onClick={() => toggleSummary("operations")} /><CompactFact label="Operation types" value={formatNumber(operationSummary?.types.length)} active={summaryView === "types"} onClick={() => toggleSummary("types")} /><CompactFact label="Operation failures" value={formatNumber(operationSummary?.failed_operations)} tone={operationSummary?.failed_operations ? "attention" : "default"} active={summaryView === "failures"} onClick={() => toggleSummary("failures")} /><CompactFact label="Evaluations" value={formatNumber(evaluationResults.length)} active={summaryView === "evaluations"} onClick={() => toggleSummary("evaluations")} /></div>{summaryView ? <div className="mb-3 rounded-lg border border-[#ded9e5] bg-[#faf9fc] p-3"><ExecutionSummaryDetails view={summaryView} replay={replay} operationSummary={operationSummary} evaluationResults={evaluationResults} /></div> : null}</> : null}
     <WorkflowReplayView replay={replay} evaluationResults={evaluationResults} />
   </div>;
 }
@@ -782,23 +808,29 @@ function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = 
       if (pan.current?.pointerId !== event.pointerId) return;
       pan.current = null;
       setIsPanning(false);
-    }} onDoubleClick={() => zoomTo(zoom + 0.2)} className={`min-h-0 flex-1 touch-none select-none overflow-auto bg-[radial-gradient(#ddd9e2_0.8px,transparent_0.8px)] [background-size:22px_22px] [scrollbar-color:#b7accf_transparent] ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}>
+    }} onDoubleClick={() => zoomTo(zoom + 0.2)} className={`min-h-0 flex-1 touch-none select-none overflow-auto bg-[#111b36] bg-[radial-gradient(#53617c_0.8px,transparent_0.8px)] [background-size:22px_22px] [scrollbar-color:#7180a0_transparent] ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}>
       <div className="relative" style={{ width: layout.width * zoom + PAN_PADDING * 2, height: layout.height * zoom + PAN_PADDING * 2 }}>
         <div className="absolute origin-top-left" style={{ left: PAN_PADDING, top: PAN_PADDING, width: layout.width, height: layout.height, transform: `scale(${zoom})` }}>
           <svg className="pointer-events-none absolute inset-0 z-0" width={layout.width} height={layout.height} aria-hidden="true">
-            <defs><marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#786b91" /></marker></defs>
+            <defs>
+              <marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#5ee7ff" /></marker>
+              <marker id="workflow-branch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c084fc" /></marker>
+              <marker id="workflow-attention-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#facc15" /></marker>
+            </defs>
             {replay.transitions.map((transition, index) => {
               const edge = layout.edges[index];
               if (!edge?.points.length) return null;
               const attention = transition.type === "fallback" || transition.type === "loop";
-              return <path key={`${transition.from}-${transition.to}-${index}`} d={polylinePath(edge.points)} fill="none" stroke={attention ? "#c1842f" : transition.type === "branch" ? "#7255b5" : "#97919c"} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={transition.type === "loop" ? "7 5" : undefined} markerEnd="url(#workflow-arrow)" />;
+              const color = attention ? "#facc15" : transition.type === "branch" ? "#c084fc" : "#5ee7ff";
+              const marker = attention ? "workflow-attention-arrow" : transition.type === "branch" ? "workflow-branch-arrow" : "workflow-arrow";
+              return <path key={`${transition.from}-${transition.to}-${index}`} d={polylinePath(edge.points)} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={transition.type === "loop" ? "7 5" : undefined} markerEnd={`url(#${marker})`} style={{ filter: `drop-shadow(0 0 3px ${color})` }} />;
             })}
           </svg>
           {replay.transitions.map((transition, index) => {
             const edge = layout.edges[index];
             const label = transition.label || transition.route || (transition.type !== "next" ? transition.type : null);
             if (!edge?.label || !label) return null;
-            return <span key={`label-${transition.from}-${transition.to}-${index}`} className="pointer-events-none absolute z-[1] max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#ddd7e4] bg-white px-2 py-1 text-center text-[9px] font-semibold text-[#665e6b] shadow-sm" style={{ left: edge.label.x, top: edge.label.y }}>{label}</span>;
+            return <span key={`label-${transition.from}-${transition.to}-${index}`} className="pointer-events-none absolute z-[1] max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#52617f] bg-[#17233f] px-2 py-1 text-center text-[9px] font-semibold text-[#eef2fa] shadow-sm" style={{ left: edge.label.x, top: edge.label.y }}>{label}</span>;
           })}
           {nodes.map((node) => {
             const position = layout.positions.get(node.id)!;
@@ -995,10 +1027,12 @@ function FlowNodeCard({ node, declared, position, onSelect }: {
   position: { x: number; y: number };
   onSelect?: () => void;
 }) {
-  const presentation = statePresentation(declared ? "declared" : node.state);
+  const failures = declared ? [] : nodeFailureRecords(node);
+  const visibleState = declared ? "declared" : effectiveNodeState(node);
+  const presentation = statePresentation(visibleState);
   return <article className={`absolute z-[2] flex flex-col rounded-xl border-2 bg-white p-4 shadow-[0_7px_20px_rgba(47,39,59,.08)] ${node.state === "inactive" && !declared ? "opacity-50" : ""}`} style={{ left: position.x, top: position.y, width: FLOW_NODE_WIDTH, height: FLOW_NODE_HEIGHT, borderColor: presentation.border }}>
-    <span className="absolute -left-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-white bg-[#7865a5]" />
-    <span className="absolute -right-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-white bg-[#7865a5]" />
+    <span className="absolute -left-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-[#111b36] bg-[#a89bd0]" />
+    <span className="absolute -right-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-[#111b36] bg-[#a89bd0]" />
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <div className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#817b84]">{node.kind || "Workflow step"}</div>
@@ -1006,7 +1040,7 @@ function FlowNodeCard({ node, declared, position, onSelect }: {
       </div>
       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold ring-1 ring-inset ${presentation.badge}`}>{presentation.label}</span>
     </div>
-    {node.description ? <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#777178]">{node.description}</p> : null}
+    {failures.length ? <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[9px] font-semibold leading-3 text-red-700">{failures.length} failed operation{failures.length === 1 ? "" : "s"} · {String(failures[0].display_name || failures[0].name || "inspect evidence")}</div> : node.description ? <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#777178]">{node.description}</p> : null}
     {!declared ? <div className="mt-auto grid grid-cols-2 gap-x-3 gap-y-2 border-t border-[#eeeaf0] pt-3">
       {cardMetrics(node).map((metric) => <div key={metric.label} className="min-w-0"><div className="text-[8px] font-semibold uppercase tracking-[0.1em] text-[#a09aa2]">{metric.label}</div><div className="mt-0.5 truncate text-[10px] font-medium text-[#514b53]" title={metric.value}>{metric.value}</div></div>)}
     </div> : null}
@@ -1028,6 +1062,14 @@ type EvidenceRecord = Record<string, unknown> & {
   model?: string;
   tool_name?: string;
 };
+
+export function nodeFailureRecords(node: ProjectedWorkflowNode): EvidenceRecord[] {
+  return [...node.observations, ...node.model_calls].filter((record) => ["failed", "error"].includes(String(record.status || "").toLowerCase()));
+}
+
+export function effectiveNodeState(node: ProjectedWorkflowNode): ProjectedWorkflowNode["state"] {
+  return node.state === "completed" && nodeFailureRecords(node).length ? "recovered" : node.state;
+}
 
 export function buildStepGraph(step: ProjectedWorkflowNode): { nodes: EvidenceGraphNode[]; edges: EvidenceGraphEdge[] } {
   const rootId = `step:${step.id}`;
@@ -1353,11 +1395,15 @@ function WorkflowReplayView({ replay, evaluationResults = [] }: { replay: Workfl
 }
 
 function ExecutionAnalytics({ replay, onSelect }: { replay: WorkflowReplay; onSelect?: (node: ProjectedWorkflowNode) => void }) {
-  const executedNodes = replay.nodes.filter((node) => node.state !== "inactive");
+  const visibleNodes = replay.nodes.map((node) => {
+    const state = effectiveNodeState(node);
+    return state === node.state ? node : { ...node, state };
+  });
+  const executedNodes = visibleNodes.filter((node) => node.state !== "inactive");
   const attempts = executedNodes.reduce((total, node) => total + node.attempts, 0);
   const retryAttempts = executedNodes.reduce((total, node) => total + Math.max(0, node.attempts - 1), 0);
   const recoveredSteps = executedNodes.filter((node) => node.state === "recovered").length;
-  const pathCoverage = replay.nodes.length ? executedNodes.length / replay.nodes.length : 0;
+  const pathCoverage = visibleNodes.length ? executedNodes.length / visibleNodes.length : 0;
   const goal = replay.execution.product_goal_achieved === true ? "Goal achieved" : replay.execution.product_goal_achieved === false ? "Goal needs attention" : "Goal not reported";
   const completedIsSupporting = replay.execution.product_goal_achieved === true;
   const outcome = String(replay.execution.application_outcome || replay.execution.runtime_outcome || replay.execution.status || "Not reported").replaceAll("_", " ");
@@ -1368,10 +1414,10 @@ function ExecutionAnalytics({ replay, onSelect }: { replay: WorkflowReplay; onSe
       <div className={`rounded-full px-2 py-1 text-[10px] font-semibold ${replay.execution.product_goal_achieved === false ? "bg-red-50 text-red-700" : replay.execution.product_goal_achieved === true ? "bg-green-700 text-white" : "bg-stone-100 text-stone-600"}`}>{goal}</div>
     </div>
     <div className="grid gap-4 lg:grid-cols-[.72fr_1.28fr]">
-      <AnalysisCard title="Path coverage" note="Executed versus declared"><RatioDonutChart height={138} value={pathCoverage} achievedLabel="Executed" remainderLabel="Not used" detail={`${executedNodes.length} of ${replay.nodes.length} declared steps`} /></AnalysisCard>
-      <AnalysisCard title="Step footprint" note="Filter by state; select an executed square to inspect its evidence."><StepStateMatrix nodes={replay.nodes} completedIsSupporting={completedIsSupporting} onSelect={onSelect} /></AnalysisCard>
+      <AnalysisCard title="Path coverage" note="Executed versus declared"><RatioDonutChart height={138} value={pathCoverage} achievedLabel="Executed" remainderLabel="Not used" detail={`${executedNodes.length} of ${visibleNodes.length} declared steps`} /></AnalysisCard>
+      <AnalysisCard title="Step footprint" note="Filter by state; select an executed square to inspect its evidence."><StepStateMatrix nodes={visibleNodes} completedIsSupporting={completedIsSupporting} onSelect={onSelect} /></AnalysisCard>
     </div>
-    <AnalysisCard className="mt-2" title="Step attribution" note="Hover for model/provider; select a bar for evidence"><ExecutionStepDiagnostics height={224} nodes={replay.nodes} completedIsSupporting={completedIsSupporting} onSelect={onSelect} /></AnalysisCard>
+    <AnalysisCard className="mt-2" title="Step attribution" note="Hover for model/provider; select a bar for evidence"><ExecutionStepDiagnostics height={224} nodes={visibleNodes} completedIsSupporting={completedIsSupporting} onSelect={onSelect} /></AnalysisCard>
     <dl className="mt-2 grid gap-x-4 gap-y-1 border-t border-[#ece9ee] pt-2 text-[10px] sm:grid-cols-2 lg:grid-cols-5">
       <div><dt className="text-[#8b858d]">Elapsed</dt><dd className="font-semibold text-[#39343e]">{seconds(replay.execution.duration_seconds)}</dd></div>
       <div><dt className="text-[#8b858d]">Attempts</dt><dd className="font-semibold text-[#39343e]">{attempts} total · {retryAttempts} extra</dd></div>
