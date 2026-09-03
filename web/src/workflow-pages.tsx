@@ -808,23 +808,23 @@ function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = 
       if (pan.current?.pointerId !== event.pointerId) return;
       pan.current = null;
       setIsPanning(false);
-    }} onDoubleClick={() => zoomTo(zoom + 0.2)} className={`min-h-0 flex-1 touch-none select-none overflow-auto bg-[radial-gradient(#ddd9e2_0.8px,transparent_0.8px)] [background-size:22px_22px] [scrollbar-color:#b7accf_transparent] ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}>
+    }} onDoubleClick={() => zoomTo(zoom + 0.2)} className={`min-h-0 flex-1 touch-none select-none overflow-auto bg-[#111b36] bg-[radial-gradient(#53617c_0.8px,transparent_0.8px)] [background-size:22px_22px] [scrollbar-color:#7180a0_transparent] ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}>
       <div className="relative" style={{ width: layout.width * zoom + PAN_PADDING * 2, height: layout.height * zoom + PAN_PADDING * 2 }}>
         <div className="absolute origin-top-left" style={{ left: PAN_PADDING, top: PAN_PADDING, width: layout.width, height: layout.height, transform: `scale(${zoom})` }}>
           <svg className="pointer-events-none absolute inset-0 z-0" width={layout.width} height={layout.height} aria-hidden="true">
-            <defs><marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#786b91" /></marker></defs>
+            <defs><marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c1cbe0" /></marker></defs>
             {replay.transitions.map((transition, index) => {
               const edge = layout.edges[index];
               if (!edge?.points.length) return null;
               const attention = transition.type === "fallback" || transition.type === "loop";
-              return <path key={`${transition.from}-${transition.to}-${index}`} d={polylinePath(edge.points)} fill="none" stroke={attention ? "#c1842f" : transition.type === "branch" ? "#7255b5" : "#97919c"} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={transition.type === "loop" ? "7 5" : undefined} markerEnd="url(#workflow-arrow)" />;
+              return <path key={`${transition.from}-${transition.to}-${index}`} d={polylinePath(edge.points)} fill="none" stroke={attention ? "#f2b85b" : transition.type === "branch" ? "#b6a2f2" : "#91a0bd"} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={transition.type === "loop" ? "7 5" : undefined} markerEnd="url(#workflow-arrow)" />;
             })}
           </svg>
           {replay.transitions.map((transition, index) => {
             const edge = layout.edges[index];
             const label = transition.label || transition.route || (transition.type !== "next" ? transition.type : null);
             if (!edge?.label || !label) return null;
-            return <span key={`label-${transition.from}-${transition.to}-${index}`} className="pointer-events-none absolute z-[1] max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#ddd7e4] bg-white px-2 py-1 text-center text-[9px] font-semibold text-[#665e6b] shadow-sm" style={{ left: edge.label.x, top: edge.label.y }}>{label}</span>;
+            return <span key={`label-${transition.from}-${transition.to}-${index}`} className="pointer-events-none absolute z-[1] max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#52617f] bg-[#17233f] px-2 py-1 text-center text-[9px] font-semibold text-[#eef2fa] shadow-sm" style={{ left: edge.label.x, top: edge.label.y }}>{label}</span>;
           })}
           {nodes.map((node) => {
             const position = layout.positions.get(node.id)!;
@@ -1025,8 +1025,8 @@ function FlowNodeCard({ node, declared, position, onSelect }: {
   const visibleState = declared ? "declared" : effectiveNodeState(node);
   const presentation = statePresentation(visibleState);
   return <article className={`absolute z-[2] flex flex-col rounded-xl border-2 bg-white p-4 shadow-[0_7px_20px_rgba(47,39,59,.08)] ${node.state === "inactive" && !declared ? "opacity-50" : ""}`} style={{ left: position.x, top: position.y, width: FLOW_NODE_WIDTH, height: FLOW_NODE_HEIGHT, borderColor: presentation.border }}>
-    <span className="absolute -left-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-white bg-[#7865a5]" />
-    <span className="absolute -right-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-white bg-[#7865a5]" />
+    <span className="absolute -left-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-[#111b36] bg-[#a89bd0]" />
+    <span className="absolute -right-[6px] top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-[#111b36] bg-[#a89bd0]" />
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <div className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#817b84]">{node.kind || "Workflow step"}</div>
