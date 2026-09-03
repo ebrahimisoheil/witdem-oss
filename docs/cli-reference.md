@@ -49,3 +49,20 @@ commands.
 
 CI verifies that every shared lifecycle command above is present in both
 launchers' generated help output.
+
+## Application SDK commands
+
+These commands are provided by the separately installed `witdem-sdk` package
+and run from the instrumented application's repository.
+
+| Command | Purpose and safety |
+| --- | --- |
+| `witdem-sdk init [--directory PATH] [--service-name NAME]` | Create the v2 project index, starter contract, and canonical `.witdem/skills/witdem` coding-agent skill; refuses existing generated files |
+| `witdem-sdk init --expose-agent-skill` | Also link `.agents/skills/witdem` to the canonical skill for discovery |
+| `witdem-sdk init --force` | Explicitly replace existing generated project, contract, and skill files |
+| `witdem-sdk validate [--config PATH]` | Validate the project and every referenced contract and workflow without writes |
+| `witdem-sdk run -- <command>` | Validate the discovered project, then run the application command |
+
+The generated skill is guidance for coding agents, not executable business
+logic. `.witdem` remains its source of truth; the optional `.agents` entry is a
+relative symbolic link.

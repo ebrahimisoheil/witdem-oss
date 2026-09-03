@@ -76,9 +76,11 @@ Initialize `.witdem/witdem.yaml` from the application repository:
 witdem-sdk init
 ```
 
-The command creates a small project index and a separate contract. It does not
-detect frameworks or modify application code. It refuses to overwrite an
-existing project unless `--force` is passed.
+The command creates a small project index, a separate contract, and a basic
+coding-agent skill under `.witdem/skills/witdem`. It does not detect frameworks
+or modify application code. It refuses to overwrite an existing generated file
+unless `--force` is passed. Use `--expose-agent-skill` to link the canonical
+skill at `.agents/skills/witdem` for coding-agent discovery.
 
 Edit the generated contract to describe what a useful application result
 means. For example:

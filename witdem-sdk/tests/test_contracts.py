@@ -282,8 +282,53 @@ def test_init_and_validate_create_a_clean_v2_project(tmp_path: Path, capsys: pyt
     target = init_project(tmp_path, service_name="example-agent")
     assert target.read_text(encoding="utf-8").startswith("version: 2")
     assert (tmp_path / ".witdem" / "contracts" / "application-run.yml").is_file()
+    skill = tmp_path / ".witdem" / "skills" / "witdem" / "SKILL.md"
+    assert skill.is_file()
+    assert skill.read_text(encoding="utf-8").startswith("---\nname: witdem\n")
+    assert (skill.parent / "agents" / "openai.yaml").is_file()
     config = load_project_config(target, required=True)
     assert config is not None
     assert config.default_contract == "application_run"
     assert main(["validate", "--config", str(target)]) == 0
     assert "Valid Witdem configuration" in capsys.readouterr().out
+
+
+def test_init_can_expose_the_canonical_skill_to_agents(tmp_path: Path) -> None:
+    assert main([
+        "init",
+        "--directory",
+        str(tmp_path),
+        "--service-name",
+        "example-agent",
+        "--expose-agent-skill",
+    ]) == 0
+
+    link = tmp_path / ".agents" / "skills" / "witdem"
+    assert link.is_symlink()
+    assert link.resolve() == (tmp_path / ".witdem" / "skills" / "witdem").resolve()
+    assert (link / "SKILL.md").is_file()
+
+
+def test_init_protects_and_force_replaces_a_modified_skill(tmp_path: Path) -> None:
+    skill = tmp_path / ".witdem" / "skills" / "witdem" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("developer-owned\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="already exists"):
+        init_project(tmp_path, service_name="example-agent")
+    assert skill.read_text(encoding="utf-8") == "developer-owned\n"
+
+    init_project(tmp_path, service_name="example-agent", force=True)
+    assert skill.read_text(encoding="utf-8").startswith("---\nname: witdem\n")
+
+
+def test_init_refuses_a_symlinked_canonical_skill_directory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    skill_dir = tmp_path / ".witdem" / "skills" / "witdem"
+    skill_dir.parent.mkdir(parents=True)
+    skill_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(SystemExit, match="must be a directory"):
+        init_project(tmp_path, service_name="example-agent", force=True)
+    assert not tuple(outside.iterdir())

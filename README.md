@@ -83,9 +83,14 @@ describe that application's result:
 witdem-sdk init
 ```
 
-This creates a small `.witdem/witdem.yaml` index and a separate contract file.
+This creates a small `.witdem/witdem.yaml` index, a separate contract file, and
+a basic coding-agent skill at `.witdem/skills/witdem/SKILL.md`.
 It does not inspect or rewrite application code, and it will not replace an
 existing project unless `--force` is used.
+
+To make the canonical skill discoverable through the common project skill
+location, initialize with `witdem-sdk init --expose-agent-skill`. This creates
+`.agents/skills/witdem` as a link; the skill remains owned by `.witdem`.
 
 Wrap the pipeline once. Its existing `run`, `run_async`, and `run_async_generator` calls stay unchanged:
 

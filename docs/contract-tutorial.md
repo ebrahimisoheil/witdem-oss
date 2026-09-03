@@ -13,9 +13,18 @@ This creates:
 ```text
 .witdem/
 ├── witdem.yaml
-└── contracts/
-    └── application-run.yml
+├── contracts/
+│   └── application-run.yml
+└── skills/
+    └── witdem/
+        ├── SKILL.md
+        └── agents/
+            └── openai.yaml
 ```
+
+The generated skill gives coding agents the same minimal v2 modeling rules.
+Pass `--expose-agent-skill` during initialization to link it from
+`.agents/skills/witdem` without creating a second source of truth.
 
 ## 2. Name the result
 

@@ -9,6 +9,11 @@ contract files. Contracts contain human names, descriptions, allowed values,
 and goal requirements. They never contain framework return paths or extraction
 expressions.
 
+`witdem-sdk init` also creates a concise coding-agent skill at
+`.witdem/skills/witdem/SKILL.md`. Use `--expose-agent-skill` to link it from
+`.agents/skills/witdem` when the coding tool discovers project skills there.
+The link avoids maintaining a second copy of Witdem's implementation guidance.
+
 `witdem.report(...)` sends values already known by the application. It does not infer runtime telemetry.
 
 Result and decision labels are owned by the contract; Witdem does not attach meaning to names such as `approved`, `rejected`, or `escalated`. A descriptive contract may optionally classify a value with a semantic dashboard tone:

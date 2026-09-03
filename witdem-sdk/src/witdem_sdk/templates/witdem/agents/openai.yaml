@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement with Witdem"
+  short_description: "Add basic Witdem YAML and SDK reporting"
+  default_prompt: "Use $witdem to add basic Witdem configuration and reporting to this application."

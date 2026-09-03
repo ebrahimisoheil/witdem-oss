@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Made `witdem-sdk init` generate a minimal `.witdem/skills/witdem` coding-agent
+  skill and added opt-in `.agents/skills/witdem` discovery without duplicating
+  the canonical skill.
 - Replaced configuration v1 with a smaller vendor-neutral v2 project index,
   external contract and workflow files, and explicit named requirement facts.
 - Added contract-authored failure diagnostics and validated workflow
