@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStepGraph, groupEvaluations, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
+import { buildStepGraph, groupEvaluations, observedOutcomeTone, participantOperationRows, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement } from "./api";
 
 describe("workflow presentation", () => {
@@ -33,6 +33,12 @@ describe("workflow presentation", () => {
       name: "Human review required",
       achieved: true,
     });
+  });
+
+  it("marks a non-achieving observed outcome as a failure", () => {
+    expect(observedOutcomeTone(true, false)).toContain("text-red-700");
+    expect(observedOutcomeTone(true, true)).toContain("text-[#5839a6]");
+    expect(observedOutcomeTone(false, false)).toContain("text-[#777178]");
   });
 
   it("places dependencies in later columns without overlapping siblings", () => {

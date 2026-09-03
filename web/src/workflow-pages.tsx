@@ -1231,6 +1231,12 @@ export function resolveGoalOutcome(outcomes: DeclaredWorkflow["outcomes"], execu
   };
 }
 
+export const observedOutcomeTone = (active: boolean, goalAchieved?: boolean) => {
+  if (!active) return "border-[#ddd9df] bg-white text-[#777178]";
+  if (goalAchieved === false) return "border-red-300 bg-red-50 text-red-700";
+  return "border-[#7557b8] bg-[#f2edff] text-[#5839a6]";
+};
+
 function WorkflowGoalFlow({ replay, firstScreen }: { replay: WorkflowReplay; firstScreen: boolean }) {
   const declaredOnly = replay.nodes.length === 0;
   const outcome = resolveGoalOutcome(replay.outcomes, replay.execution);
@@ -1263,7 +1269,7 @@ function WorkflowGoalFlow({ replay, firstScreen }: { replay: WorkflowReplay; fir
         <span className="mr-1 text-[8px] font-semibold uppercase tracking-[0.12em] text-[#969098]">Possible outcomes</span>
         {replay.outcomes.map((item) => {
           const active = outcome.id === item.id;
-          return <span key={item.id} className={`rounded-full border px-2.5 py-1 text-[9px] font-semibold ${active ? "border-[#7557b8] bg-[#f2edff] text-[#5839a6]" : "border-[#ddd9df] bg-white text-[#777178]"}`}>{item.name}{active ? " · observed" : ""}</span>;
+          return <span key={item.id} className={`rounded-full border px-2.5 py-1 text-[9px] font-semibold ${observedOutcomeTone(active, outcome.achieved)}`}>{item.name}{active ? " · observed" : ""}</span>;
         })}
       </div>
     </div>

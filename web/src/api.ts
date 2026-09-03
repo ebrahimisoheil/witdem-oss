@@ -252,6 +252,7 @@ export type GoalPortfolioItem = {
   contract_name?: string;
   goal_name: string;
   description?: string;
+  single_execution_id?: string | null;
   runs: number;
   achieved_runs: number;
   assured_runs: number;
