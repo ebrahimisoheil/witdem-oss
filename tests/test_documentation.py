@@ -58,3 +58,11 @@ def test_primary_user_docs_do_not_pin_stale_example_versions() -> None:
     ]
     for path in paths:
         assert not re.search(r"\b0\.3\.\d+\b", path.read_text(encoding="utf-8")), path
+
+
+def test_committed_openapi_documentation_matches_public_apps() -> None:
+    subprocess.run(
+        [sys.executable, "scripts/docs/generate_openapi.py", "--check"],
+        cwd=ROOT,
+        check=True,
+    )

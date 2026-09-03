@@ -54,7 +54,7 @@ callback = WitdemLangGraphCallback(witdem, provider="openai", model="gpt-5.4")
 result = graph.invoke(state, config={"callbacks": [callback]})
 ```
 
-See [`examples/integrations/cuad_sdk_matrix.py`](../../examples/integrations/cuad_sdk_matrix.py) for direct Anthropic/OpenAI and LangGraph combinations over the same CUAD contract.
+See [`examples/integrations/cuad_sdk_matrix.py`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/examples/integrations/cuad_sdk_matrix.py) for direct Anthropic/OpenAI and LangGraph combinations over the same CUAD contract.
 
 ## Limitations
 

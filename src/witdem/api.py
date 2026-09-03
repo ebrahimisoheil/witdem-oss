@@ -72,7 +72,7 @@ def ingestion_execution(execution_id: str) -> dict[str, object]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Process liveness only — never touches storage. See ``/readiness`` for that."""
+    """Process liveness only. This never touches storage. See ``/readiness`` for that."""
 
     return {"status": "ok"}
 
@@ -93,8 +93,8 @@ def readiness(response: Response) -> dict[str, object]:
 
     Uses ``live_db.ping()`` rather than ``live_db.get_connection()`` on
     purpose: ``ping()`` opens its own connection and closes it immediately,
-    so a readiness probe — polled repeatedly by a container healthcheck, as
-    docker-compose.yml's does every 10s — never itself becomes a standing
+    so a readiness probe, polled repeatedly by a container healthcheck such as
+    docker-compose.yml's 10-second check, never itself becomes a standing
     open connection that would defeat ``ingest.live_db``'s close-after-every-
     write behavior (see that module's docstring) and permanently block the
     dashboard's read-only access.

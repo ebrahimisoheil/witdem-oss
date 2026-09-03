@@ -15,7 +15,7 @@ class RuntimeAdapter(Protocol):
     ``spans`` are raw span envelopes in the same shape
     ``telemetry.otel.JsonlSpanExporter`` produces (trace_id, span_id,
     parent_span_id, name, kind, attributes, status, start_time_unix_nano,
-    end_time_unix_nano, events, resource, instrumentation_scope) —
+    end_time_unix_nano, events, resource, instrumentation_scope). The adapter
     ``ingest.otlp_http`` reconstructs this same shape from OTLP protobuf.
     """
 

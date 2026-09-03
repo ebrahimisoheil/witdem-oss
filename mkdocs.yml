@@ -1,0 +1,133 @@
+site_name: Witdem OSS
+site_description: Documentation for Witdem OSS.
+site_url: https://docs.witdem.com/
+repo_name: ebrahimisoheil/witdem-oss
+repo_url: https://github.com/ebrahimisoheil/witdem-oss
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Witdem contributors
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  logo: assets/witdem-mark-purple.png
+  favicon: assets/witdem-mark-purple.png
+  font:
+    text: Inter
+    code: Roboto Mono
+  palette:
+    scheme: witdem
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - content.action.edit
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Install and run: getting-started.md
+      - Docker launcher: npm-launcher.md
+      - Concepts: concepts.md
+      - Define a contract: contract-tutorial.md
+      - Configuration reference: configuration.md
+      - SDK guide: sdk.md
+      - Examples: examples.md
+  - Integrations:
+      - Overview: providers.md
+      - Frameworks:
+          - Haystack: integrations/haystack.md
+          - LangGraph: integrations/langgraph.md
+          - LangChain: integrations/langchain.md
+          - Native Python: integrations/native-python.md
+          - OpenAI Agents: integrations/openai-agents.md
+          - OpenAI SDK: integrations/openai.md
+          - Anthropic and Claude Agent: integrations/anthropic.md
+          - LiteLLM: integrations/litellm.md
+          - smolagents: integrations/smolagents.md
+      - Providers:
+          - OpenAI: providers/openai.md
+          - Anthropic: providers/anthropic.md
+          - Azure OpenAI: providers/azure-openai.md
+          - Amazon Bedrock: providers/bedrock.md
+          - Cohere: providers/cohere.md
+          - DeepSeek: providers/deepseek.md
+          - Mistral: providers/mistral.md
+          - Ollama: providers/ollama.md
+          - OpenRouter: providers/openrouter.md
+          - Google Vertex AI: providers/vertex-ai.md
+  - Product guide:
+      - Dashboard: dashboard.md
+      - Workflow replay: workflow-replay.md
+      - AI operations: ai-operations.md
+      - Evidence bundles: evidence-bundles.md
+      - Pricing and cost: pricing.md
+      - Operations: operations.md
+      - Upgrade: upgrade.md
+      - Troubleshooting: troubleshooting.md
+  - API reference:
+      - Overview: api/index.md
+      - Python SDK: api/python-sdk.md
+      - Ingestion API: api/ingestion.md
+      - Analytics API: api/analytics.md
+      - CLI: cli-reference.md
+  - Project:
+      - Architecture: architecture.md
+      - Development: development.md
+      - Changelog: changelog.md
+      - Implementation report: implementation-report.md
+
+plugins:
+  - search
+  - swagger-ui-tag
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - witdem-sdk/src
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            filters:
+              - "!^_"
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/refresh.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ebrahimisoheil/witdem-oss
+      name: Witdem on GitHub
+
+watch:
+  - witdem-sdk/src/witdem_sdk
