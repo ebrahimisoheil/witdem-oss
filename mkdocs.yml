@@ -8,7 +8,6 @@ copyright: Copyright &copy; 2026 Witdem contributors
 
 theme:
   name: material
-  custom_dir: docs/overrides
   logo: assets/witdem-mark-purple.png
   favicon: assets/witdem-mark-purple.png
   font:
