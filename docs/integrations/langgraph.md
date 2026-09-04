@@ -55,7 +55,7 @@ graph = instrument(builder.compile())
 result = graph.invoke({"question": "Where is my invoice?", "route": "", "answer": ""})
 ```
 
-Declare `$.route` and `$.answer` in `.witdem/witdem.yaml`; see the [decision example](../configuration.md#example-2-decision-and-branch).
+Declare `$.route` and `$.answer` in `.witdem/witdem.yaml`; see the [contract configuration](../configuration.md#contract-file).
 
 ## Existing application integration
 

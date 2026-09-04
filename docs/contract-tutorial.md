@@ -102,4 +102,4 @@ Evaluations measure quality. They do not silently redefine the goal. If an evalu
 - [Classification decision](contracts/classification.yml)
 - [Assured document review](contracts/assured-review.yml)
 
-The [CUAD integration](../examples/integrations/cuad/) combines a v2 contract and workflow with deterministic and live provider execution.
+The [CUAD integration](https://github.com/ebrahimisoheil/witdem-oss/tree/main/examples/integrations/cuad) combines a v2 contract and workflow with deterministic and live provider execution.

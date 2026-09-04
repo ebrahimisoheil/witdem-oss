@@ -66,6 +66,6 @@ expose the immutable corpus layout or serving-table implementation details.
 
 This table describes the currently declared release family, not a future
 roadmap. Exact tested package pairs and framework constraints are published in
-[`compatibility.json`](../compatibility.json).
+[`compatibility.json`](https://github.com/ebrahimisoheil/witdem-oss/blob/main/compatibility.json).
 
 Compatibility aliases for old environment variables and raw-data migration remain deliberately isolated in configuration and ELT code. They protect existing installations and are not alternate product architectures.

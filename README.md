@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/witdem-banner.png" alt="Witdem AI — Understand how your AI system actually behaves" width="100%">
+<img src="docs/assets/witdem-banner.png" alt="Witdem AI: Understand how your AI system actually behaves" width="100%">
 
 # Witdem
 
@@ -15,7 +15,7 @@ Tracing tells you what executed. Witdem connects those executions to application
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/ebrahimisoheil/witdem-oss/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-[Get started](docs/getting-started.md) · [YAML contracts](docs/contract-tutorial.md) · [Frameworks](#integration-status) · [Providers](docs/providers.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Documentation](https://docs.witdem.com/) · [Get started](https://docs.witdem.com/getting-started/) · [YAML contracts](https://docs.witdem.com/contract-tutorial/) · [Frameworks](#integration-status) · [Providers](https://docs.witdem.com/providers/) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 </div>
 

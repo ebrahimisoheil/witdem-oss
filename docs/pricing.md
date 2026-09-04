@@ -1,6 +1,6 @@
 # Pricing catalog
 
-Witdem calculates cost only from observed usage and an exact provider/model price. Provider-reported money always wins. The bundled catalog is a versioned, reviewable snapshot—not a live billing API—and unknown dimensions remain **Not measured** instead of being guessed.
+Witdem calculates cost only from observed usage and an exact provider/model price. Provider-reported money always wins. The bundled catalog is a versioned, reviewable snapshot, not a live billing API. Unknown dimensions remain **Not measured** instead of being guessed.
 
 ## Coverage
 

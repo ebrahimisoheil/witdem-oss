@@ -116,7 +116,7 @@ Azure deployment names, Bedrock models, Vertex models, and Ollama models are not
 ## LangGraph branch or subgraph is missing
 
 - The replay contains executed branches, not every static edge.
-- Confirm the compiled graph—not the builder—was passed to `instrument`.
+- Confirm the compiled graph, not the builder, was passed to `instrument`.
 - Ensure your invocation did not replace the `callbacks` entry after the wrapper appended its handler.
 - Some LangGraph versions expose fewer subgraph/edge fields. Inspect technical records for `langgraph_*`, namespace, task, `send_to`, interrupt, or retry metadata.
 

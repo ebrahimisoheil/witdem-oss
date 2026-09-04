@@ -13,4 +13,8 @@ data
 examples
 tests
 witdem-sdk
+!witdem-sdk/
+witdem-sdk/*
+!witdem-sdk/src/
+!witdem-sdk/src/**
 .DS_Store

@@ -1,0 +1,232 @@
+{
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Witdem AI",
+    "version": "0.2.6"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "Process liveness only. This never touches storage. See ``/readiness`` for that.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/ingestion/v1/batches/{ingest_id}": {
+      "get": {
+        "description": "Return durable acceptance and asynchronous analytics status.",
+        "operationId": "ingestion_batch_ingestion_v1_batches__ingest_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ingest_id",
+            "required": true,
+            "schema": {
+              "title": "Ingest Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ingestion Batch Ingestion V1 Batches  Ingest Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingestion Batch"
+      }
+    },
+    "/ingestion/v1/executions/{execution_id}": {
+      "get": {
+        "description": "Report whether all committed signals for an execution are queryable.",
+        "operationId": "ingestion_execution_ingestion_v1_executions__execution_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "execution_id",
+            "required": true,
+            "schema": {
+              "title": "Execution Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ingestion Execution Ingestion V1 Executions  Execution Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingestion Execution"
+      }
+    },
+    "/readiness": {
+      "get": {
+        "description": "Minimal reachability check for the ingest + storage + read path.\n\nThis does not validate every ingest code path; it confirms\nthe two things a load balancer/orchestrator actually needs to know before\nrouting traffic here: (1) the live DuckDB file this service upserts\ncanonical analytics into is reachable and queryable (``ingest.live_db``,\nthe same file the dashboard also reads), and (2) the raw span storage\ndirectory (``ingest.raw_store``) this service persists to before every\nOTLP export is decoded is reachable. A failure in either returns HTTP 503\nwith the specific error, rather than a bare \"ok\"/500 that hides which\ndependency is down.\n\nUses ``live_db.ping()`` rather than ``live_db.get_connection()`` on\npurpose: ``ping()`` opens its own connection and closes it immediately,\nso a readiness probe, polled repeatedly by a container healthcheck such as\ndocker-compose.yml's 10-second check, never itself becomes a standing\nopen connection that would defeat ``ingest.live_db``'s close-after-every-\nwrite behavior (see that module's docstring) and permanently block the\ndashboard's read-only access.",
+        "operationId": "readiness_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Readiness Readiness Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readiness"
+      }
+    },
+    "/sdk/v1/records": {
+      "post": {
+        "description": "Validate and durably commit one SDK wire record.\n\nReturns HTTP 400 with a clear message for any invalid input (bad JSON,\nwrong shape, unknown version/kind, missing required field, or -- when a\ndomain config is configured -- an out-of-vocabulary name/value).",
+        "operationId": "create_record_sdk_v1_records_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Record Sdk V1 Records Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Create Record"
+      }
+    },
+    "/v1/traces": {
+      "post": {
+        "description": "Standard OTLP/HTTP trace export endpoint (docs/architecture.md).\n\nNever persists request headers (Authorization, API keys, etc.) --\nonly the decoded span bodies below ever reach disk (docs/architecture.md).",
+        "operationId": "export_traces_v1_traces_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Traces"
+      }
+    }
+  }
+}

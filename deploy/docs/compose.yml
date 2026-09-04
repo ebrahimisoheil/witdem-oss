@@ -1,0 +1,22 @@
+name: witdem-docs
+
+services:
+  docs:
+    image: ${WITDEM_DOCS_IMAGE:-ghcr.io/ebrahimisoheil/witdem-docs:latest}
+    container_name: witdem-docs
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      - proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 3s
+      retries: 3
+
+networks:
+  proxy:
+    external: true
+    name: ${WITDEM_PROXY_NETWORK:-proxy_default}
