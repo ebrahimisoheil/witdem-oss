@@ -94,7 +94,7 @@ jobs:
         with:
           ref: ${{ needs.preflight.outputs.release_tag }}
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -255,7 +255,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.preflight.outputs.release_tag }}
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -356,7 +356,7 @@ jobs:
           fi
           test "$(npm view "witdem@${VERSION}" version)" = "$VERSION"
           test "$(npm view "witdem" "dist-tags.${NPM_DIST_TAG}")" = "$VERSION"
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
