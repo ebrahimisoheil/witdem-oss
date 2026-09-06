@@ -286,6 +286,39 @@ export function LoadingPage() {
     </div>
   );
 }
+export function IncrementalState({
+  label,
+  error,
+  onRetry,
+  className = "",
+}: {
+  label: string;
+  error?: Error | null;
+  onRetry?: () => void;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`flex min-h-32 items-center justify-center rounded-xl border border-[#e4e4df] bg-white p-5 text-center shadow-[0_1px_2px_rgba(0,0,0,.02)] ${className}`}
+      aria-live="polite"
+    >
+      {error ? (
+        <div>
+          <div className="text-sm font-medium text-[#7d4d20]">{label} is temporarily unavailable.</div>
+          <div className="mt-1 text-xs text-[#81776d]">Other dashboard sections remain usable while this section reconnects.</div>
+          {onRetry && <button type="button" className="mt-3 rounded-lg border border-[#d8c8b8] px-3 py-1.5 text-xs font-semibold text-[#69401c] hover:bg-[#fff8f0]" onClick={onRetry}>Retry now</button>}
+        </div>
+      ) : (
+        <div className="w-full animate-pulse">
+          <div className="mx-auto h-3 w-36 rounded bg-[#e9e8e3]" />
+          <div className="mx-auto mt-4 h-8 w-24 rounded bg-[#f0efeb]" />
+          <div className="mx-auto mt-3 h-3 max-w-64 rounded bg-[#f4f3f0]" />
+          <span className="sr-only">Loading {label}</span>
+        </div>
+      )}
+    </section>
+  );
+}
 export function ErrorPage({ error }: { error: Error }) {
   return (
     <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">

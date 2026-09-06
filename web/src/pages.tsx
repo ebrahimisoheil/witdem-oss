@@ -42,6 +42,7 @@ import {
   GoalTrendChart,
   GoalTradeoffChart,
   GoalRateColumns,
+  IncrementalState,
   StageAccumulation,
   useQuery,
   WorkflowBarChart,
@@ -79,6 +80,7 @@ const useViewportAnchor = (isFetching: boolean) => {
 export function OverviewPage() {
   const [filterValues, setFilterValues] = useState(sharedFilterValuesFromRoute);
   const filters = resolvedFilters(filterValues);
+  const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta, staleTime: 60_000 });
   const q = useQuery({
     queryKey: ["overview", "portfolio", filterValues],
     queryFn: () => api.overview(filters),
@@ -99,22 +101,17 @@ export function OverviewPage() {
     queryFn: () => api.issues(filters),
     placeholderData: keepPreviousData,
   });
-  const preserveViewport = useViewportAnchor(q.isFetching || models.isFetching || providers.isFetching || issues.isFetching);
-  if (q.isLoading || models.isLoading || providers.isLoading || issues.isLoading) return <LoadingPage />;
-  if (q.error) return <ErrorPage error={q.error} />;
-  if (models.error) return <ErrorPage error={models.error} />;
-  if (providers.error) return <ErrorPage error={providers.error} />;
-  if (issues.error) return <ErrorPage error={issues.error} />;
-  const d = q.data!;
-  const assurance = d.assurance_summary;
-  const runtimeAttention = d.execution.attention_runs;
-  const completionRate = d.execution.runtime_success_rate;
-  const costIncomplete = d.costs.cost.partial_runs + d.costs.cost.missing_runs > 0;
+  const preserveViewport = useViewportAnchor(meta.isFetching || q.isFetching || models.isFetching || providers.isFetching || issues.isFetching);
+  const d = q.data;
+  const assurance = d?.assurance_summary;
+  const runtimeAttention = d?.execution.attention_runs;
+  const completionRate = d?.execution.runtime_success_rate;
+  const costIncomplete = d ? d.costs.cost.partial_runs + d.costs.cost.missing_runs > 0 : false;
   const routeBase = sharedFilterRouteValues(filterValues);
   const goalHref = drilldownHref("/goal-performance", routeBase);
   const healthHref = drilldownHref("/system-health", routeBase);
   const issuesHref = drilldownHref("/issues", routeBase);
-  const issueCount = issueSignalCount(issues.data!);
+  const issueCount = issues.data ? issueSignalCount(issues.data) : 0;
   return (
     <>
       <PageHeader
@@ -122,16 +119,16 @@ export function OverviewPage() {
         title="What is working and what needs attention?"
         description="Business outcomes and operational health in one view. Drill into any goal, model, or provider with the same filters preserved."
       />
-      <SharedFilterBar
-        metadata={d.metadata}
+      {d?.metadata || meta.data ? <SharedFilterBar
+        metadata={d?.metadata || meta.data!}
         values={filterValues}
         onChange={(values) => preserveViewport(() => {
           setFilterValues(values);
           replaceSharedFilterUrl(values);
         })}
         includeGoal={false}
-      />
-      <div className="grid gap-4 xl:grid-cols-[1.05fr_.72fr_.48fr]">
+      /> : <IncrementalState label="dashboard filters" error={meta.error} onRetry={() => void meta.refetch()} className="mb-4 min-h-20" />}
+      {d && assurance ? <div className="grid gap-4 xl:grid-cols-[1.05fr_.72fr_.48fr]">
         <section className="relative overflow-hidden rounded-2xl bg-[#231b3d] p-6 text-white shadow-[0_12px_35px_rgba(43,29,83,.14)]">
           <a href={goalHref} aria-label="Explore goal performance" className="absolute inset-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bdaaff] focus-visible:ring-inset" />
           <div className="pointer-events-none relative">
@@ -196,12 +193,12 @@ export function OverviewPage() {
             <a href={drilldownHref("/system-health", { ...routeBase, cost_status: "not_applicable" })}>Non-billable activity →</a>
           </div>
         </section>
-      </div>
-      <a href={issuesHref} className={`mt-3 flex items-center justify-between rounded-xl border px-4 py-3 text-xs transition hover:brightness-[.98] ${issueCount ? "border-[#ead9c8] bg-[#fff9f1] text-[#805527]" : "border-[#d7e9dc] bg-[#f3faf5] text-[#286b45]"}`}>
+      </div> : <IncrementalState label="business and system summary" error={q.error} onRetry={() => void q.refetch()} className="min-h-64" />}
+      {issues.data ? <a href={issuesHref} className={`mt-3 flex items-center justify-between rounded-xl border px-4 py-3 text-xs transition hover:brightness-[.98] ${issueCount ? "border-[#ead9c8] bg-[#fff9f1] text-[#805527]" : "border-[#d7e9dc] bg-[#f3faf5] text-[#286b45]"}`}>
         <span><strong>{issueCount ? `${formatNumber(issueCount)} issue signals` : "No active issue signals"}</strong><span className="ml-2">Failures, quality gaps, retry pressure, outliers, and missing evidence.</span></span>
         <span className="shrink-0 font-semibold">Open issues →</span>
-      </a>
-      <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-stretch">
+      </a> : <IncrementalState label="issue signals" error={issues.error} onRetry={() => void issues.refetch()} className="mt-3 min-h-14" />}
+      {d ? <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-stretch">
         <Panel
           className="xl:col-span-7"
           title="Business goals"
@@ -223,25 +220,25 @@ export function OverviewPage() {
             <OverviewFailures data={d} healthHref={healthHref} issuesHref={issuesHref} />
           </Panel>
         </div>
-      </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      </div> : <IncrementalState label="goal portfolio" error={q.error} onRetry={() => void q.refetch()} className="mt-4 min-h-80" />}
+      {models.data ? <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <Panel className="h-full" title="Run-cohort success versus model cost" titleHref={goalHref} note="Shared run outcomes for runs involving each model versus that model’s directly attributed cost; this is not causal model attribution.">
           <GoalTradeoffChart items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { ...routeBase, model: item.label }))} />
         </Panel>
         <Panel className="h-full" title="Model call latency distribution" titleHref={healthHref} note="Direct model-call p50 and p95 latency. Select a model to inspect System Health.">
           <LatencyVariabilityChart height={360} items={models.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/system-health", { ...routeBase, model: item.label }))} />
         </Panel>
-      </div>
+      </div> : <IncrementalState label="model performance" error={models.error} onRetry={() => void models.refetch()} className="mt-4 min-h-80" />}
       <div className="mt-4 grid gap-4 xl:grid-cols-3 xl:items-stretch">
-        <Panel className="h-full" title="Runtime state mix" titleHref={healthHref} note="Completed, recovered, failed, and still-running executions.">
+        {d ? <Panel className="h-full" title="Runtime state mix" titleHref={healthHref} note="Completed, recovered, failed, and still-running executions.">
           <RuntimeDonutChart height={310} data={d.runtime_breakdown} colors={{ completed: "#24a267", recovered: "#168e89", failed: "#d95858", running: "#2477e6", unknown: "#9aa1ad" }} />
-        </Panel>
-        <Panel className="h-full" title="Provider goal outcomes" titleHref={goalHref} note="Achievement and decision correctness for runs involving each provider.">
+        </Panel> : <IncrementalState label="runtime state" error={q.error} onRetry={() => void q.refetch()} />}
+        {providers.data ? <Panel className="h-full" title="Provider goal outcomes" titleHref={goalHref} note="Achievement and decision correctness for runs involving each provider.">
           <GoalRateColumns height={310} items={providers.data!.items} onSelect={(item) => window.location.assign(drilldownHref("/goal-performance", { ...routeBase, provider: item.provider_id || item.label }))} />
-        </Panel>
-        <Panel className="h-full" title="Provider share of measured spend" titleHref={healthHref} note="Operational spend composition for the same population. Select a segment to inspect System Health.">
+        </Panel> : <IncrementalState label="provider outcomes" error={providers.error} onRetry={() => void providers.refetch()} />}
+        {d ? <Panel className="h-full" title="Provider share of measured spend" titleHref={healthHref} note="Operational spend composition for the same population. Select a segment to inspect System Health.">
           <ProviderSpendChart height={310} items={d.providers} breakdown="provider" onSelect={(item) => window.location.assign(drilldownHref("/system-health", { ...routeBase, provider: item.label }))} />
-        </Panel>
+        </Panel> : <IncrementalState label="provider spend" error={q.error} onRetry={() => void q.refetch()} />}
       </div>
     </>
   );
