@@ -9,8 +9,82 @@ from fastapi.testclient import TestClient
 
 from witdem.analytics.repository import AnalyticsRepository
 from witdem.api import app
-from witdem.elt.worker import run_pending
+from witdem.elt.worker import (
+    _bounded_pending,
+    _execution_bundles,
+    _pending_batch_limit,
+    run_pending,
+)
 from witdem.ingest import corpus, live_db
+
+
+def _commit(ingest_id: str, *execution_ids: str) -> corpus.CorpusCommit:
+    return corpus.CorpusCommit(
+        ingest_id=ingest_id,
+        signal="sdk_records",
+        received_at="2026-09-06T00:00:00+00:00",
+        records_path=f"sdk_records/{ingest_id}.jsonl",
+        raw_path=None,
+        record_count=1,
+        execution_ids=execution_ids,
+        sha256="a" * 64,
+        raw_sha256=None,
+        metadata={},
+    )
+
+
+def test_pending_batch_limit_is_positive_and_configurable(monkeypatch) -> None:
+    monkeypatch.setenv("WITDEM_ELT_MAX_PENDING_BATCHES", "25")
+    assert _pending_batch_limit() == 25
+    assert _pending_batch_limit(7) == 7
+    monkeypatch.setenv("WITDEM_ELT_MAX_PENDING_BATCHES", "0")
+    with pytest.raises(ValueError, match="positive integer"):
+        _pending_batch_limit()
+
+
+def test_pending_batch_limit_keeps_one_execution_atomic() -> None:
+    pending = [
+        _commit("batch-a1", "execution-a"),
+        _commit("batch-b1", "execution-b"),
+        _commit("batch-a2", "execution-a"),
+        _commit("batch-c1", "execution-c"),
+    ]
+
+    selected = _bounded_pending(pending, 1)
+
+    assert [commit.ingest_id for commit in selected] == ["batch-a1", "batch-a2"]
+
+
+def test_execution_bundles_read_each_relevant_commit_once(monkeypatch) -> None:
+    commits = [
+        _commit("batch-a", "execution-a"),
+        _commit("batch-ab", "execution-a", "execution-b"),
+        _commit("batch-c", "execution-c"),
+    ]
+    records = {
+        "batch-a": [{"execution_id": "execution-a", "event_id": "event-a"}],
+        "batch-ab": [
+            {"execution_id": "execution-a", "event_id": "event-a2"},
+            {"execution_id": "execution-b", "event_id": "event-b"},
+        ],
+        "batch-c": [{"execution_id": "execution-c", "event_id": "event-c"}],
+    }
+    reads: list[str] = []
+    monkeypatch.setattr(corpus, "list_commits", lambda: commits)
+
+    def read_records(commit: corpus.CorpusCommit) -> list[dict[str, str]]:
+        reads.append(commit.ingest_id)
+        return records[commit.ingest_id]
+
+    monkeypatch.setattr(corpus, "read_records", read_records)
+
+    bundles = _execution_bundles({"execution-a", "execution-b"})
+
+    assert reads == ["batch-a", "batch-ab"]
+    assert [bundle["execution_id"] for bundle in bundles] == [
+        "execution-a",
+        "execution-b",
+    ]
 
 
 @pytest.mark.integration
