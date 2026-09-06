@@ -55,6 +55,19 @@ def test_pending_batch_limit_keeps_one_execution_atomic() -> None:
     assert [commit.ingest_id for commit in selected] == ["batch-a1", "batch-a2"]
 
 
+def test_pending_batch_limit_does_not_admit_every_interleaved_execution() -> None:
+    pending = [
+        _commit("batch-a1", "execution-a"),
+        _commit("batch-b1", "execution-b"),
+        _commit("batch-a2", "execution-a"),
+        _commit("batch-b2", "execution-b"),
+    ]
+
+    selected = _bounded_pending(pending, 2)
+
+    assert [commit.ingest_id for commit in selected] == ["batch-a1", "batch-a2"]
+
+
 def test_execution_bundles_read_each_relevant_commit_once(monkeypatch) -> None:
     commits = [
         _commit("batch-a", "execution-a"),

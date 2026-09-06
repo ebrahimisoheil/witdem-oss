@@ -112,19 +112,53 @@ def _bounded_pending(
 ) -> list[corpus.CorpusCommit]:
     """Soft-limit work without splitting already-visible execution batches."""
 
-    initial = pending[:limit]
-    if len(initial) == len(pending):
-        return initial
-    selected_executions = {
-        execution_id for commit in initial for execution_id in commit.execution_ids
-    }
-    initial_ids = {commit.ingest_id for commit in initial}
-    return [
-        commit
-        for commit in pending
-        if commit.ingest_id in initial_ids
-        or selected_executions.intersection(commit.execution_ids)
-    ]
+    if len(pending) <= limit:
+        return pending
+
+    parents: dict[str, str] = {}
+
+    def find(value: str) -> str:
+        parent = parents.setdefault(value, value)
+        while parent != parents[parent]:
+            parents[parent] = parents[parents[parent]]
+            parent = parents[parent]
+        while value != parent:
+            previous = parents[value]
+            parents[value] = parent
+            value = previous
+        return parent
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for commit in pending:
+        if not commit.execution_ids:
+            continue
+        first = commit.execution_ids[0]
+        find(first)
+        for execution_id in commit.execution_ids[1:]:
+            union(first, execution_id)
+
+    groups: dict[tuple[str, str], list[corpus.CorpusCommit]] = {}
+    for commit in pending:
+        key = (
+            ("execution", find(commit.execution_ids[0]))
+            if commit.execution_ids
+            else ("batch", commit.ingest_id)
+        )
+        groups.setdefault(key, []).append(commit)
+
+    selected_ids: set[str] = set()
+    for group in groups.values():
+        if selected_ids and len(selected_ids) + len(group) > limit:
+            break
+        selected_ids.update(commit.ingest_id for commit in group)
+        if len(selected_ids) >= limit:
+            break
+    return [commit for commit in pending if commit.ingest_id in selected_ids]
 
 
 def pipeline_path() -> Path:
