@@ -566,7 +566,12 @@ def _prune(args: argparse.Namespace) -> None:
 def _elt_run(args: argparse.Namespace) -> None:
     from witdem.elt.worker import run_pending
 
-    print(json.dumps(run_pending(rebuild=bool(args.rebuild)), indent=2))
+    print(
+        json.dumps(
+            run_pending(rebuild=bool(args.rebuild), max_batches=args.max_batches),
+            indent=2,
+        )
+    )
 
 
 def _elt_worker(args: argparse.Namespace) -> None:
@@ -577,7 +582,7 @@ def _elt_worker(args: argparse.Namespace) -> None:
     try:
         while True:
             try:
-                result = run_pending()
+                result = run_pending(max_batches=args.max_batches)
                 if result.get("status") != "idle":
                     print(json.dumps(result, default=str))
             except Exception as exc:  # noqa: BLE001 - worker retains failed state and continues polling
@@ -698,9 +703,11 @@ def build_parser() -> argparse.ArgumentParser:
     elt_commands = elt.add_subparsers(dest="elt_command", required=True)
     elt_run = elt_commands.add_parser("run", help="process currently pending corpus batches")
     elt_run.add_argument("--rebuild", action="store_true", help="reprocess every committed corpus batch")
+    elt_run.add_argument("--max-batches", type=int, help="maximum pending batches per incremental transform")
     elt_run.set_defaults(func=_elt_run)
     elt_worker = elt_commands.add_parser("worker", help="continuously process committed corpus batches")
     elt_worker.add_argument("--poll-interval", type=float, default=0.5)
+    elt_worker.add_argument("--max-batches", type=int, help="maximum pending batches per transform")
     elt_worker.set_defaults(func=_elt_worker)
     elt_status = elt_commands.add_parser("status", help="show corpus and transform status")
     elt_status.set_defaults(func=_elt_status)

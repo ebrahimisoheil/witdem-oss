@@ -32,8 +32,8 @@ the version-matched stack rather than assuming the launcher accepts them.
 | --- | --- |
 | `witdem serve` | Run only the OTLP/SDK receiver |
 | `witdem dashboard` | Run only the dashboard and read API |
-| `witdem elt run` | Process currently pending corpus batches |
-| `witdem elt worker` | Continuously process committed corpus batches |
+| `witdem elt run [--max-batches N]` | Process one bounded group of pending corpus batches |
+| `witdem elt worker [--max-batches N]` | Continuously process bounded groups of committed corpus batches |
 | `witdem elt status` | Show corpus and transformation status |
 | `witdem eval validate <campaign.jsonl>` | Validate an offline evaluation campaign without writes |
 | `witdem eval import <campaign.jsonl> [--db PATH\|--data-dir PATH]` | Import a validated framework-neutral campaign |

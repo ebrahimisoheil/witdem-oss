@@ -91,6 +91,13 @@ startup.
 
 ## ELT and retention
 
+Incremental ELT transforms at most 1,000 pending corpus batches at a time by
+default. The limit is soft at an execution boundary: all already-visible
+batches for an execution selected in the initial window stay together. Tune it
+with `WITDEM_ELT_MAX_PENDING_BATCHES` or `witdem elt run/worker --max-batches`
+after measuring transform latency and pending age. Rebuilds intentionally scan
+the complete retained corpus.
+
 ```bash
 witdem elt status
 witdem elt run

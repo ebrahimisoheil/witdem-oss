@@ -18,6 +18,8 @@ from witdem.config import storage_root
 from witdem.elt.publisher import publish_staging_row
 from witdem.ingest import corpus, live_db
 
+DEFAULT_MAX_PENDING_BATCHES = 1_000
+
 
 def _span_execution_id(span: Mapping[str, Any]) -> str | None:
     attributes = span.get("attributes")
@@ -46,32 +48,117 @@ def _dedupe_spans(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _execution_bundles(execution_ids: set[str]) -> list[dict[str, Any]]:
     all_commits = corpus.list_commits()
+    by_execution: dict[str, dict[str, Any]] = {
+        execution_id: {"spans": [], "sdk_by_id": {}, "source_ingest_ids": []}
+        for execution_id in execution_ids
+    }
+    for commit in all_commits:
+        relevant = execution_ids.intersection(commit.execution_ids)
+        if not relevant:
+            continue
+        for execution_id in relevant:
+            by_execution[execution_id]["source_ingest_ids"].append(commit.ingest_id)
+        for record in corpus.read_records(commit):
+            record_execution_id = (
+                _span_execution_id(record)
+                if commit.signal == "otel_traces"
+                else str(record.get("execution_id"))
+            )
+            if record_execution_id not in relevant:
+                continue
+            values = by_execution[record_execution_id]
+            if commit.signal == "otel_traces":
+                values["spans"].append(record)
+            else:
+                sdk_by_id = values["sdk_by_id"]
+                key = str(record.get("event_id") or f"anonymous:{len(sdk_by_id)}")
+                # Enrichment happens only in the rebuildable Duckle input.
+                # The immutable corpus record remains byte-for-byte intact.
+                sdk_by_id[key] = {**record, "_witdem_received_at": commit.received_at}
     bundles: list[dict[str, Any]] = []
     for execution_id in sorted(execution_ids):
-        spans: list[dict[str, Any]] = []
-        sdk_by_id: dict[str, dict[str, Any]] = {}
-        source_ingest_ids: list[str] = []
-        for commit in all_commits:
-            if execution_id not in commit.execution_ids:
-                continue
-            source_ingest_ids.append(commit.ingest_id)
-            for record in corpus.read_records(commit):
-                if commit.signal == "otel_traces" and _span_execution_id(record) == execution_id:
-                    spans.append(record)
-                elif commit.signal == "sdk_records" and str(record.get("execution_id")) == execution_id:
-                    key = str(record.get("event_id") or f"anonymous:{len(sdk_by_id)}")
-                    # Enrichment happens only in the rebuildable Duckle input.
-                    # The immutable corpus record remains byte-for-byte intact.
-                    sdk_by_id[key] = {**record, "_witdem_received_at": commit.received_at}
+        values = by_execution[execution_id]
         bundles.append(
             {
                 "execution_id": execution_id,
-                "source_ingest_ids_json": json.dumps(sorted(source_ingest_ids)),
-                "spans_json": json.dumps(_dedupe_spans(spans), sort_keys=True, default=str),
-                "sdk_records_json": json.dumps(list(sdk_by_id.values()), sort_keys=True, default=str),
+                "source_ingest_ids_json": json.dumps(sorted(values["source_ingest_ids"])),
+                "spans_json": json.dumps(
+                    _dedupe_spans(values["spans"]), sort_keys=True, default=str
+                ),
+                "sdk_records_json": json.dumps(
+                    list(values["sdk_by_id"].values()), sort_keys=True, default=str
+                ),
             }
         )
     return bundles
+
+
+def _pending_batch_limit(explicit: int | None = None) -> int:
+    raw = explicit if explicit is not None else os.getenv(
+        "WITDEM_ELT_MAX_PENDING_BATCHES", str(DEFAULT_MAX_PENDING_BATCHES)
+    )
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("WITDEM_ELT_MAX_PENDING_BATCHES must be a positive integer") from exc
+    if limit < 1:
+        raise ValueError("WITDEM_ELT_MAX_PENDING_BATCHES must be a positive integer")
+    return limit
+
+
+def _bounded_pending(
+    pending: list[corpus.CorpusCommit],
+    limit: int,
+) -> list[corpus.CorpusCommit]:
+    """Soft-limit work without splitting already-visible execution batches."""
+
+    if len(pending) <= limit:
+        return pending
+
+    parents: dict[str, str] = {}
+
+    def find(value: str) -> str:
+        parent = parents.setdefault(value, value)
+        while parent != parents[parent]:
+            parents[parent] = parents[parents[parent]]
+            parent = parents[parent]
+        while value != parent:
+            previous = parents[value]
+            parents[value] = parent
+            value = previous
+        return parent
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for commit in pending:
+        if not commit.execution_ids:
+            continue
+        first = commit.execution_ids[0]
+        find(first)
+        for execution_id in commit.execution_ids[1:]:
+            union(first, execution_id)
+
+    groups: dict[tuple[str, str], list[corpus.CorpusCommit]] = {}
+    for commit in pending:
+        key = (
+            ("execution", find(commit.execution_ids[0]))
+            if commit.execution_ids
+            else ("batch", commit.ingest_id)
+        )
+        groups.setdefault(key, []).append(commit)
+
+    selected_ids: set[str] = set()
+    for group in groups.values():
+        if selected_ids and len(selected_ids) + len(group) > limit:
+            break
+        selected_ids.update(commit.ingest_id for commit in group)
+        if len(selected_ids) >= limit:
+            break
+    return [commit for commit in pending if commit.ingest_id in selected_ids]
 
 
 def pipeline_path() -> Path:
@@ -94,18 +181,28 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
 
 
-def run_pending(*, rebuild: bool = False, maintenance_lock_held: bool = False) -> dict[str, Any]:
+def run_pending(
+    *,
+    rebuild: bool = False,
+    maintenance_lock_held: bool = False,
+    max_batches: int | None = None,
+) -> dict[str, Any]:
     """Run one bounded Duckle transformation over pending or all batches."""
 
     if not maintenance_lock_held:
         with corpus.maintenance_lock():
-            return run_pending(rebuild=rebuild, maintenance_lock_held=True)
+            return run_pending(
+                rebuild=rebuild,
+                maintenance_lock_held=True,
+                max_batches=max_batches,
+            )
 
     selected = corpus.list_commits() if rebuild else corpus.list_commits(statuses={"accepted", "failed"})
     if not rebuild:
         selected = [
             commit for commit in selected if int((corpus.read_state(commit.ingest_id) or {}).get("attempts") or 0) < 3
         ]
+        selected = _bounded_pending(selected, _pending_batch_limit(max_batches))
     if not selected:
         return {"status": "idle", "batches": 0, "executions": 0}
     execution_ids = {execution_id for commit in selected for execution_id in commit.execution_ids}
