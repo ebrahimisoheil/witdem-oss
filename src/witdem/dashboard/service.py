@@ -291,19 +291,24 @@ def materialize_workflow_projections(database: Path, execution_ids: list[str] | 
     projected_execution_ids: list[str] = []
     with repository(database) as repo:
         selected = execution_ids or [str(row["execution_id"]) for row in repo.execution_rows(limit=None)]
-        operations_by_execution = repo.operations_by_execution()
-        for execution_id in selected:
-            projection = _projection_for_execution(repo, execution_id)
-            if projection is not None:
-                projections.append(projection)
-                projected_execution_ids.append(execution_id)
-                classifications, measurements = _operation_facts(
-                    projection,
-                    operations_by_execution.get(execution_id, []),
-                )
-                operation_classifications.extend(classifications)
-                operation_measurement_facts.extend(measurements)
-        participant_facts = repo.build_participant_facts(set(selected))
+        selected_ids = set(selected)
+        with repo._overview_read_session():
+            operations_by_execution = repo.operations_by_execution_ids(selected_ids)
+            for execution_id in selected:
+                projection = _projection_for_execution(repo, execution_id)
+                if projection is not None:
+                    projections.append(projection)
+                    projected_execution_ids.append(execution_id)
+                    classifications, measurements = _operation_facts(
+                        projection,
+                        operations_by_execution.get(execution_id, []),
+                    )
+                    operation_classifications.extend(classifications)
+                    operation_measurement_facts.extend(measurements)
+            participant_facts = repo.build_participant_facts(
+                selected_ids,
+                operations_by_execution=operations_by_execution,
+            )
     from witdem.ingest.live_db import (
         delete_workflow_projections,
         store_operation_facts,

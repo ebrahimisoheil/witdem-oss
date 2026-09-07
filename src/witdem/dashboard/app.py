@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -14,6 +16,7 @@ from witdem.analytics.evidence import EvidenceBundle
 from witdem.analytics.repository.state import FilterState
 from witdem.config import db_path
 from witdem.dashboard import service
+from witdem.dashboard.cache import DashboardResponseCache
 from witdem.dashboard.schemas import (
     ComparisonResponse,
     EvaluationCampaignResponse,
@@ -86,11 +89,19 @@ def _filter_state(
 def create_dashboard_app(database: str | Path | None = None, static_dir: str | Path | None = None) -> FastAPI:
     database_path = db_path(database)
     assets = Path(static_dir) if static_dir else Path(__file__).with_name("static")
+    response_cache = DashboardResponseCache()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        response_cache.close()
+
     app = FastAPI(
         title="Witdem Dashboard API",
         version=DASHBOARD_API_VERSION,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
 
     @app.exception_handler(FileLockTimeout)
@@ -107,13 +118,19 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
 
     @app.get("/api/v1/meta", response_model=MetadataResponse, tags=["metadata"])
     def meta() -> dict[str, Any]:
-        with service.repository(database_path) as repo:
-            return service.metadata(repo)
+        def load() -> dict[str, Any]:
+            with service.repository(database_path) as repo:
+                return service.metadata(repo)
+
+        return response_cache.get_or_compute(("meta",), load)
 
     @app.get("/api/v1/overview", response_model=OverviewResponse, tags=["analytics"])
     def overview(filters: Annotated[FilterState, Depends(_filter_state)]) -> dict[str, Any]:
-        with service.repository(database_path) as repo:
-            return service.overview(repo, filters)
+        def load() -> dict[str, Any]:
+            with service.repository(database_path) as repo:
+                return service.overview(repo, filters)
+
+        return response_cache.get_or_compute(("overview", filters.as_key()), load)
 
     @app.get("/api/v1/runs", response_model=RunsResponse, tags=["runs"])
     def runs(
@@ -122,8 +139,14 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
         page_size: int = 10,
         workflow_id: str | None = None,
     ) -> dict[str, Any]:
-        with service.repository(database_path) as repo:
-            return service.runs(repo, filters, page, page_size, workflow_id=workflow_id)
+        def load() -> dict[str, Any]:
+            with service.repository(database_path) as repo:
+                return service.runs(repo, filters, page, page_size, workflow_id=workflow_id)
+
+        return response_cache.get_or_compute(
+            ("runs", filters.as_key(), page, page_size, workflow_id),
+            load,
+        )
 
     @app.get("/api/v1/runs/{execution_id}", response_model=RunDetailResponse, tags=["runs"])
     def run(execution_id: str) -> dict[str, Any]:
@@ -150,8 +173,11 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
         dimension: Literal["provider", "model"],
         filters: Annotated[FilterState, Depends(_filter_state)],
     ) -> dict[str, Any]:
-        with service.repository(database_path) as repo:
-            return service.compare(repo, dimension, filters)
+        def load() -> dict[str, Any]:
+            with service.repository(database_path) as repo:
+                return service.compare(repo, dimension, filters)
+
+        return response_cache.get_or_compute(("compare", dimension, filters.as_key()), load)
 
     @app.get("/api/v1/workflows", response_model=WorkflowsResponse, tags=["workflows"])
     def workflows(filters: Annotated[FilterState, Depends(_filter_state)]) -> dict[str, Any]:
@@ -237,8 +263,11 @@ def create_dashboard_app(database: str | Path | None = None, static_dir: str | P
 
     @app.get("/api/v1/issues", response_model=IssuesResponse, tags=["analytics"])
     def issues(filters: Annotated[FilterState, Depends(_filter_state)]) -> dict[str, Any]:
-        with service.repository(database_path) as repo:
-            return service.issues(repo, filters)
+        def load() -> dict[str, Any]:
+            with service.repository(database_path) as repo:
+                return service.issues(repo, filters)
+
+        return response_cache.get_or_compute(("issues", filters.as_key()), load)
 
     if assets.is_dir():
         asset_dir = assets / "assets"
