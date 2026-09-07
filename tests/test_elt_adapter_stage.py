@@ -39,6 +39,7 @@ def test_duckle_adapter_stage_preserves_generic_unknown_otel_data() -> None:
     assert result["adapter_name"] == "otel"
     assert operations[0]["attributes"]["custom.value"] == "preserved"
     assert operations[0]["attributes"]["witdem.transform.engine"] == "duckle"
+    assert "witdem.source_ingest_ids" not in operations[0]["attributes"]
     assert json.loads(execution["attributes"]["witdem.source_ingest_ids"]) == ["ingest-1", "ingest-2"]
 
 

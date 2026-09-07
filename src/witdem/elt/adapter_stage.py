@@ -113,21 +113,27 @@ def transform_bundle(row: Mapping[str, Any]) -> dict[str, Any]:
         runtime_id = str(row.get("runtime_id") or "") or None
         graph = adapter.normalize(spans, execution_id=execution_id, runtime_id=runtime_id)
         adapter_name = type(adapter).__name__.removesuffix("Adapter").casefold()
-        provenance = {
+        operation_provenance = {
             "witdem.adapter.name": adapter_name,
             "witdem.adapter.version": __version__,
             "witdem.transform.engine": "duckle",
-            "witdem.source_ingest_ids": source_ids_json,
             "witdem.provider_adapters": json.dumps(provider_adapters),
+        }
+        execution_provenance = {
+            **operation_provenance,
+            # Batch lineage belongs on the execution boundary. Repeating the
+            # complete ingest-id list on every operation grows quadratically
+            # with graph width and duplicates it again in serving tables.
+            "witdem.source_ingest_ids": source_ids_json,
         }
         execution = graph.execution.model_copy(
             update={
                 "status": _execution_status(graph.operations),
-                "attributes": {**graph.execution.attributes, **provenance},
+                "attributes": {**graph.execution.attributes, **execution_provenance},
             }
         )
         operations = [
-            operation.model_copy(update={"attributes": {**operation.attributes, **provenance}})
+            operation.model_copy(update={"attributes": {**operation.attributes, **operation_provenance}})
             for operation in graph.operations
         ]
         links = graph.links

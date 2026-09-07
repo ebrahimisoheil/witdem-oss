@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import yaml
 from fastapi.testclient import TestClient
 
 from witdem.analytics.core import Event, Execution, Operation
+from witdem.analytics.repository import AnalyticsRepository
 from witdem.dashboard.app import create_dashboard_app
 from witdem.dashboard.service import _workflow_projection_analytics, materialize_workflow_projections
 from witdem.ingest import live_db
@@ -565,6 +568,48 @@ def test_projection_materialization_preserves_operations_without_a_declared_work
     detail = client.get(f"/api/v1/runs/{execution_id}").json()
     assert detail["operation_summary"]["total_operations"] == 1
     assert detail["measurements"][0]["measurement_key"] == "vectors.output"
+
+
+def test_incremental_operation_loading_pushes_execution_batch_into_duckdb(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "analytics.duckdb"
+    monkeypatch.setenv("WITDEM_DB_PATH", str(database))
+    live_db.initialize_analytics_store(database)
+    for execution_id in ("selected-run", "historical-run"):
+        live_db.publish_transformed_bundle(
+            Execution(execution_id=execution_id, runtime_id="custom/runtime", status="completed"),
+            [
+                Operation(
+                    operation_id=f"{execution_id}-operation",
+                    execution_id=execution_id,
+                    span_id=f"{execution_id}-span",
+                    kind="component",
+                    name="work",
+                    status="ok",
+                )
+            ],
+            [],
+            [],
+        )
+
+    repo = AnalyticsRepository(database)
+    queries: list[tuple[str, list[object]]] = []
+    original_query = repo._query
+
+    def recorded_query(sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
+        values = list(params)
+        queries.append((sql, values))
+        return original_query(sql, values)
+
+    monkeypatch.setattr(repo, "_query", recorded_query)
+    grouped = repo.operations_by_execution_ids({"selected-run"})
+
+    assert list(grouped) == ["selected-run"]
+    operation_queries = [item for item in queries if "FROM serving.operation_facts" in item[0]]
+    assert len(operation_queries) == 1
+    assert "WHERE execution_id IN (?)" in operation_queries[0][0]
+    assert operation_queries[0][1] == ["selected-run"]
 
 
 def test_persisted_template_does_not_claim_an_unassociated_runtime_run(tmp_path: Path, monkeypatch) -> None:

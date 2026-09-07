@@ -728,6 +728,39 @@ class AnalyticsRepository:
 
         return self._operations_by_execution(filters)
 
+    def operations_by_execution_ids(self, execution_ids: set[str]) -> dict[str, list[Operation]]:
+        """Return only operations belonging to an explicit execution batch.
+
+        Incremental ELT callers already know the affected executions.  Pushing
+        that population into DuckDB avoids re-reading and validating the full
+        historical operation table for every micro-batch.
+        """
+
+        selected = sorted({str(value) for value in execution_ids if value})
+        if not selected:
+            return {}
+        grouped: dict[str, list[Operation]] = {}
+        for offset in range(0, len(selected), 500):
+            chunk = selected[offset : offset + 500]
+            placeholders = ", ".join("?" for _ in chunk)
+            if self._serving_is_complete() and "operation_facts" in self._serving_tables:
+                rows = self._query(
+                    "SELECT * FROM serving.operation_facts "
+                    f"WHERE execution_id IN ({placeholders}) ORDER BY execution_id, sequence_number",
+                    chunk,
+                )
+                operations = [_operation_from_serving_fact(row) for row in rows]
+            else:
+                rows = self._query(
+                    f"SELECT * FROM operations WHERE execution_id IN ({placeholders}) "
+                    "ORDER BY execution_id, started_at, operation_id",
+                    chunk,
+                )
+                operations = [_operation_from_row(row) for row in rows]
+            for operation in operations:
+                grouped.setdefault(operation.execution_id, []).append(operation)
+        return grouped
+
     @staticmethod
     def _matches_identity_filters(operations: list[Operation], filters: FilterState) -> bool:
         if filters.workflow and not any(
@@ -2615,17 +2648,27 @@ class AnalyticsRepository:
             )
         return sorted(expanded, key=lambda item: (-int(item["runs"]), str(item["label"])))
 
-    def build_participant_facts(self, execution_ids: set[str] | None = None) -> list[dict[str, Any]]:
+    def build_participant_facts(
+        self,
+        execution_ids: set[str] | None = None,
+        *,
+        operations_by_execution: Mapping[str, list[Operation]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Build disposable direct-attribution facts for ELT/rebuild."""
 
-        rows = self.execution_rows(limit=None)
-        if execution_ids is not None:
-            rows = [row for row in rows if str(row["execution_id"]) in execution_ids]
-        operations_by_execution = self._operations_by_execution()
+        selected = (
+            {str(value) for value in execution_ids}
+            if execution_ids is not None
+            else {str(row["execution_id"]) for row in self.execution_rows(limit=None)}
+        )
+        operation_groups = operations_by_execution or (
+            self.operations_by_execution_ids(selected)
+            if execution_ids is not None
+            else self._operations_by_execution()
+        )
         facts: list[dict[str, Any]] = []
-        for row in rows:
-            execution_id = str(row["execution_id"])
-            operations = operations_by_execution.get(execution_id, [])
+        for execution_id in sorted(selected):
+            operations = operation_groups.get(execution_id, [])
             for dimension in ("provider", "model"):
                 grouped: dict[str, dict[str, Any]] = {}
                 for operation in operations:
