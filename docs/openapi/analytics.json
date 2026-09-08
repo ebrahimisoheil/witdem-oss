@@ -1657,6 +1657,61 @@
         "title": "OperationMeasurement",
         "type": "object"
       },
+      "OperationParticipantRow": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "dimension": {
+            "enum": [
+              "provider",
+              "model",
+              "implementation"
+            ],
+            "title": "Dimension",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "time": {
+            "title": "Time",
+            "type": "number"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens"
+          }
+        },
+        "required": [
+          "dimension",
+          "id",
+          "calls",
+          "time"
+        ],
+        "title": "OperationParticipantRow",
+        "type": "object"
+      },
       "OperationSummary": {
         "properties": {
           "execution_containers": {
@@ -2583,6 +2638,20 @@
             },
             "title": "Operations",
             "type": "array"
+          },
+          "participants": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OperationParticipantRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participants"
           },
           "summary": {
             "$ref": "#/components/schemas/OperationSummary"

@@ -483,7 +483,9 @@ export type WorkflowOperations = {
   measurement_coverage: OperationMeasurementCoverage;
   operations: OperationFact[];
   measurements: OperationMeasurement[];
+  participants?: OperationParticipantRow[] | null;
 };
+export type OperationParticipantRow = { dimension: "provider" | "model" | "implementation"; id: string; calls: number; time: number; cost: number | null; tokens: number | null };
 export type EvaluationResult = {
   evaluation_id: string;
   execution_id: string;

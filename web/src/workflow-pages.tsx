@@ -2,7 +2,7 @@ import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { Graph as DagreGraph, layout as runDagreLayout, type Point } from "@dagrejs/dagre";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
+import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationParticipantRow, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
 import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
 import type { EvaluationPageRequest } from "./api";
@@ -282,7 +282,7 @@ export function WorkflowOperationsView({ workflowId, data, loading }: { workflow
     </Panel> : null}
     <div className="grid gap-4 xl:grid-cols-2">
       <Panel title="Where work happened" note="Work-plane operations only. Switch between volume, active time, cost, tokens, and operation-specific meters."><OperationActivityChart items={workTypes} onSelect={setSelectedType} /></Panel>
-      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by distinct participant identity."><ParticipantOperationChart operations={workOperations} measurements={workMeasurements} /></Panel>
+      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by distinct participant identity."><ParticipantOperationChart operations={workOperations} measurements={workMeasurements} participants={data.participants} /></Panel>
     </div>
     <Panel title="Work profile" note="Computational, external, and human work—separate from control flow and business outcomes. Select a card to inspect supporting operations.">
       <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{workTypes.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
@@ -346,17 +346,22 @@ function OperationActivityChart({ items, onSelect }: { items: OperationTypeSumma
   return <div><MetricToggle choices={["operations", "time", "cost", "tokens", "pages"]} active={metric} onChange={setMetric} labels={{ operations: "Volume", time: "Active time", cost: "Cost", tokens: "Tokens", pages: "Pages" }} />{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} onEvents={{ click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item.type) }} option={{ color: [metric === "cost" ? "#16a085" : metric === "time" ? "#2477e6" : "#6d4aff"], tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${operationLabel(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measurements["cost.usd"])}<br/>Tokens: ${item.measurements["tokens.total"] == null ? "Not applicable" : formatNumber(item.measurements["tokens.total"])}<br/><span style="color:#6d4aff">Select to inspect operations</span>` : ""; } }, grid: { left: 132, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", name: labels[metric], nameLocation: "middle", nameGap: 26, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((item) => operationLabel(item.type)), axisLabel: { width: 122, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }] }} /> : <Empty>This measurement is not applicable to the observed operation types.</Empty>}</div>;
 }
 
-function ParticipantOperationChart({ operations, measurements }: { operations: OperationFact[]; measurements: OperationMeasurement[] }) {
+function ParticipantOperationChart({ operations, measurements, participants }: { operations: OperationFact[]; measurements: OperationMeasurement[]; participants?: OperationParticipantRow[] | null }) {
   const [dimension, setDimension] = useState<"provider" | "model" | "implementation">("provider");
   const [metric, setMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
-  const rows = participantOperationRows(operations, measurements, dimension).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
+  const rows = workflowParticipantRows(operations, measurements, dimension, participants).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
   return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model", "implementation"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model", implementation: "Implementation" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
+}
+
+export function workflowParticipantRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model" | "implementation", participants?: OperationParticipantRow[] | null) {
+  return participants == null ? participantOperationRows(operations, measurements, dimension) : participants.filter((item) => item.dimension === dimension);
 }
 
 type ParticipantOperationRow = { id: string; calls: number; time: number; cost: number | null; tokens: number | null };
 export function participantOperationRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model" | "implementation") {
+  const identity = (item: { execution_id: string; operation_id: string }) => JSON.stringify([item.execution_id, item.operation_id]);
   const measurementByOperation = new Map<string, OperationMeasurement[]>();
-  measurements.filter((item) => item.measurement_status === "measured").forEach((item) => measurementByOperation.set(item.operation_id, [...(measurementByOperation.get(item.operation_id) || []), item]));
+  measurements.filter((item) => item.measurement_status === "measured").forEach((item) => measurementByOperation.set(identity(item), [...(measurementByOperation.get(identity(item)) || []), item]));
   const grouped = new Map<string, ParticipantOperationRow>();
   operations.forEach((operation) => {
     const id = dimension === "provider" ? operation.provider_id : dimension === "model" ? operation.model_id : operation.implementation_id;
@@ -364,7 +369,7 @@ export function participantOperationRows(operations: OperationFact[], measuremen
     const row = grouped.get(id) || { id, calls: 0, time: 0, cost: null, tokens: null };
     row.calls += 1;
     row.time += operation.duration_seconds || 0;
-    for (const measurement of measurementByOperation.get(operation.operation_id) || []) {
+    for (const measurement of measurementByOperation.get(identity(operation)) || []) {
       if (measurement.measurement_key === "cost.usd" && measurement.value != null) row.cost = (row.cost || 0) + measurement.value;
       if (measurement.measurement_key === "tokens.total" && measurement.value != null) row.tokens = (row.tokens || 0) + measurement.value;
     }

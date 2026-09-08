@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 import witdem.analytics.evidence as evidence_contracts
 from witdem.analytics.contracts import MetadataSnapshot
 from witdem.analytics.operation_facts import workflow_operation_facts as _operation_facts
+from witdem.analytics.participants import operation_participant_inputs, operation_participant_rows
 from witdem.analytics.repository import AnalyticsRepository, create_backend
 from witdem.analytics.repository.state import FilterState
 from witdem.analytics.workflow_analytics import workflow_projection_analytics as _workflow_projection_analytics
@@ -505,6 +506,7 @@ def workflow_operations(repo: AnalyticsRepository, workflow_id: str) -> dict[str
                 "measurement_coverage": _measurement_coverage(measurements),
                 "operations": operations,
                 "measurements": measurements,
+                "participants": operation_participant_rows(operation_participant_inputs(operations, measurements)),
             }
         ),
     )

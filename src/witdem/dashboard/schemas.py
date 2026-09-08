@@ -261,12 +261,22 @@ class WorkflowDetailResponse(ExtensibleModel):
     execution_window: WorkflowExecutionWindow | None = None
 
 
+class OperationParticipantRow(BaseModel):
+    dimension: Literal["provider", "model", "implementation"]
+    id: str
+    calls: int
+    time: float
+    cost: float | None = None
+    tokens: float | None = None
+
+
 class WorkflowOperationsResponse(BaseModel):
     workflow_id: str
     summary: OperationSummary
     measurement_coverage: MeasurementCoverage
     operations: list[OperationFact] = Field(default_factory=list)
     measurements: list[OperationMeasurement] = Field(default_factory=list)
+    participants: list[OperationParticipantRow] | None = None
 
 
 class EvaluationSummary(BaseModel):
