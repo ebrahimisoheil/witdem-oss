@@ -444,8 +444,8 @@ export type OperationFact = {
   implementation_id?: string | null;
   execution_source?: string | null;
   parent_operation_id?: string | null;
-  duration_seconds: number;
-  status: string;
+  duration_seconds: number | null;
+  status: string | null;
   attributes: Record<string, unknown>;
 };
 export type OperationTypeSummary = {

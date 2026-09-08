@@ -1371,8 +1371,15 @@
             "title": "Runtime Id"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
           },
           "subtype": {
             "anyOf": [
@@ -1436,8 +1443,7 @@
           "family",
           "operation_type",
           "interface",
-          "role",
-          "status"
+          "role"
         ],
         "title": "OperationFact",
         "type": "object"

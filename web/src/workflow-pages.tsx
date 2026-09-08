@@ -227,7 +227,13 @@ export function WorkflowExecutionsPage() {
   </>;
 }
 
-function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowOperations; loading: boolean }) {
+export function operationStatusPresentation(status: string | null | undefined) {
+  if (status === "error" || status === "failed") return { label: status, failed: true, className: "font-semibold text-red-700" };
+  if (status === "ok" || status === "success" || status === "completed") return { label: status, failed: false, className: "text-[#27754c]" };
+  return { label: status === "unset" ? "Observed" : status || "Not reported", failed: false, className: "text-[#89838b]" };
+}
+
+export function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowOperations; loading: boolean }) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   if (loading) return <LoadingPage />;
   if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
@@ -260,12 +266,12 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
       }
     }
   }
-  const selectedOperations = workOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
+  const selectedOperations = workOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => (right.duration_seconds ?? -1) - (left.duration_seconds ?? -1)).slice(0, 12);
   const selectedLabel = selectedType ? operationLabel(selectedType) : "All operation types";
   return <div className="space-y-4">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <InsightCard label="Work operations" value={formatNumber(workOperations.length)} note={`${formatNumber(executionCount)} executions · ${formatNumber(workTypes.length)} operation types`} />
-      <InsightCard label="Direct failures" value={formatNumber(workOperations.filter((operation) => ["error", "failed"].includes(operation.status)).length)} note="Failures in computational, external, or human work" tone={workOperations.some((operation) => ["error", "failed"].includes(operation.status)) ? "attention" : "good"} />
+      <InsightCard label="Direct failures" value={formatNumber(workOperations.filter((operation) => operationStatusPresentation(operation.status).failed).length)} note="Failures in computational, external, or human work" tone={workOperations.some((operation) => operationStatusPresentation(operation.status).failed) ? "attention" : "good"} />
       <InsightCard label="Usage coverage" value={meterCoverage == null ? "Not applicable" : `${Math.round(meterCoverage * 100)}%`} note={`${formatNumber(measuredMeters)} measured · ${formatNumber(missingMeters)} missing applicable meters`} tone={missingMeters ? "attention" : "good"} />
       <InsightCard label="Participants" value={formatNumber(uniqueIdentities(workOperations.flatMap((operation) => [operation.provider_id, operation.model_id, operation.implementation_id])).length)} note="Distinct reported providers, models, and implementations" />
     </div>
@@ -284,7 +290,7 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
     <Panel title={`Observed operations · ${selectedLabel}`} note={selectedType ? "Selected operations and their nested child work. Open an execution to inspect the full path." : "Longest operations first. Open an execution to inspect the operation in its workflow path."}>
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
         <div className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 bg-[#f5f3f6] px-3 py-2 text-[9px] font-semibold uppercase tracking-[.1em] text-[#847e86]"><span>Operation / node</span><span>Participant</span><span>Elapsed</span><span>Status</span></div>
-        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.implementation_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operation.status === "error" || operation.status === "failed" ? "font-semibold text-red-700" : "text-[#27754c]"}>{operation.status === "unset" ? "Observed" : operation.status}</div></a>)}
+        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.implementation_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operationStatusPresentation(operation.status).className}>{operationStatusPresentation(operation.status).label}</div></a>)}
       </div>
       {!selectedOperations.length ? <Empty>No operations match this type.</Empty> : null}
     </Panel>

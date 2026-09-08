@@ -156,7 +156,7 @@ class OperationFact(ExtensibleModel):
     execution_source: str | None = None
     parent_operation_id: str | None = None
     duration_seconds: float | None = None
-    status: str
+    status: str | None = None
     attributes: JsonObject = Field(default_factory=dict)
 
 
