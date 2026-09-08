@@ -45,6 +45,7 @@ from witdem.analytics.evidence import (
     operation_profile_inputs,
     operation_summary,
 )
+from witdem.analytics.goal_metrics import goal_contribution, summarize_goal_contributions
 from witdem.analytics.identity import (
     canonical_model_key,
     canonical_operation_key,
@@ -1168,68 +1169,20 @@ class AnalyticsRepository:
                 if execution_id in by_execution and execution_id not in goals:
                     goals[execution_id] = _json(row.get("attributes"))
 
-        reported = list(goals.items())
-        achieved_ids = {
-            execution_id for execution_id, attributes in reported if attributes.get("product_goal_achieved") is True
-        }
-        decision_correct = sum(attributes.get("decision_correct") is True for _, attributes in reported)
-        false_acceptances = sum(
-            attributes.get("observed_status") == "accepted" and attributes.get("expected_status") != "accepted"
-            for _, attributes in reported
-        )
-        false_rejections = sum(
-            attributes.get("observed_status") == "rejected" and attributes.get("expected_status") != "rejected"
-            for _, attributes in reported
-        )
-        escalation_errors = sum(
-            (attributes.get("observed_status") == "escalated") != (attributes.get("expected_status") == "escalated")
-            for _, attributes in reported
-        )
-        recovery_ids = {
-            execution_id
-            for execution_id, attributes in reported
-            if attributes.get("targeted_research_required") is True
-        }
-        recovery_successes = sum(
-            execution_id in achieved_ids
-            and (
-                attributes.get("targeted_research_performed") is True
-                or attributes.get("required_path_observed") is True
-            )
-            for execution_id, attributes in reported
-            if execution_id in recovery_ids
-        )
-        achieved_rows = [by_execution[execution_id] for execution_id in achieved_ids if execution_id in by_execution]
         operations_by_execution = self._operations_by_execution(filters)
-        cost_totals = [
-            _complete_operation_total(operations_by_execution.get(str(row["execution_id"]), []), "cost")
-            for row in achieved_rows
-        ]
-        token_totals = [
-            _complete_operation_total(operations_by_execution.get(str(row["execution_id"]), []), "tokens")
-            for row in achieved_rows
-        ]
-        costs = [float(value) for applicable, value in cost_totals if applicable and value is not None]
-        durations = [float(row["duration_seconds"]) for row in achieved_rows if row.get("duration_seconds") is not None]
-        token_values = [float(value) for applicable, value in token_totals if applicable and value is not None]
-        achieved_count = len(achieved_ids)
-        return ProductGoalSummary(
-            total_runs=len(rows),
-            reported_runs=len(reported),
-            achieved_runs=achieved_count,
-            decision_correct_runs=decision_correct,
-            false_acceptances=false_acceptances,
-            false_rejections=false_rejections,
-            escalation_errors=escalation_errors,
-            targeted_research_runs=len(recovery_ids),
-            targeted_research_successes=recovery_successes,
-            cost_per_achieved_goal=sum(costs) / len(costs) if costs else None,
-            cost_measured_achieved_runs=len(costs),
-            time_per_achieved_goal=sum(durations) / len(durations) if durations else None,
-            time_measured_achieved_runs=len(durations),
-            tokens_per_achieved_goal=sum(token_values) / len(token_values) if token_values else None,
-            token_measured_achieved_runs=len(token_values),
-        )
+        contributions = []
+        for row in rows:
+            attributes = goals.get(str(row["execution_id"]))
+            operations = operations_by_execution.get(str(row["execution_id"]), []) if (
+                attributes is not None and attributes.get("product_goal_achieved") is True
+            ) else []
+            contributions.append(goal_contribution(
+                attributes,
+                duration_seconds=float(row["duration_seconds"]) if row.get("duration_seconds") is not None else None,
+                complete_cost=_complete_operation_total(operations, "cost")[1],
+                complete_tokens=_complete_operation_total(operations, "tokens")[1],
+            ))
+        return summarize_goal_contributions(contributions)
 
     def product_goal_rows(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Return explicitly reported goal semantics joined to their execution facts.
