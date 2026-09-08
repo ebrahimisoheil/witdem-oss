@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from witdem.analytics.core import Evaluation, Event, Outcome
 from witdem.analytics.evidence import EvidenceBundle
@@ -30,12 +30,17 @@ def _attributes(value: Any) -> dict[str, Any]:
     return dict(parsed) if isinstance(parsed, Mapping) else {}
 
 
-def goal_assurance_state(row: Mapping[str, Any]) -> str:
+AssuranceState = Literal["assured", "needs_attention", "not_achieved", "unassessed"]
+
+
+def goal_assurance_state(row: Mapping[str, Any]) -> AssuranceState:
     if row.get("product_goal_achieved") is not True:
         return "not_achieved"
     explicit = str(row.get("assurance_status") or "").strip().casefold()
-    if explicit in {"assured", "needs_attention"}:
-        return explicit
+    if explicit == "assured":
+        return "assured"
+    if explicit == "needs_attention":
+        return "needs_attention"
     evidence_sufficient = row.get("evidence_sufficient")
     if evidence_sufficient is True:
         return "assured"
@@ -96,6 +101,7 @@ class GoalPortfolioProjection:
     contract: GoalContractContext | None
     groups: list[dict[str, Any]]
     counts: dict[str, int | float]
+    assurance_state: AssuranceState
 
 
 def project_goal_assurance(bundle: EvidenceBundle) -> tuple[list[dict[str, Any]], dict[str, int | float]]:
@@ -136,7 +142,8 @@ def project_goal_portfolio(bundle: EvidenceBundle) -> GoalPortfolioProjection:
         contract_name=str(definition["contract_name"]) if definition.get("contract_name") else None,
         observed_at=contracts[0]["observed_at"],
     ) if contracts else None
-    return GoalPortfolioProjection(contract=contract, groups=groups, counts=counts)
+    return GoalPortfolioProjection(contract=contract, groups=groups, counts=counts,
+                                   assurance_state=goal_assurance_state(row))
 
 
 def summarize_goal_assurance(

@@ -123,9 +123,12 @@ def test_unversioned_single_goal_and_no_reported_population():
     assert summarize_goal_assurance([], {}, {})[0] == []
 
 
-@pytest.mark.parametrize("achieved,assurance", [(False, "assured"), (True, "assured"),
-                                             (True, "needs_attention"), (True, None), (None, None)])
-def test_bundle_projection_matches_actual_serving_portfolio(tmp_path, monkeypatch, achieved, assurance):
+@pytest.mark.parametrize("achieved,assurance,evidence", [
+    (False, "assured", True), (True, "assured", False), (True, "needs_attention", True),
+    (True, None, None), (None, None, True), (True, "  AsSuReD ", False),
+    (True, "unknown", True), (True, None, False), (False, None, False),
+])
+def test_bundle_projection_matches_actual_serving_portfolio(tmp_path, monkeypatch, achieved, assurance, evidence):
     database = tmp_path / "portfolio.duckdb"
     monkeypatch.setenv("WITDEM_DB_PATH", str(database))
     monkeypatch.setenv("WITDEM_DATA_DIR", str(tmp_path))
@@ -142,6 +145,7 @@ def test_bundle_projection_matches_actual_serving_portfolio(tmp_path, monkeypatc
                     }) for index in range(2)]
     outcomes = [Outcome(execution_id=execution_id, name="product_goal", timestamp=start,
                         attributes={"product_goal_achieved": achieved, "assurance_status": assurance,
+                                    "evidence_sufficient": evidence,
                                     "prompt": "NEVER_PERSIST_THIS"})]
     evaluations = [Evaluation(execution_id=execution_id, evaluation_id=str(index), name="Quality", source="test",
                               score=score, attributes={"evaluation_key": "quality", "target": 0.5,
@@ -156,6 +160,10 @@ def test_bundle_projection_matches_actual_serving_portfolio(tmp_path, monkeypatc
         assert actual == reader.goal_assurance()
         assert "NEVER_PERSIST_THIS" not in repr(actual)
         assert actual[0][0]["goal_name"] == "Review safely"
+        projection = project_goal_portfolio(bundle)
+        for state in ("assured", "needs_attention", "not_achieved", "unassessed"):
+            selected = reader.execution_rows(FilterState(assurance_status=state), limit=None)
+            assert len(selected) == int(projection.assurance_state == state)
         if achieved is True:
             assert actual[0][0]["evaluations"][0]["average_score"] == 0.2
     finally:
@@ -194,6 +202,7 @@ def test_contract_context_preserves_unreported_population(tmp_path, monkeypatch,
     assert bundle.model_dump_json() == original
     assert (projection.groups, projection.counts) == project_goal_assurance(bundle)
     assert projection.counts["reported_runs"] == int(reported)
+    assert projection.assurance_state == ("unassessed" if reported else "not_achieved")
     assert bool(projection.groups) is reported
     assert "NEVER_EXPOSE_CONTEXT_CONTENT" not in repr(projection)
     if definition_kind == "absent":

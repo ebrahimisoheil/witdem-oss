@@ -53,6 +53,14 @@ inventing a goal or reparsing arbitrary event payloads. No definition means
 synthetic public contract. Only the goal grouping uses the existing `unversioned`
 fallback. The older `project_goal_assurance` pair interface is unchanged.
 
+The projection also returns the execution's typed `assurance_state`, using the
+same rule as the repository's assurance filter. It is separate from reported-goal
+counters: an unreported or unknown-achievement execution is `not_achieved` for
+this filter, but an unreported execution contributes no portfolio goal. Explicit
+assurance wins over the evidence-sufficiency fallback only after achievement is
+explicitly true. Adapters should persist this classification instead of inferring
+it from runtime success, score thresholds, or the presence of a portfolio group.
+
 Adapters building incremental read models can use `accumulate_goal_assurance`
 for counts and score sums, then `finalize_goal_assurance` for rates, score means
 and the public portfolio shape. Do not add identifiers or metadata like numeric
