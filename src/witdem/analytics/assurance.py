@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -79,7 +80,31 @@ def latest_goal_evaluations(
     return list(latest.values())
 
 
+@dataclass(frozen=True)
+class GoalContractContext:
+    """Selected contract identity, independent of whether a goal was reported."""
+
+    contract_hash: str | None
+    contract_name: str | None
+    observed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class GoalPortfolioProjection:
+    """In-process inputs for a portfolio adapter, not a persisted wire contract."""
+
+    contract: GoalContractContext | None
+    groups: list[dict[str, Any]]
+    counts: dict[str, int | float]
+
+
 def project_goal_assurance(bundle: EvidenceBundle) -> tuple[list[dict[str, Any]], dict[str, int | float]]:
+    """Return the goal-only accumulator; preserve the existing pair interface."""
+    projection = project_goal_portfolio(bundle)
+    return projection.groups, projection.counts
+
+
+def project_goal_portfolio(bundle: EvidenceBundle) -> GoalPortfolioProjection:
     """Build one execution's accumulator through the canonical serving projection.
 
     No operations or prompt/response attributes are included in the accumulator.
@@ -102,8 +127,16 @@ def project_goal_assurance(bundle: EvidenceBundle) -> tuple[list[dict[str, Any]]
     row = {**serving["execution_facts"][0], "contract_hash": definition.get("contract_hash"),
            "contract_name": definition.get("contract_name")}
     evaluations = latest_goal_evaluations([fact for fact in facts if fact["record_type"] == "evaluation"])
-    return accumulate_goal_assurance([row], {execution_id: evaluations},
-                                    {str(definition.get("contract_hash") or ""): definition})
+    groups, counts = accumulate_goal_assurance([row], {execution_id: evaluations},
+                                             {str(definition.get("contract_hash") or ""): definition})
+    # Do not expose the definition's arbitrary attributes. In particular, an
+    # unreported goal still belongs to its contract's execution population.
+    contract = GoalContractContext(
+        contract_hash=str(definition["contract_hash"]) if definition.get("contract_hash") else None,
+        contract_name=str(definition["contract_name"]) if definition.get("contract_name") else None,
+        observed_at=contracts[0]["observed_at"],
+    ) if contracts else None
+    return GoalPortfolioProjection(contract=contract, groups=groups, counts=counts)
 
 
 def summarize_goal_assurance(

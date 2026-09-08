@@ -44,6 +44,15 @@ This is deliberately distinct from the workflow-page evaluation grouping rules.
 Only public portfolio metadata and counters leave the projection, not unrelated
 record attributes or operation prompt/response contents.
 
+`project_goal_portfolio(bundle)` returns the same `groups` and `counts` together
+with a `contract` context (hash, name and definition observation time). Contract
+context is retained even when no product goal was reported and the groups are
+empty. This lets adapters retain the correct contract-filter population without
+inventing a goal or reparsing arbitrary event payloads. No definition means
+`contract=None`; a definition without a hash has `contract_hash=None`, not a
+synthetic public contract. Only the goal grouping uses the existing `unversioned`
+fallback. The older `project_goal_assurance` pair interface is unchanged.
+
 Adapters building incremental read models can use `accumulate_goal_assurance`
 for counts and score sums, then `finalize_goal_assurance` for rates, score means
 and the public portfolio shape. Do not add identifiers or metadata like numeric

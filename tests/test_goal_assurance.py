@@ -9,6 +9,7 @@ from witdem.analytics.assurance import (
     finalize_goal_assurance,
     goal_assurance_state,
     project_goal_assurance,
+    project_goal_portfolio,
     summarize_goal_assurance,
 )
 from witdem.analytics.core import Evaluation, Event, Outcome
@@ -159,3 +160,69 @@ def test_bundle_projection_matches_actual_serving_portfolio(tmp_path, monkeypatc
             assert actual[0][0]["evaluations"][0]["average_score"] == 0.2
     finally:
         reader.close()
+
+
+@pytest.mark.parametrize("reported", [False, True])
+@pytest.mark.parametrize("definition_kind", ["versioned", "unversioned", "absent"])
+def test_contract_context_preserves_unreported_population(tmp_path, monkeypatch, reported, definition_kind):
+    database = tmp_path / "context.duckdb"
+    monkeypatch.setenv("WITDEM_DB_PATH", str(database))
+    monkeypatch.setenv("WITDEM_DATA_DIR", str(tmp_path))
+    bundle = EvidenceBundle.model_validate_json(
+        (Path(__file__).parent / "fixtures/evidence-bundle-v1-oldest.json").read_text()
+    )
+    execution_id = bundle.execution.execution_id
+    start = bundle.execution.started_at
+    latest = start + timedelta(seconds=10)
+    definition = {"contract_name": "Selected", "product_goal": {"name": "Review"},
+                  "prompt": "NEVER_EXPOSE_CONTEXT_CONTENT", "response": "NEVER_EXPOSE_CONTEXT_CONTENT"}
+    if definition_kind == "versioned":
+        definition["contract_hash"] = "selected-contract"
+    # Reverse observation order deliberately: selection must not use the last
+    # event in the bundle. No-hash latest definitions must not retain old hashes.
+    events = [] if definition_kind == "absent" else [
+        Event(execution_id=execution_id, timestamp=latest, type="event", name="contract.definition",
+              payload=definition),
+        Event(execution_id=execution_id, timestamp=start, type="event", name="contract.definition",
+              payload={"contract_hash": "stale-contract", "contract_name": "Stale"}),
+    ]
+    outcomes = [Outcome(execution_id=execution_id, timestamp=start, name="product_goal",
+                        attributes={"product_goal_achieved": True})] if reported else []
+    bundle = bundle.model_copy(update={"events": events, "evaluations": [], "outcomes": outcomes})
+    original = bundle.model_dump_json()
+    projection = project_goal_portfolio(bundle)
+    assert bundle.model_dump_json() == original
+    assert (projection.groups, projection.counts) == project_goal_assurance(bundle)
+    assert projection.counts["reported_runs"] == int(reported)
+    assert bool(projection.groups) is reported
+    assert "NEVER_EXPOSE_CONTEXT_CONTENT" not in repr(projection)
+    if definition_kind == "absent":
+        assert projection.contract is None
+    else:
+        assert projection.contract.contract_hash == ("selected-contract" if definition_kind == "versioned" else None)
+        assert projection.contract.contract_name == "Selected"
+        assert projection.contract.observed_at == latest
+    live_db.publish_transformed_bundle(bundle.execution, bundle.operations, bundle.links, [*events, *outcomes])
+    reader = AnalyticsRepository(database)
+    try:
+        assert finalize_goal_assurance(projection.groups, projection.counts) == reader.goal_assurance()
+        selected = reader.execution_rows(FilterState(contract_hash="selected-contract"), limit=None)
+        assert len(selected) == int(definition_kind == "versioned")
+        assert reader.execution_rows(FilterState(contract_hash="stale-contract"), limit=None) == []
+        contracts = reader.contract_definitions()
+        assert len(contracts) == int(definition_kind == "versioned")
+        if contracts:
+            assert contracts[0]["run_count"] == 1
+            assert contracts[0]["contract_hash"] == projection.contract.contract_hash
+    finally:
+        reader.close()
+
+
+def test_portfolio_context_rejects_foreign_execution_records():
+    bundle = EvidenceBundle.model_validate_json(
+        (Path(__file__).parent / "fixtures/evidence-bundle-v1-oldest.json").read_text()
+    )
+    event = Event(execution_id="another-execution", timestamp=bundle.execution.started_at,
+                  type="event", name="contract.definition", payload={"contract_hash": "foreign"})
+    with pytest.raises(ValueError, match="another execution"):
+        project_goal_portfolio(bundle.model_copy(update={"events": [event]}))
