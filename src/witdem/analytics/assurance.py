@@ -9,7 +9,12 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
+
+from witdem.analytics.core import Evaluation, Event, Outcome
+from witdem.analytics.evidence import EvidenceBundle
+from witdem.analytics.serving import build_serving_rows
 
 
 def _attributes(value: Any) -> dict[str, Any]:
@@ -55,6 +60,50 @@ def evaluation_met_target(row: dict[str, Any], attributes: dict[str, Any]) -> bo
     if target is not None and observed is not None:
         return bool(observed == target)
     return None
+
+
+def latest_goal_evaluations(
+    facts: Sequence[dict[str, Any]], allowed: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Select the repository's latest observed evaluation per execution/key."""
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for fact in facts:
+        execution_id = str(fact["execution_id"])
+        if allowed is not None and execution_id not in allowed:
+            continue
+        attributes = _attributes(fact.get("attributes"))
+        key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
+        existing = latest.get((execution_id, key))
+        if existing is None or str(fact.get("observed_at") or "") >= str(existing.get("observed_at") or ""):
+            latest[(execution_id, key)] = fact
+    return list(latest.values())
+
+
+def project_goal_assurance(bundle: EvidenceBundle) -> tuple[list[dict[str, Any]], dict[str, int | float]]:
+    """Build one execution's accumulator through the canonical serving projection.
+
+    No operations or prompt/response attributes are included in the accumulator.
+    Contract/evaluation descriptive metadata follows the public portfolio rules.
+    This per-execution calculation must run before a storage write transaction.
+    """
+    records: list[Event | Evaluation | Outcome] = [
+        *bundle.events, *bundle.evaluations, *sorted(bundle.outcomes, key=lambda item: item.timestamp)
+    ]
+    execution_id = bundle.execution.execution_id
+    if any(item.execution_id != execution_id for item in records):
+        raise ValueError("assurance record belongs to another execution")
+    serving = build_serving_rows(bundle.execution, [], [], records,
+                                 transformed_at=datetime(1970, 1, 1, tzinfo=timezone.utc),
+                                 transform_version="goal-assurance-1")
+    facts = serving["semantic_facts"]
+    contracts = sorted((fact for fact in facts if fact["name"] == "contract.definition"),
+                       key=lambda fact: (fact["observed_at"] is not None, fact["observed_at"]), reverse=True)
+    definition = _attributes(contracts[0]["attributes"]) if contracts else {}
+    row = {**serving["execution_facts"][0], "contract_hash": definition.get("contract_hash"),
+           "contract_name": definition.get("contract_name")}
+    evaluations = latest_goal_evaluations([fact for fact in facts if fact["record_type"] == "evaluation"])
+    return accumulate_goal_assurance([row], {execution_id: evaluations},
+                                    {str(definition.get("contract_hash") or ""): definition})
 
 
 def summarize_goal_assurance(

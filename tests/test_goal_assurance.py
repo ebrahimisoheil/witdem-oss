@@ -1,4 +1,6 @@
 from copy import deepcopy
+from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -6,10 +8,14 @@ from witdem.analytics.assurance import (
     accumulate_goal_assurance,
     finalize_goal_assurance,
     goal_assurance_state,
+    project_goal_assurance,
     summarize_goal_assurance,
 )
+from witdem.analytics.core import Evaluation, Event, Outcome
+from witdem.analytics.evidence import EvidenceBundle
 from witdem.analytics.repository.analytics_repository import AnalyticsRepository
 from witdem.analytics.repository.state import FilterState
+from witdem.ingest import live_db
 
 
 def population():
@@ -114,3 +120,42 @@ def test_unversioned_single_goal_and_no_reported_population():
     assert portfolio[0]["top_attention"] is None
     assert summary["assessment_coverage"] == 0
     assert summarize_goal_assurance([], {}, {})[0] == []
+
+
+@pytest.mark.parametrize("achieved,assurance", [(False, "assured"), (True, "assured"),
+                                             (True, "needs_attention"), (True, None), (None, None)])
+def test_bundle_projection_matches_actual_serving_portfolio(tmp_path, monkeypatch, achieved, assurance):
+    database = tmp_path / "portfolio.duckdb"
+    monkeypatch.setenv("WITDEM_DB_PATH", str(database))
+    monkeypatch.setenv("WITDEM_DATA_DIR", str(tmp_path))
+    bundle = EvidenceBundle.model_validate_json(
+        (Path(__file__).parent / "fixtures/evidence-bundle-v1-oldest.json").read_text()
+    )
+    execution_id = bundle.execution.execution_id
+    start = bundle.execution.started_at
+    events = [Event(execution_id=execution_id, timestamp=start + timedelta(seconds=index),
+                    type="event", name="contract.definition", payload={
+                        "contract_hash": "contract-" + str(index), "contract_name": "Review",
+                        "product_goal": {"name": "Old goal" if index == 0 else "Review safely"},
+                        "prompt": "NEVER_PERSIST_THIS",
+                    }) for index in range(2)]
+    outcomes = [Outcome(execution_id=execution_id, name="product_goal", timestamp=start,
+                        attributes={"product_goal_achieved": achieved, "assurance_status": assurance,
+                                    "prompt": "NEVER_PERSIST_THIS"})]
+    evaluations = [Evaluation(execution_id=execution_id, evaluation_id=str(index), name="Quality", source="test",
+                              score=score, attributes={"evaluation_key": "quality", "target": 0.5,
+                                                       "direction": "higher_is_better", "prompt": "NEVER_PERSIST_THIS"})
+                   for index, score in enumerate((0.9, 0.2))]
+    bundle = bundle.model_copy(update={"events": events, "outcomes": outcomes, "evaluations": evaluations})
+    live_db.publish_transformed_bundle(bundle.execution, bundle.operations, bundle.links,
+                                       [*events, *evaluations, *outcomes])
+    reader = AnalyticsRepository(database)
+    try:
+        actual = finalize_goal_assurance(*project_goal_assurance(bundle))
+        assert actual == reader.goal_assurance()
+        assert "NEVER_PERSIST_THIS" not in repr(actual)
+        assert actual[0][0]["goal_name"] == "Review safely"
+        if achieved is True:
+            assert actual[0][0]["evaluations"][0]["average_score"] == 0.2
+    finally:
+        reader.close()

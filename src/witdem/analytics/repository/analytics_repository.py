@@ -23,6 +23,7 @@ from filelock import FileLock
 
 from witdem.analytics.assurance import (
     evaluation_met_target,
+    latest_goal_evaluations,
     summarize_goal_assurance,
 )
 from witdem.analytics.assurance import (
@@ -1345,17 +1346,7 @@ class AnalyticsRepository:
         )
 
     def _latest_evaluation_facts(self, allowed: set[str] | None = None) -> list[dict[str, Any]]:
-        latest: dict[tuple[str, str], dict[str, Any]] = {}
-        for fact in self._evaluation_facts():
-            execution_id = str(fact["execution_id"])
-            if allowed is not None and execution_id not in allowed:
-                continue
-            attributes = _json(fact.get("attributes"))
-            key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
-            existing = latest.get((execution_id, key))
-            if existing is None or str(fact.get("observed_at") or "") >= str(existing.get("observed_at") or ""):
-                latest[(execution_id, key)] = fact
-        return list(latest.values())
+        return latest_goal_evaluations(self._evaluation_facts(), allowed)
 
     def evaluation_summary(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Aggregate reported evaluations without interpreting contract-specific names."""

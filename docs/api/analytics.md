@@ -36,6 +36,14 @@ latest-evaluation deduplication, tenant authorization and storage remain the
 caller's responsibility. Preserve input order for the existing first-metadata
 and contract-order behavior.
 
+`project_goal_assurance(bundle)` produces a single execution's accumulator from
+the canonical serving projection, including the latest contract definition and
+portfolio evaluation selection. `latest_goal_evaluations` is shared with the
+repository; equal or missing observation times preserve its last-input rule.
+This is deliberately distinct from the workflow-page evaluation grouping rules.
+Only public portfolio metadata and counters leave the projection, not unrelated
+record attributes or operation prompt/response contents.
+
 Adapters building incremental read models can use `accumulate_goal_assurance`
 for counts and score sums, then `finalize_goal_assurance` for rates, score means
 and the public portfolio shape. Do not add identifiers or metadata like numeric
