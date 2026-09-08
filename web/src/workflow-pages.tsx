@@ -178,7 +178,7 @@ export function WorkflowEvaluationsPage() {
   const [page, setPage] = useState<EvaluationPageRequest>({});
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
-  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId, page], queryFn: () => api.workflowEvaluations(workflowId, page), placeholderData: (previous) => previous });
+  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId, page], queryFn: () => api.workflowEvaluations(workflowId, page), retry: false, placeholderData: (previous) => previous });
   const restart = () => { setPage({}); setSelectedName(null); if (!Object.keys(page).length) void evaluations.refetch(); };
   const selectName = (name: string) => {
     const next = selectedName === name ? null : name;
@@ -295,7 +295,7 @@ function CoordinationCard({ title, value, detail, explanation }: { title: string
   return <div className="grid min-w-0 gap-3 rounded-lg border border-[#e5e2e8] bg-[#fbfafc] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><div className="text-xs font-semibold text-[#39343e]">{title}</div><div className="mt-1 text-[9px] leading-4 text-[#777178]">{explanation}</div></div><div className="min-w-0 sm:text-right"><div className="text-sm font-semibold text-[#3e3650]">{value}</div><div className="mt-0.5 text-[9px] text-[#89838b]">{detail}</div></div></div>;
 }
 
-function WorkflowEvaluationsView({ workflowId, data, loading, selectedName, onSelect }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean; selectedName: string | null; onSelect: (name: string) => void }) {
+export function WorkflowEvaluationsView({ workflowId, data, loading, selectedName, onSelect }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean; selectedName: string | null; onSelect: (name: string) => void }) {
   if (loading) return <LoadingPage />;
   if (!data) return null;
   const groups = workflowEvaluationGroups(data);
