@@ -189,6 +189,38 @@ def measurement_coverage(measurements: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def evaluation_definition_inputs(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mergeable inputs for the existing name-grouped dashboard diagnostics.
+
+    Results must already have passed through evaluation_profile and retain its
+    ordering. Targets and directions are the first numeric/string declarations,
+    just as in the shared UI; versions with the same name remain grouped.
+    Booleans are not numeric scores or targets in the JSON/JavaScript contract.
+    """
+    groups: dict[str, dict[str, Any]] = {}
+    for result in results:
+        name = str(result["name"])
+        group = groups.setdefault(name, {
+            "name": name, "reported": 0, "passed": 0, "needs_attention": 0, "unassessed": 0,
+            "score_sum": 0.0, "score_count": 0, "target": None, "direction": None,
+        })
+        group["reported"] += 1
+        state = result.get("passed")
+        group["passed" if state is True else "needs_attention" if state is False else "unassessed"] += 1
+        score = result.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            group["score_sum"] += score
+            group["score_count"] += 1
+        attributes = result.get("attributes") or {}
+        target = attributes.get("target")
+        if group["target"] is None and isinstance(target, (int, float)) and not isinstance(target, bool):
+            group["target"] = target
+        direction = attributes.get("direction")
+        if group["direction"] is None and isinstance(direction, str):
+            group["direction"] = direction
+    return sorted(groups.values(), key=lambda group: (-group["reported"], group["name"]))
+
+
 def evaluation_profile(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Existing dashboard diagnostics over ordered canonical evaluation rows.
 

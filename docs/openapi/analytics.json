@@ -172,6 +172,161 @@
         "title": "EvaluationCampaignResponse",
         "type": "object"
       },
+      "EvaluationDefinitionGroup": {
+        "properties": {
+          "average_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Score"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_attention": {
+            "minimum": 0.0,
+            "title": "Needs Attention",
+            "type": "integer"
+          },
+          "passed": {
+            "minimum": 0.0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "reported": {
+            "minimum": 0.0,
+            "title": "Reported",
+            "type": "integer"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "unassessed": {
+            "minimum": 0.0,
+            "title": "Unassessed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "reported",
+          "passed",
+          "needs_attention",
+          "unassessed"
+        ],
+        "title": "EvaluationDefinitionGroup",
+        "type": "object"
+      },
+      "EvaluationPagination": {
+        "properties": {
+          "definition_page_size": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Definition Page Size",
+            "type": "integer"
+          },
+          "definitions_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definitions Next Cursor"
+          },
+          "definitions_total": {
+            "minimum": 0.0,
+            "title": "Definitions Total",
+            "type": "integer"
+          },
+          "page_size": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "results_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results Next Cursor"
+          },
+          "results_total": {
+            "minimum": 0.0,
+            "title": "Results Total",
+            "type": "integer"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1alpha1",
+            "default": "v1alpha1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "selected_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Name"
+          },
+          "summary_scope": {
+            "const": "all_projected_executions",
+            "default": "all_projected_executions",
+            "title": "Summary Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "results_total",
+          "definitions_total",
+          "page_size",
+          "definition_page_size"
+        ],
+        "title": "EvaluationPagination",
+        "type": "object"
+      },
       "EvaluationSummary": {
         "properties": {
           "executions": {
@@ -2298,6 +2453,45 @@
             },
             "title": "Campaigns",
             "type": "array"
+          },
+          "campaigns_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "available",
+                  "unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaigns Status"
+          },
+          "definition_groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EvaluationDefinitionGroup"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition Groups"
+          },
+          "pagination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationPagination"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "results": {
             "items": {

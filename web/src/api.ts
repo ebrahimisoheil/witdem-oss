@@ -499,11 +499,24 @@ export type EvaluationResult = {
   passed?: boolean | null;
   attributes: Record<string, unknown>;
 };
+export type EvaluationDefinitionGroup = {
+  name: string; reported: number; passed: number; needs_attention: number; unassessed: number;
+  average_score: number | null; target: number | null; direction: string | null;
+};
+export type EvaluationPageRequest = { after?: string; definitions_after?: string; name?: string };
 export type WorkflowEvaluations = {
   workflow_id: string;
   summary: { reported: number; passed: number; needs_attention: number; unassessed: number; executions: number };
   results: EvaluationResult[];
   campaigns: Array<Record<string, unknown>>;
+  campaigns_status?: "available" | "unavailable" | null;
+  definition_groups?: EvaluationDefinitionGroup[] | null;
+  pagination?: {
+    schema_version: "v1alpha1"; summary_scope: "all_projected_executions"; revision: number;
+    results_next_cursor: string | null; definitions_next_cursor: string | null;
+    results_total: number; definitions_total: number; page_size: number; definition_page_size: number;
+    selected_name: string | null;
+  } | null;
 };
 
 export type WorkflowDefinitionSummary = {
@@ -605,8 +618,8 @@ export const api = {
     get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
   workflowOperations: (workflowId: string) =>
     get<WorkflowOperations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/operations`),
-  workflowEvaluations: (workflowId: string) =>
-    get<WorkflowEvaluations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/evaluations`),
+  workflowEvaluations: (workflowId: string, page: EvaluationPageRequest = {}) =>
+    get<WorkflowEvaluations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/evaluations${Object.keys(page).length ? `?${new URLSearchParams(page).toString()}` : ""}`),
   compare: (dimension: string, filters: DashboardFilters = {}) =>
     get<{ dimension: string; items: ComparisonInsight[] }>(
       withFilters(`/api/v1/compare/${dimension}`, filters),

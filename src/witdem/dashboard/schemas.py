@@ -282,6 +282,33 @@ class WorkflowEvaluationsResponse(BaseModel):
     summary: EvaluationSummary
     results: list[JsonObject] = Field(default_factory=list)
     campaigns: list[JsonObject] = Field(default_factory=list)
+    definition_groups: list[EvaluationDefinitionGroup] | None = None
+    pagination: EvaluationPagination | None = None
+    campaigns_status: Literal["available", "unavailable"] | None = None
+
+
+class EvaluationDefinitionGroup(BaseModel):
+    name: str
+    reported: int = Field(ge=0)
+    passed: int = Field(ge=0)
+    needs_attention: int = Field(ge=0)
+    unassessed: int = Field(ge=0)
+    average_score: float | None = None
+    target: float | None = None
+    direction: str | None = None
+
+
+class EvaluationPagination(BaseModel):
+    schema_version: Literal["v1alpha1"] = "v1alpha1"
+    summary_scope: Literal["all_projected_executions"] = "all_projected_executions"
+    revision: int = Field(ge=1)
+    results_next_cursor: str | None = None
+    definitions_next_cursor: str | None = None
+    results_total: int = Field(ge=0)
+    definitions_total: int = Field(ge=0)
+    page_size: int = Field(ge=1, le=100)
+    definition_page_size: int = Field(ge=1, le=100)
+    selected_name: str | None = None
 
 
 class WorkflowEvaluationCampaignsResponse(BaseModel):

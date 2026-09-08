@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
 import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
+import type { EvaluationPageRequest } from "./api";
 
 export const workflowRunsHref = (
   workflowId: string,
@@ -174,15 +175,36 @@ export function WorkflowOperationsPage() {
 
 export function WorkflowEvaluationsPage() {
   const { workflowId } = useParams({ from: "/workflows/$workflowId/evaluations" });
+  const [page, setPage] = useState<EvaluationPageRequest>({});
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
-  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId], queryFn: () => api.workflowEvaluations(workflowId) });
+  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId, page], queryFn: () => api.workflowEvaluations(workflowId, page), placeholderData: (previous) => previous });
+  const restart = () => { setPage({}); setSelectedName(null); if (!Object.keys(page).length) void evaluations.refetch(); };
+  const selectName = (name: string) => {
+    const next = selectedName === name ? null : name;
+    setSelectedName(next);
+    if (evaluations.data?.pagination) setPage({ ...(page.definitions_after ? { definitions_after: page.definitions_after } : {}), ...(next ? { name: next } : {}) });
+  };
+  useEffect(() => { setPage({}); setSelectedName(null); }, [workflowId]);
   if (workflow.isLoading || evaluations.isLoading) return <LoadingPage />;
   if (workflow.error) return <ErrorPage error={workflow.error} />;
-  if (evaluations.error) return <ErrorPage error={evaluations.error} />;
+  if (evaluations.error) return <><ErrorPage error={evaluations.error} /><Button onClick={restart}>Reload evaluations from the first page</Button></>;
   return <>
     <PageHeader compact eyebrow="Workflow evaluations" title={workflow.data!.workflow.name} description="Assessment coverage, score-versus-target results, regressions, and the exact executions behind them." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
-    <WorkflowEvaluationsView workflowId={workflowId} data={evaluations.data} loading={false} />
+    {evaluations.isFetching ? <p role="status" className="mb-3 text-xs text-[#777178]">Updating evaluations…</p> : null}
+    <div aria-busy={evaluations.isFetching}>
+      <WorkflowEvaluationsView workflowId={workflowId} data={evaluations.data} loading={false}
+        selectedName={evaluations.data?.pagination ? evaluations.data.pagination.selected_name : selectedName}
+        onSelect={selectName} />
+    </div>
+    {evaluations.data?.pagination ? <div className="mt-4 flex flex-wrap gap-2" aria-label="Evaluation pagination">
+      <Button variant="outline" disabled={evaluations.isFetching} onClick={restart}>First pages / refresh</Button>
+      <Button variant="outline" disabled={evaluations.isFetching || !evaluations.data.pagination.definitions_next_cursor}
+        onClick={() => setPage({ ...page, definitions_after: evaluations.data!.pagination!.definitions_next_cursor! })}>Next definitions</Button>
+      <Button variant="outline" disabled={evaluations.isFetching || !evaluations.data.pagination.results_next_cursor}
+        onClick={() => setPage({ ...page, after: evaluations.data!.pagination!.results_next_cursor! })}>Next supporting results</Button>
+    </div> : null}
   </>;
 }
 
@@ -273,33 +295,34 @@ function CoordinationCard({ title, value, detail, explanation }: { title: string
   return <div className="grid min-w-0 gap-3 rounded-lg border border-[#e5e2e8] bg-[#fbfafc] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><div className="text-xs font-semibold text-[#39343e]">{title}</div><div className="mt-1 text-[9px] leading-4 text-[#777178]">{explanation}</div></div><div className="min-w-0 sm:text-right"><div className="text-sm font-semibold text-[#3e3650]">{value}</div><div className="mt-0.5 text-[9px] text-[#89838b]">{detail}</div></div></div>;
 }
 
-function WorkflowEvaluationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean }) {
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+function WorkflowEvaluationsView({ workflowId, data, loading, selectedName, onSelect }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean; selectedName: string | null; onSelect: (name: string) => void }) {
   if (loading) return <LoadingPage />;
   if (!data) return null;
-  const groups = groupEvaluations(data.results);
+  const groups = workflowEvaluationGroups(data);
   const assessed = data.summary.passed + data.summary.needs_attention;
   const passRate = assessed ? data.summary.passed / assessed : null;
-  const selected = selectedName ? data.results.filter((result) => result.name === selectedName) : data.results;
+  const selected = (selectedName ? data.results.filter((result) => result.name === selectedName) : data.results)
+    .slice(0, data.pagination ? data.pagination.page_size : 18);
   return <div className="space-y-4">
+    {data.pagination ? <p className="text-xs text-[#777178]">Totals cover all projected executions. Showing {groups.length} of {data.pagination.definitions_total} definitions and {data.results.length} of {data.pagination.results_total} supporting results{selectedName ? ` for ${selectedName}` : ""}.</p> : null}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <InsightCard label="Assessed pass rate" value={passRate == null ? "Not assessed" : `${Math.round(passRate * 100)}%`} note={`${formatNumber(data.summary.passed)} passed of ${formatNumber(assessed)} assessed`} tone={data.summary.needs_attention ? "attention" : assessed ? "good" : "default"} />
-      <InsightCard label="Evaluation coverage" value={`${formatNumber(data.summary.reported)} results`} note={`${formatNumber(data.summary.executions)} executions · ${formatNumber(groups.length)} definitions`} />
+      <InsightCard label="Evaluation coverage" value={`${formatNumber(data.summary.reported)} results`} note={`${formatNumber(data.summary.executions)} executions · ${formatNumber(data.pagination?.definitions_total ?? groups.length)} definitions`} />
       <InsightCard label="Needs attention" value={formatNumber(data.summary.needs_attention)} note={`${formatNumber(data.summary.unassessed)} unassessed results remain neutral`} tone={data.summary.needs_attention ? "attention" : "good"} />
-      <InsightCard label="Offline campaigns" value={formatNumber(data.campaigns.length)} note={data.campaigns.length ? "Dataset and regression campaigns" : "No campaign results imported"} />
+      <InsightCard label="Offline campaigns" value={data.campaigns_status === "unavailable" ? "Unavailable" : formatNumber(data.campaigns.length)} note={data.campaigns_status === "unavailable" ? "Campaign data is not available from this source" : data.campaigns.length ? "Dataset and regression campaigns" : "No campaign results imported"} />
     </div>
-    {!data.results.length && !data.campaigns.length ? <Panel title="Evaluations"><Empty>No online evaluation results or offline campaigns have been reported.</Empty></Panel> : null}
-    {data.results.length ? <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
+    {!data.summary.reported ? <Panel title="Evaluations"><Empty>No online evaluation results have been reported.</Empty></Panel> : null}
+    {data.summary.reported ? <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
       <Panel title="Assessment state" note="Only explicit status or declared target semantics produce pass/attention."><EvaluationOutcomeChart summary={data.summary} /></Panel>
-      <Panel title="Score versus declared target" note="Average observed score and target by evaluation definition. Select a bar for supporting runs."><EvaluationScoreChart groups={groups} onSelect={setSelectedName} /></Panel>
+      <Panel title="Score versus declared target" note="Average observed score and target by evaluation definition on this page. Select a bar for supporting runs."><EvaluationScoreChart groups={groups} onSelect={onSelect} /></Panel>
     </div> : null}
     {groups.length ? <Panel title="Evaluation definitions" note="Compact definition-level analytics replace repeated result rows. Select a card to drill into runs.">
-      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{groups.map((group) => <EvaluationDefinitionCard key={group.name} group={group} active={selectedName === group.name} onClick={() => setSelectedName(selectedName === group.name ? null : group.name)} />)}</div>
+      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{groups.map((group) => <EvaluationDefinitionCard key={group.name} group={group} active={selectedName === group.name} onClick={() => onSelect(group.name)} />)}</div>
     </Panel> : null}
     {selected.length ? <Panel title={`Supporting results · ${selectedName || "all evaluations"}`} note="The exact workflow executions behind the aggregate; evaluator economics remain in Operations.">
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
         <div className={`grid gap-3 bg-[#f5f3f6] px-3 py-1.5 text-[8px] font-semibold uppercase tracking-[.1em] text-[#847e86] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><span>{selectedName ? "Execution" : "Definition / execution"}</span><span>Observed value</span><span>Assessment</span><span className="text-right">Source</span></div>
-        {selected.slice(0, 18).map((result) => <a key={result.evaluation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(result.execution_id)}`} className={`grid items-center gap-3 border-t border-[#ece9ed] px-3 py-2 text-[9px] transition hover:bg-[#faf8ff] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><div className="min-w-0">{selectedName ? <><div className="truncate font-medium text-[#39343e]">{result.execution_id.slice(0, 12)}</div><div className="mt-0.5 truncate text-[8px] text-[#89838b]">{formatDateTime(result.execution_started_at)}</div></> : <><div className="truncate font-semibold">{result.name}</div><div className="truncate text-[8px] text-[#89838b]">{result.execution_id.slice(0, 12)} · {formatDateTime(result.execution_started_at)}</div></>}</div><div className="font-medium text-[#39343e]">{evaluationValue(result)}</div><div><EvaluationState result={result} /></div><div className="truncate text-right text-[8px] text-[#777178]" title={result.source || "reported"}>{evaluationSourceLabel(result.source)}</div></a>)}
+        {selected.map((result) => <a key={result.evaluation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(result.execution_id)}`} className={`grid items-center gap-3 border-t border-[#ece9ed] px-3 py-2 text-[9px] transition hover:bg-[#faf8ff] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><div className="min-w-0">{selectedName ? <><div className="truncate font-medium text-[#39343e]">{result.execution_id.slice(0, 12)}</div><div className="mt-0.5 truncate text-[8px] text-[#89838b]">{formatDateTime(result.execution_started_at)}</div></> : <><div className="truncate font-semibold">{result.name}</div><div className="truncate text-[8px] text-[#89838b]">{result.execution_id.slice(0, 12)} · {formatDateTime(result.execution_started_at)}</div></>}</div><div className="font-medium text-[#39343e]">{evaluationValue(result)}</div><div><EvaluationState result={result} /></div><div className="truncate text-right text-[8px] text-[#777178]" title={result.source || "reported"}>{evaluationSourceLabel(result.source)}</div></a>)}
       </div>
     </Panel> : null}
   </div>;
@@ -391,7 +414,7 @@ const operationInterfaceLabel = (interfaces: string[], family: string) => {
 function CardValue({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-xs font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
 function CardCell({ label, value }: { label: string; value: string }) { return <div className="min-w-0 bg-[#fbfafc] px-2.5 py-2"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-[11px] font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
 
-type EvaluationGroup = { name: string; results: EvaluationResult[]; passed: number; attention: number; unassessed: number; averageScore: number | null; target: number | null; direction: string | null };
+type EvaluationGroup = { name: string; reported: number; results: EvaluationResult[]; passed: number; attention: number; unassessed: number; averageScore: number | null; target: number | null; direction: string | null };
 export function groupEvaluations(results: EvaluationResult[]): EvaluationGroup[] {
   const grouped = new Map<string, EvaluationResult[]>();
   results.forEach((result) => grouped.set(result.name, [...(grouped.get(result.name) || []), result]));
@@ -399,8 +422,19 @@ export function groupEvaluations(results: EvaluationResult[]): EvaluationGroup[]
     const scores = rows.map((row) => row.score).filter((score): score is number => typeof score === "number");
     const targets = rows.map((row) => row.attributes.target).filter((target): target is number => typeof target === "number");
     const direction = rows.map((row) => row.attributes.direction).find((value) => typeof value === "string");
-    return { name, results: rows, passed: rows.filter((row) => row.passed === true).length, attention: rows.filter((row) => row.passed === false).length, unassessed: rows.filter((row) => row.passed == null).length, averageScore: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null, target: targets.length ? targets[0] : null, direction: typeof direction === "string" ? direction : null };
+    return { name, reported: rows.length, results: rows, passed: rows.filter((row) => row.passed === true).length, attention: rows.filter((row) => row.passed === false).length, unassessed: rows.filter((row) => row.passed == null).length, averageScore: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null, target: targets.length ? targets[0] : null, direction: typeof direction === "string" ? direction : null };
   }).sort((left, right) => right.results.length - left.results.length || left.name.localeCompare(right.name));
+}
+
+export function workflowEvaluationGroups(data: WorkflowEvaluations): EvaluationGroup[] {
+  if (!data.pagination) return groupEvaluations(data.results);
+  // A supporting page must never be mistaken for the complete population.
+  if (!data.definition_groups) throw new Error("Paginated evaluations require definition aggregates");
+  return data.definition_groups.map((group) => ({
+    name: group.name, reported: group.reported, results: [], passed: group.passed,
+    attention: group.needs_attention, unassessed: group.unassessed,
+    averageScore: group.average_score, target: group.target, direction: group.direction,
+  }));
 }
 
 function EvaluationOutcomeChart({ summary }: { summary: WorkflowEvaluations["summary"] }) {
@@ -419,7 +453,7 @@ function EvaluationDefinitionCard({ group, active, onClick }: { group: Evaluatio
   const rate = assessed ? Math.round(group.passed / assessed * 100) : null;
   return <button type="button" onClick={onClick} className={`min-w-0 rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
     <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0 truncate text-[13px] font-semibold" title={group.name}>{group.name}</div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${group.attention ? "bg-red-50 text-red-700" : assessed ? "bg-[#eef8f2] text-[#27754c]" : "bg-stone-100 text-stone-600"}`}>{rate == null ? "Unassessed" : `${rate}% pass`}</span></div>
-    <div className="mt-2.5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Reported" value={formatNumber(group.results.length)} /><CardCell label="Average" value={group.averageScore == null ? "Not scored" : formatNumber(group.averageScore)} /><CardCell label="Target" value={group.target == null ? "None" : formatNumber(group.target)} /></div>
+    <div className="mt-2.5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Reported" value={formatNumber(group.reported)} /><CardCell label="Average" value={group.averageScore == null ? "Not scored" : formatNumber(group.averageScore)} /><CardCell label="Target" value={group.target == null ? "None" : formatNumber(group.target)} /></div>
     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[8px]"><span className="text-emerald-700">{group.passed} passed</span><span className={group.attention ? "font-semibold text-red-700" : "text-[#89838b]"}>{group.attention} attention</span><span className="text-[#777178]">{group.unassessed} unassessed</span>{group.direction ? <span className="ml-auto text-[#89838b]">{group.direction.replaceAll("_", " ")}</span> : null}</div>
   </button>;
 }
