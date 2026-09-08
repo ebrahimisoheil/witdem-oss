@@ -2,9 +2,10 @@ import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { Graph as DagreGraph, layout as runDagreLayout, type Point } from "@dagrejs/dagre";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
+import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationParticipantRow, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
 import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
+import type { EvaluationPageRequest, OperationPageRequest, OperationPagination } from "./api";
 
 export const workflowRunsHref = (
   workflowId: string,
@@ -101,6 +102,17 @@ export function WorkflowDefinitionsPage() {
   </>;
 }
 
+export function workflowWindowNotice(window: Awaited<ReturnType<typeof api.workflowDefinition>>["execution_window"]) {
+  if (!window || window.included_count >= window.total_count) return null;
+  const order = window.order === "started_at_desc" ? "start time" : "projection update time";
+  return `This overview covers ${formatNumber(window.included_count)} of ${formatNumber(window.total_count)} executions, ordered by ${order}. Charts and rates describe this window, not all-time totals.`;
+}
+
+function WorkflowWindowNotice({ window, workflowId }: { window: Awaited<ReturnType<typeof api.workflowDefinition>>["execution_window"]; workflowId: string }) {
+  const notice = workflowWindowNotice(window);
+  return notice ? <p className="mb-4 text-xs text-[#74746e]">{notice} <a href={workflowRunsHref(workflowId)} className="font-semibold text-[#5c35c8] hover:underline">Browse all executions →</a></p> : null;
+}
+
 export function WorkflowDefinitionPage() {
   const { workflowId } = useParams({ from: "/workflows/$workflowId" });
   const q = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
@@ -114,6 +126,7 @@ export function WorkflowDefinitionPage() {
   return <>
     <PageHeader compact eyebrow="Workflow" title={workflow.name} description={workflow.description || "Declared workflow template"} action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
+    <WorkflowWindowNotice window={q.data!.execution_window} workflowId={workflowId} />
     <Panel title="Declared structure" note="The YAML topology stays stable while telemetry activates the path taken by each runtime.">
       <DeclaredOverview replay={{ workflow, execution: { execution_id: "template" }, stages: workflow.stages.map((stage) => ({ ...stage, state: "inactive", active_nodes: 0, duration_seconds: null, known_cost: null, total_tokens: null })), nodes: [], transitions: workflow.transitions, outcomes: workflow.outcomes, discrepancies: { unexpected_operations: [], unexpected_transitions: [] } }} />
     </Panel>
@@ -133,11 +146,11 @@ function WorkflowSubnav({ workflowId }: { workflowId: string }) {
   return <nav className="mb-4 flex w-fit rounded-lg border border-[#ddd8e5] bg-[#f3f1f5] p-1" aria-label="Workflow views">{links.map((item) => <a key={item.label} href={item.to} aria-current={path === item.to ? "page" : undefined} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${path === item.to ? "bg-white text-[#5b3aa5] shadow-sm" : "text-[#767079] hover:text-[#4c4650]"}`}>{item.label}</a>)}</nav>;
 }
 
-function WorkflowContextSummary({ workflowId, operations, evaluations }: { workflowId: string; operations?: WorkflowOperations; evaluations?: WorkflowEvaluations }) {
+export function WorkflowContextSummary({ workflowId, operations, evaluations }: { workflowId: string; operations?: WorkflowOperations; evaluations?: WorkflowEvaluations }) {
   return <div className="mt-4 grid gap-3 md:grid-cols-2">
     <a href={`/workflows/${encodeURIComponent(workflowId)}/operations`} className="rounded-lg border border-[#e5e2e8] bg-white p-3 text-left transition hover:border-[#cfc6ef]">
       <div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Operation profile</h3><span className="text-[10px] font-semibold text-[#6544b0]">Open →</span></div>
-      <p className="mt-1 text-[10px] text-[#7c767e]">{formatNumber(operations?.summary.total_operations)} observed operations · {formatNumber(operations?.summary.types.length)} types · {formatNumber(operations?.summary.failed_operations)} failed</p>
+      <p className="mt-1 text-[10px] text-[#7c767e]">{formatNumber(operations?.summary.total_operations)} observed operations · {formatNumber(operations?.pagination?.types_total ?? operations?.summary.types.length)} types · {formatNumber(operations?.summary.failed_operations)} failed</p>
     </a>
     <a href={`/workflows/${encodeURIComponent(workflowId)}/evaluations`} className="rounded-lg border border-[#e5e2e8] bg-white p-3 text-left transition hover:border-[#cfc6ef]">
       <div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Evaluation status</h3><span className="text-[10px] font-semibold text-[#6544b0]">Open →</span></div>
@@ -147,30 +160,56 @@ function WorkflowContextSummary({ workflowId, operations, evaluations }: { workf
 }
 
 export function WorkflowOperationsPage() {
+  const [page, setPage] = useState<OperationPageRequest>({});
   const { workflowId } = useParams({ from: "/workflows/$workflowId/operations" });
   const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
-  const operations = useQuery({ queryKey: ["workflow-operations", workflowId], queryFn: () => api.workflowOperations(workflowId) });
+  const operations = useQuery({ queryKey: ["workflow-operations", workflowId, page], queryFn: () => api.workflowOperations(workflowId, page), placeholderData: (previous: WorkflowOperations | undefined) => previous, retry: false });
+  useEffect(() => { setPage({}); }, [workflowId]);
   if (workflow.isLoading || operations.isLoading) return <LoadingPage />;
   if (workflow.error) return <ErrorPage error={workflow.error} />;
-  if (operations.error) return <ErrorPage error={operations.error} />;
+  if (operations.error) return <><ErrorPage error={operations.error} /><Button onClick={() => { setPage({}); void operations.refetch(); }}>Reload operations from the first page</Button></>;
   return <>
     <PageHeader compact eyebrow="Workflow operations" title={workflow.data!.workflow.name} description="What ran, where time and usage accumulated, and which providers or models performed the work." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
-    <WorkflowOperationsView workflowId={workflowId} data={operations.data} loading={false} />
+    {operations.isFetching ? <p role="status" className="mb-3 text-xs text-[#777178]">Updating operations…</p> : null}
+    <fieldset disabled={operations.isFetching} aria-busy={operations.isFetching} className="min-w-0">
+      <WorkflowOperationsView workflowId={workflowId} data={operations.data} loading={false} onRequest={(next) => setPage({ ...page, ...next })} />
+    </fieldset>
   </>;
 }
 
 export function WorkflowEvaluationsPage() {
   const { workflowId } = useParams({ from: "/workflows/$workflowId/evaluations" });
+  const [page, setPage] = useState<EvaluationPageRequest>({});
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
-  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId], queryFn: () => api.workflowEvaluations(workflowId) });
+  const evaluations = useQuery({ queryKey: ["workflow-evaluations", workflowId, page], queryFn: () => api.workflowEvaluations(workflowId, page), retry: false, placeholderData: (previous) => previous });
+  const restart = () => { setPage({}); setSelectedName(null); if (!Object.keys(page).length) void evaluations.refetch(); };
+  const selectName = (name: string) => {
+    const next = selectedName === name ? null : name;
+    setSelectedName(next);
+    if (evaluations.data?.pagination) setPage({ ...(page.definitions_after ? { definitions_after: page.definitions_after } : {}), ...(next ? { name: next } : {}) });
+  };
+  useEffect(() => { setPage({}); setSelectedName(null); }, [workflowId]);
   if (workflow.isLoading || evaluations.isLoading) return <LoadingPage />;
   if (workflow.error) return <ErrorPage error={workflow.error} />;
-  if (evaluations.error) return <ErrorPage error={evaluations.error} />;
+  if (evaluations.error) return <><ErrorPage error={evaluations.error} /><Button onClick={restart}>Reload evaluations from the first page</Button></>;
   return <>
     <PageHeader compact eyebrow="Workflow evaluations" title={workflow.data!.workflow.name} description="Assessment coverage, score-versus-target results, regressions, and the exact executions behind them." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
-    <WorkflowEvaluationsView workflowId={workflowId} data={evaluations.data} loading={false} />
+    {evaluations.isFetching ? <p role="status" className="mb-3 text-xs text-[#777178]">Updating evaluations…</p> : null}
+    <div aria-busy={evaluations.isFetching}>
+      <WorkflowEvaluationsView workflowId={workflowId} data={evaluations.data} loading={false}
+        selectedName={evaluations.data?.pagination ? evaluations.data.pagination.selected_name : selectedName}
+        onSelect={selectName} />
+    </div>
+    {evaluations.data?.pagination ? <div className="mt-4 flex flex-wrap gap-2" aria-label="Evaluation pagination">
+      <Button variant="outline" disabled={evaluations.isFetching} onClick={restart}>First pages / refresh</Button>
+      <Button variant="outline" disabled={evaluations.isFetching || !evaluations.data.pagination.definitions_next_cursor}
+        onClick={() => setPage({ ...page, definitions_after: evaluations.data!.pagination!.definitions_next_cursor! })}>Next definitions</Button>
+      <Button variant="outline" disabled={evaluations.isFetching || !evaluations.data.pagination.results_next_cursor}
+        onClick={() => setPage({ ...page, after: evaluations.data!.pagination!.results_next_cursor! })}>Next supporting results</Button>
+    </div> : null}
   </>;
 }
 
@@ -184,6 +223,7 @@ export function WorkflowExecutionsPage() {
   return <>
     <PageHeader compact eyebrow="Workflow executions" title={workflow.name} description="Runs matched to this workflow and its historical template versions." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
+    <WorkflowWindowNotice window={q.data!.execution_window} workflowId={workflowId} />
     <Panel title="Executions" note="Select a run to inspect its path, operations, measurements, and evaluations.">
       <div className="space-y-2">{executions.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(run.execution_id)}`} />)}</div>
       {!executions.length ? <Empty>No executions have matched this workflow yet.</Empty> : null}
@@ -192,9 +232,56 @@ export function WorkflowExecutionsPage() {
   </>;
 }
 
-function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowOperations; loading: boolean }) {
+export function PaginatedOperationsView({ workflowId, data, onRequest }: { workflowId: string; data: WorkflowOperations; onRequest?: (page: OperationPageRequest) => void }) {
+  const page = data.pagination!;
+  const coverage = data.measurement_coverage;
+  const selectType = (type: string) => onRequest?.({ operation_type: page.operation_type === type ? undefined : type, after: undefined });
+  const typeCharts = data.summary.types;
+  return <div className="space-y-4">
+    <p className="text-xs text-[#777178]">Totals cover all projected executions. Showing {typeCharts.length} of {page.types_total} type summaries and {data.operations.length} supporting operations. Type charts cover this page only.</p>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <InsightCard label="Operations" value={formatNumber(data.summary.total_operations)} note="All classified operations; execution containers excluded" />
+      <InsightCard label="Failed operations" value={formatNumber(data.summary.failed_operations)} note="Reported failures across all projected executions" tone={data.summary.failed_operations ? "attention" : "good"} />
+      <InsightCard label="Usage coverage" value={coverage.coverage == null ? "Not applicable" : `${Math.round(coverage.coverage * 100)}%`} note={`${formatNumber(coverage.measured)} measured · ${formatNumber(coverage.missing)} missing applicable meters`} tone={coverage.missing ? "attention" : "good"} />
+      <InsightCard label="Operation types" value={formatNumber(page.types_total)} note="Distinct types across all projected executions" />
+    </div>
+    {onRequest ? <div className="flex flex-wrap gap-2" aria-label="Operation pagination">
+      <Button variant="outline" onClick={() => onRequest({ after: undefined, types_after: undefined, operation_type: undefined })}>First pages</Button>
+      <Button variant="outline" disabled={!page.types_next_cursor} onClick={() => onRequest({ types_after: page.types_next_cursor! })}>Next type summaries</Button>
+      <Button variant="outline" disabled={!page.operations_next_cursor} onClick={() => onRequest({ after: page.operations_next_cursor! })}>Next supporting operations</Button>
+    </div> : <a className="text-xs text-[#6d4aff]" href={`/workflows/${encodeURIComponent(workflowId)}/operations`}>Open operations to change pages and chart filters →</a>}
+    <Panel title="Operation types · this page" note="Volume, time and usage for the displayed types. Each type total covers all projected executions; this is not a chart of every type.">
+      {typeCharts.length ? <OperationActivityChart items={typeCharts} onSelect={selectType} /> : <Empty>No type summaries on this page.</Empty>}
+      <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{typeCharts.map((item) => <div key={item.type}>
+        <OperationTypeCard item={item} active={page.operation_type === item.type} onClick={() => selectType(item.type)} />
+        {item.detail_truncated?.length ? <p className="mt-1 text-[10px] text-[#777178]">Supporting metadata limited to {page.detail_limit} entries per list: {item.detail_truncated.join(", ")}. Counts and reported meter totals are not reduced.</p> : null}
+      </div>)}</div>
+    </Panel>
+    <Panel title="Who performed the work" note={`Top ${page.participant_limit} ${page.participant_dimension} identities by ${page.participant_metric}, across all projected work operations. This chart is independent of the type and operation pages.`}>
+      {data.participants == null ? <Empty>Participant aggregates are unavailable.</Empty> : <fieldset disabled={!onRequest} className="min-w-0"><ParticipantOperationChart operations={[]} measurements={[]} participants={data.participants} selection={{ dimension: page.participant_dimension, metric: page.participant_metric, onChange: (next) => onRequest?.(next) }} /></fieldset>}
+    </Panel>
+    <Panel title={`Supporting operations · ${page.operation_type ? operationLabel(page.operation_type) : "All types"}`} note="Exact type filter; ordered by execution and operation identity. Open an execution for its full path and measurements.">
+      {page.operation_type && onRequest ? <Button variant="outline" onClick={() => onRequest({ operation_type: undefined, after: undefined })}>Clear type filter</Button> : null}
+      <div className="divide-y divide-[#ece9ed]">{data.operations.map((operation) => <a key={JSON.stringify([operation.execution_id, operation.operation_id])} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.5fr_1fr_.7fr] gap-3 py-3 text-xs">
+        <div><strong>{operationLabel(operation.operation_type)}</strong><div className="text-[#89838b]">{operation.node_id || operation.operation_id}</div></div>
+        <div>{operation.model_id || operation.provider_id || operation.implementation_id || "Not reported"}</div>
+        <div className={operationStatusPresentation(operation.status).className}>{operationStatusPresentation(operation.status).label}<div className="text-[#89838b]">{seconds(operation.duration_seconds)}</div></div>
+      </a>)}</div>
+      {!data.operations.length ? <Empty>No supporting operations match this page and filter.</Empty> : null}
+    </Panel>
+  </div>;
+}
+
+export function operationStatusPresentation(status: string | null | undefined) {
+  if (status === "error" || status === "failed") return { label: status, failed: true, className: "font-semibold text-red-700" };
+  if (status === "ok" || status === "success" || status === "completed") return { label: status, failed: false, className: "text-[#27754c]" };
+  return { label: status === "unset" ? "Observed" : status || "Not reported", failed: false, className: "text-[#89838b]" };
+}
+
+export function WorkflowOperationsView({ workflowId, data, loading, onRequest }: { workflowId: string; data?: WorkflowOperations; loading: boolean; onRequest?: (page: OperationPageRequest) => void }) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   if (loading) return <LoadingPage />;
+  if (data?.pagination) return <PaginatedOperationsView workflowId={workflowId} data={data} onRequest={onRequest} />;
   if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
   const operationPlane = (item: OperationTypeSummary) => item.plane || (["orchestration", "agent_control"].includes(item.family) ? "control" : "work");
   const workTypes = data.summary.types.filter((item) => operationPlane(item) === "work");
@@ -225,12 +312,12 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
       }
     }
   }
-  const selectedOperations = workOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => right.duration_seconds - left.duration_seconds).slice(0, 12);
+  const selectedOperations = workOperations.filter((operation) => selectedOperationIds.has(operation.operation_id)).sort((left, right) => (right.duration_seconds ?? -1) - (left.duration_seconds ?? -1)).slice(0, 12);
   const selectedLabel = selectedType ? operationLabel(selectedType) : "All operation types";
   return <div className="space-y-4">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <InsightCard label="Work operations" value={formatNumber(workOperations.length)} note={`${formatNumber(executionCount)} executions · ${formatNumber(workTypes.length)} operation types`} />
-      <InsightCard label="Direct failures" value={formatNumber(workOperations.filter((operation) => ["error", "failed"].includes(operation.status)).length)} note="Failures in computational, external, or human work" tone={workOperations.some((operation) => ["error", "failed"].includes(operation.status)) ? "attention" : "good"} />
+      <InsightCard label="Direct failures" value={formatNumber(workOperations.filter((operation) => operationStatusPresentation(operation.status).failed).length)} note="Failures in computational, external, or human work" tone={workOperations.some((operation) => operationStatusPresentation(operation.status).failed) ? "attention" : "good"} />
       <InsightCard label="Usage coverage" value={meterCoverage == null ? "Not applicable" : `${Math.round(meterCoverage * 100)}%`} note={`${formatNumber(measuredMeters)} measured · ${formatNumber(missingMeters)} missing applicable meters`} tone={missingMeters ? "attention" : "good"} />
       <InsightCard label="Participants" value={formatNumber(uniqueIdentities(workOperations.flatMap((operation) => [operation.provider_id, operation.model_id, operation.implementation_id])).length)} note="Distinct reported providers, models, and implementations" />
     </div>
@@ -241,7 +328,7 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
     </Panel> : null}
     <div className="grid gap-4 xl:grid-cols-2">
       <Panel title="Where work happened" note="Work-plane operations only. Switch between volume, active time, cost, tokens, and operation-specific meters."><OperationActivityChart items={workTypes} onSelect={setSelectedType} /></Panel>
-      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by distinct participant identity."><ParticipantOperationChart operations={workOperations} measurements={workMeasurements} /></Panel>
+      <Panel title="Who performed the work" note="Directly attributed calls, latency, cost, and tokens by distinct participant identity."><ParticipantOperationChart operations={workOperations} measurements={workMeasurements} participants={data.participants} /></Panel>
     </div>
     <Panel title="Work profile" note="Computational, external, and human work—separate from control flow and business outcomes. Select a card to inspect supporting operations.">
       <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{workTypes.map((item) => <OperationTypeCard key={item.type} item={item} active={selectedType === item.type} onClick={() => setSelectedType(selectedType === item.type ? null : item.type)} />)}</div>
@@ -249,7 +336,7 @@ function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: str
     <Panel title={`Observed operations · ${selectedLabel}`} note={selectedType ? "Selected operations and their nested child work. Open an execution to inspect the full path." : "Longest operations first. Open an execution to inspect the operation in its workflow path."}>
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
         <div className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 bg-[#f5f3f6] px-3 py-2 text-[9px] font-semibold uppercase tracking-[.1em] text-[#847e86]"><span>Operation / node</span><span>Participant</span><span>Elapsed</span><span>Status</span></div>
-        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.implementation_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operation.status === "error" || operation.status === "failed" ? "font-semibold text-red-700" : "text-[#27754c]"}>{operation.status === "unset" ? "Observed" : operation.status}</div></a>)}
+        {selectedOperations.map((operation) => <a key={operation.operation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.35fr_1fr_.7fr_.55fr] gap-3 border-t border-[#ece9ed] px-3 py-2.5 text-[10px] transition first:border-t-0 hover:bg-[#faf8ff]"><div className="min-w-0"><div className="truncate font-semibold text-[#37323a]">{operationLabel(operation.operation_type)}</div><div className="truncate text-[9px] text-[#89838b]">{operation.node_id || operation.subtype || "Observed operation"}</div></div><div className="min-w-0 truncate text-[#625c65]">{operation.model_id || operation.provider_id || operation.implementation_id || operation.interface || "Not reported"}</div><div>{seconds(operation.duration_seconds)}</div><div className={operationStatusPresentation(operation.status).className}>{operationStatusPresentation(operation.status).label}</div></a>)}
       </div>
       {!selectedOperations.length ? <Empty>No operations match this type.</Empty> : null}
     </Panel>
@@ -260,33 +347,34 @@ function CoordinationCard({ title, value, detail, explanation }: { title: string
   return <div className="grid min-w-0 gap-3 rounded-lg border border-[#e5e2e8] bg-[#fbfafc] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><div className="text-xs font-semibold text-[#39343e]">{title}</div><div className="mt-1 text-[9px] leading-4 text-[#777178]">{explanation}</div></div><div className="min-w-0 sm:text-right"><div className="text-sm font-semibold text-[#3e3650]">{value}</div><div className="mt-0.5 text-[9px] text-[#89838b]">{detail}</div></div></div>;
 }
 
-function WorkflowEvaluationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean }) {
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+export function WorkflowEvaluationsView({ workflowId, data, loading, selectedName, onSelect }: { workflowId: string; data?: WorkflowEvaluations; loading: boolean; selectedName: string | null; onSelect: (name: string) => void }) {
   if (loading) return <LoadingPage />;
   if (!data) return null;
-  const groups = groupEvaluations(data.results);
+  const groups = workflowEvaluationGroups(data);
   const assessed = data.summary.passed + data.summary.needs_attention;
   const passRate = assessed ? data.summary.passed / assessed : null;
-  const selected = selectedName ? data.results.filter((result) => result.name === selectedName) : data.results;
+  const selected = (selectedName ? data.results.filter((result) => result.name === selectedName) : data.results)
+    .slice(0, data.pagination ? data.pagination.page_size : 18);
   return <div className="space-y-4">
+    {data.pagination ? <p className="text-xs text-[#777178]">Totals cover all projected executions. Showing {groups.length} of {data.pagination.definitions_total} definitions and {data.results.length} of {data.pagination.results_total} supporting results{selectedName ? ` for ${selectedName}` : ""}.</p> : null}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <InsightCard label="Assessed pass rate" value={passRate == null ? "Not assessed" : `${Math.round(passRate * 100)}%`} note={`${formatNumber(data.summary.passed)} passed of ${formatNumber(assessed)} assessed`} tone={data.summary.needs_attention ? "attention" : assessed ? "good" : "default"} />
-      <InsightCard label="Evaluation coverage" value={`${formatNumber(data.summary.reported)} results`} note={`${formatNumber(data.summary.executions)} executions · ${formatNumber(groups.length)} definitions`} />
+      <InsightCard label="Evaluation coverage" value={`${formatNumber(data.summary.reported)} results`} note={`${formatNumber(data.summary.executions)} executions · ${formatNumber(data.pagination?.definitions_total ?? groups.length)} definitions`} />
       <InsightCard label="Needs attention" value={formatNumber(data.summary.needs_attention)} note={`${formatNumber(data.summary.unassessed)} unassessed results remain neutral`} tone={data.summary.needs_attention ? "attention" : "good"} />
-      <InsightCard label="Offline campaigns" value={formatNumber(data.campaigns.length)} note={data.campaigns.length ? "Dataset and regression campaigns" : "No campaign results imported"} />
+      <InsightCard label="Offline campaigns" value={data.campaigns_status === "unavailable" ? "Unavailable" : formatNumber(data.campaigns.length)} note={data.campaigns_status === "unavailable" ? "Campaign data is not available from this source" : data.campaigns.length ? "Dataset and regression campaigns" : "No campaign results imported"} />
     </div>
-    {!data.results.length && !data.campaigns.length ? <Panel title="Evaluations"><Empty>No online evaluation results or offline campaigns have been reported.</Empty></Panel> : null}
-    {data.results.length ? <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
+    {!data.summary.reported ? <Panel title="Evaluations"><Empty>No online evaluation results have been reported.</Empty></Panel> : null}
+    {data.summary.reported ? <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
       <Panel title="Assessment state" note="Only explicit status or declared target semantics produce pass/attention."><EvaluationOutcomeChart summary={data.summary} /></Panel>
-      <Panel title="Score versus declared target" note="Average observed score and target by evaluation definition. Select a bar for supporting runs."><EvaluationScoreChart groups={groups} onSelect={setSelectedName} /></Panel>
+      <Panel title="Score versus declared target" note="Average observed score and target by evaluation definition on this page. Select a bar for supporting runs."><EvaluationScoreChart groups={groups} onSelect={onSelect} /></Panel>
     </div> : null}
     {groups.length ? <Panel title="Evaluation definitions" note="Compact definition-level analytics replace repeated result rows. Select a card to drill into runs.">
-      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{groups.map((group) => <EvaluationDefinitionCard key={group.name} group={group} active={selectedName === group.name} onClick={() => setSelectedName(selectedName === group.name ? null : group.name)} />)}</div>
+      <div className="grid items-start gap-2.5 md:grid-cols-2 xl:grid-cols-3">{groups.map((group) => <EvaluationDefinitionCard key={group.name} group={group} active={selectedName === group.name} onClick={() => onSelect(group.name)} />)}</div>
     </Panel> : null}
     {selected.length ? <Panel title={`Supporting results · ${selectedName || "all evaluations"}`} note="The exact workflow executions behind the aggregate; evaluator economics remain in Operations.">
       <div className="overflow-hidden rounded-lg border border-[#e8e5e9]">
         <div className={`grid gap-3 bg-[#f5f3f6] px-3 py-1.5 text-[8px] font-semibold uppercase tracking-[.1em] text-[#847e86] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><span>{selectedName ? "Execution" : "Definition / execution"}</span><span>Observed value</span><span>Assessment</span><span className="text-right">Source</span></div>
-        {selected.slice(0, 18).map((result) => <a key={result.evaluation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(result.execution_id)}`} className={`grid items-center gap-3 border-t border-[#ece9ed] px-3 py-2 text-[9px] transition hover:bg-[#faf8ff] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><div className="min-w-0">{selectedName ? <><div className="truncate font-medium text-[#39343e]">{result.execution_id.slice(0, 12)}</div><div className="mt-0.5 truncate text-[8px] text-[#89838b]">{formatDateTime(result.execution_started_at)}</div></> : <><div className="truncate font-semibold">{result.name}</div><div className="truncate text-[8px] text-[#89838b]">{result.execution_id.slice(0, 12)} · {formatDateTime(result.execution_started_at)}</div></>}</div><div className="font-medium text-[#39343e]">{evaluationValue(result)}</div><div><EvaluationState result={result} /></div><div className="truncate text-right text-[8px] text-[#777178]" title={result.source || "reported"}>{evaluationSourceLabel(result.source)}</div></a>)}
+        {selected.map((result) => <a key={result.evaluation_id} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(result.execution_id)}`} className={`grid items-center gap-3 border-t border-[#ece9ed] px-3 py-2 text-[9px] transition hover:bg-[#faf8ff] ${selectedName ? "grid-cols-[1.35fr_.65fr_.75fr_.45fr]" : "grid-cols-[1.35fr_.7fr_.65fr_.45fr]"}`}><div className="min-w-0">{selectedName ? <><div className="truncate font-medium text-[#39343e]">{result.execution_id.slice(0, 12)}</div><div className="mt-0.5 truncate text-[8px] text-[#89838b]">{formatDateTime(result.execution_started_at)}</div></> : <><div className="truncate font-semibold">{result.name}</div><div className="truncate text-[8px] text-[#89838b]">{result.execution_id.slice(0, 12)} · {formatDateTime(result.execution_started_at)}</div></>}</div><div className="font-medium text-[#39343e]">{evaluationValue(result)}</div><div><EvaluationState result={result} /></div><div className="truncate text-right text-[8px] text-[#777178]" title={result.source || "reported"}>{evaluationSourceLabel(result.source)}</div></a>)}
       </div>
     </Panel> : null}
   </div>;
@@ -304,17 +392,26 @@ function OperationActivityChart({ items, onSelect }: { items: OperationTypeSumma
   return <div><MetricToggle choices={["operations", "time", "cost", "tokens", "pages"]} active={metric} onChange={setMetric} labels={{ operations: "Volume", time: "Active time", cost: "Cost", tokens: "Tokens", pages: "Pages" }} />{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} onEvents={{ click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item.type) }} option={{ color: [metric === "cost" ? "#16a085" : metric === "time" ? "#2477e6" : "#6d4aff"], tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${operationLabel(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measurements["cost.usd"])}<br/>Tokens: ${item.measurements["tokens.total"] == null ? "Not applicable" : formatNumber(item.measurements["tokens.total"])}<br/><span style="color:#6d4aff">Select to inspect operations</span>` : ""; } }, grid: { left: 132, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", name: labels[metric], nameLocation: "middle", nameGap: 26, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((item) => operationLabel(item.type)), axisLabel: { width: 122, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }] }} /> : <Empty>This measurement is not applicable to the observed operation types.</Empty>}</div>;
 }
 
-function ParticipantOperationChart({ operations, measurements }: { operations: OperationFact[]; measurements: OperationMeasurement[] }) {
-  const [dimension, setDimension] = useState<"provider" | "model" | "implementation">("provider");
-  const [metric, setMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
-  const rows = participantOperationRows(operations, measurements, dimension).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
+function ParticipantOperationChart({ operations, measurements, participants, selection }: { operations: OperationFact[]; measurements: OperationMeasurement[]; participants?: OperationParticipantRow[] | null; selection?: { dimension: OperationPagination["participant_dimension"]; metric: OperationPagination["participant_metric"]; onChange: (page: OperationPageRequest) => void } }) {
+  const [localDimension, setLocalDimension] = useState<"provider" | "model" | "implementation">("provider");
+  const [localMetric, setLocalMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
+  const dimension = selection?.dimension ?? localDimension;
+  const metric = selection?.metric ?? localMetric;
+  const setDimension = (next: typeof dimension) => selection ? selection.onChange({ participant_dimension: next }) : setLocalDimension(next);
+  const setMetric = (next: typeof metric) => selection ? selection.onChange({ participant_metric: next }) : setLocalMetric(next);
+  const rows = workflowParticipantRows(operations, measurements, dimension, participants).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
   return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model", "implementation"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model", implementation: "Implementation" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
+}
+
+export function workflowParticipantRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model" | "implementation", participants?: OperationParticipantRow[] | null) {
+  return participants == null ? participantOperationRows(operations, measurements, dimension) : participants.filter((item) => item.dimension === dimension);
 }
 
 type ParticipantOperationRow = { id: string; calls: number; time: number; cost: number | null; tokens: number | null };
 export function participantOperationRows(operations: OperationFact[], measurements: OperationMeasurement[], dimension: "provider" | "model" | "implementation") {
+  const identity = (item: { execution_id: string; operation_id: string }) => JSON.stringify([item.execution_id, item.operation_id]);
   const measurementByOperation = new Map<string, OperationMeasurement[]>();
-  measurements.filter((item) => item.measurement_status === "measured").forEach((item) => measurementByOperation.set(item.operation_id, [...(measurementByOperation.get(item.operation_id) || []), item]));
+  measurements.filter((item) => item.measurement_status === "measured").forEach((item) => measurementByOperation.set(identity(item), [...(measurementByOperation.get(identity(item)) || []), item]));
   const grouped = new Map<string, ParticipantOperationRow>();
   operations.forEach((operation) => {
     const id = dimension === "provider" ? operation.provider_id : dimension === "model" ? operation.model_id : operation.implementation_id;
@@ -322,7 +419,7 @@ export function participantOperationRows(operations: OperationFact[], measuremen
     const row = grouped.get(id) || { id, calls: 0, time: 0, cost: null, tokens: null };
     row.calls += 1;
     row.time += operation.duration_seconds || 0;
-    for (const measurement of measurementByOperation.get(operation.operation_id) || []) {
+    for (const measurement of measurementByOperation.get(identity(operation)) || []) {
       if (measurement.measurement_key === "cost.usd" && measurement.value != null) row.cost = (row.cost || 0) + measurement.value;
       if (measurement.measurement_key === "tokens.total" && measurement.value != null) row.tokens = (row.tokens || 0) + measurement.value;
     }
@@ -378,7 +475,7 @@ const operationInterfaceLabel = (interfaces: string[], family: string) => {
 function CardValue({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><div className="text-[8px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-xs font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
 function CardCell({ label, value }: { label: string; value: string }) { return <div className="min-w-0 bg-[#fbfafc] px-2.5 py-2"><div className="text-[7px] font-semibold uppercase tracking-[.1em] text-[#8b858d]">{label}</div><div className="mt-0.5 truncate text-[11px] font-semibold text-[#39343e]" title={value}>{value}</div></div>; }
 
-type EvaluationGroup = { name: string; results: EvaluationResult[]; passed: number; attention: number; unassessed: number; averageScore: number | null; target: number | null; direction: string | null };
+type EvaluationGroup = { name: string; reported: number; results: EvaluationResult[]; passed: number; attention: number; unassessed: number; averageScore: number | null; target: number | null; direction: string | null };
 export function groupEvaluations(results: EvaluationResult[]): EvaluationGroup[] {
   const grouped = new Map<string, EvaluationResult[]>();
   results.forEach((result) => grouped.set(result.name, [...(grouped.get(result.name) || []), result]));
@@ -386,8 +483,19 @@ export function groupEvaluations(results: EvaluationResult[]): EvaluationGroup[]
     const scores = rows.map((row) => row.score).filter((score): score is number => typeof score === "number");
     const targets = rows.map((row) => row.attributes.target).filter((target): target is number => typeof target === "number");
     const direction = rows.map((row) => row.attributes.direction).find((value) => typeof value === "string");
-    return { name, results: rows, passed: rows.filter((row) => row.passed === true).length, attention: rows.filter((row) => row.passed === false).length, unassessed: rows.filter((row) => row.passed == null).length, averageScore: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null, target: targets.length ? targets[0] : null, direction: typeof direction === "string" ? direction : null };
+    return { name, reported: rows.length, results: rows, passed: rows.filter((row) => row.passed === true).length, attention: rows.filter((row) => row.passed === false).length, unassessed: rows.filter((row) => row.passed == null).length, averageScore: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null, target: targets.length ? targets[0] : null, direction: typeof direction === "string" ? direction : null };
   }).sort((left, right) => right.results.length - left.results.length || left.name.localeCompare(right.name));
+}
+
+export function workflowEvaluationGroups(data: WorkflowEvaluations): EvaluationGroup[] {
+  if (!data.pagination) return groupEvaluations(data.results);
+  // A supporting page must never be mistaken for the complete population.
+  if (!data.definition_groups) throw new Error("Paginated evaluations require definition aggregates");
+  return data.definition_groups.map((group) => ({
+    name: group.name, reported: group.reported, results: [], passed: group.passed,
+    attention: group.needs_attention, unassessed: group.unassessed,
+    averageScore: group.average_score, target: group.target, direction: group.direction,
+  }));
 }
 
 function EvaluationOutcomeChart({ summary }: { summary: WorkflowEvaluations["summary"] }) {
@@ -406,7 +514,7 @@ function EvaluationDefinitionCard({ group, active, onClick }: { group: Evaluatio
   const rate = assessed ? Math.round(group.passed / assessed * 100) : null;
   return <button type="button" onClick={onClick} className={`min-w-0 rounded-lg border p-3 text-left transition ${active ? "border-[#7658bd] bg-[#f8f5ff] shadow-sm" : "border-[#e5e2e8] bg-white hover:border-[#cfc6ef] hover:bg-[#fcfbff]"}`}>
     <div className="flex min-w-0 items-start justify-between gap-2.5"><div className="min-w-0 truncate text-[13px] font-semibold" title={group.name}>{group.name}</div><span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold ${group.attention ? "bg-red-50 text-red-700" : assessed ? "bg-[#eef8f2] text-[#27754c]" : "bg-stone-100 text-stone-600"}`}>{rate == null ? "Unassessed" : `${rate}% pass`}</span></div>
-    <div className="mt-2.5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Reported" value={formatNumber(group.results.length)} /><CardCell label="Average" value={group.averageScore == null ? "Not scored" : formatNumber(group.averageScore)} /><CardCell label="Target" value={group.target == null ? "None" : formatNumber(group.target)} /></div>
+    <div className="mt-2.5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-[#ece9ed] bg-[#ece9ed]"><CardCell label="Reported" value={formatNumber(group.reported)} /><CardCell label="Average" value={group.averageScore == null ? "Not scored" : formatNumber(group.averageScore)} /><CardCell label="Target" value={group.target == null ? "None" : formatNumber(group.target)} /></div>
     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[8px]"><span className="text-emerald-700">{group.passed} passed</span><span className={group.attention ? "font-semibold text-red-700" : "text-[#89838b]"}>{group.attention} attention</span><span className="text-[#777178]">{group.unassessed} unassessed</span>{group.direction ? <span className="ml-auto text-[#89838b]">{group.direction.replaceAll("_", " ")}</span> : null}</div>
   </button>;
 }

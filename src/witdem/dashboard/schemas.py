@@ -120,6 +120,7 @@ class OperationTypeSummary(BaseModel):
     model_applicability: ModelApplicability
     linked_children: list[LinkedOperationSummary] = Field(default_factory=list)
     measurements: dict[str, float] = Field(default_factory=dict)
+    detail_truncated: list[str] = Field(default_factory=list)
 
 
 class OperationSummary(BaseModel):
@@ -156,7 +157,7 @@ class OperationFact(ExtensibleModel):
     execution_source: str | None = None
     parent_operation_id: str | None = None
     duration_seconds: float | None = None
-    status: str
+    status: str | None = None
     attributes: JsonObject = Field(default_factory=dict)
 
 
@@ -245,11 +246,46 @@ class WorkflowCatalogResponse(BaseModel):
     items: list[JsonObject] = Field(default_factory=list)
 
 
+class WorkflowExecutionWindow(BaseModel):
+    schema_version: Literal["v1alpha1"] = "v1alpha1"
+    limit: int = Field(ge=1, le=100)
+    included_count: int = Field(ge=0, le=100)
+    total_count: int = Field(ge=0)
+    order: Literal["projected_at_desc", "started_at_desc"]
+
+
 class WorkflowDetailResponse(ExtensibleModel):
     workflow: JsonObject
     executions: list[RunSummary] = Field(default_factory=list)
     analytics: JsonObject
     execution_count: int
+    execution_window: WorkflowExecutionWindow | None = None
+
+
+class OperationParticipantRow(BaseModel):
+    dimension: Literal["provider", "model", "implementation"]
+    id: str
+    calls: int
+    time: float
+    cost: float | None = None
+    tokens: float | None = None
+
+
+class OperationPagination(BaseModel):
+    schema_version: Literal["v1alpha1"] = "v1alpha1"
+    summary_scope: Literal["all_projected_executions"] = "all_projected_executions"
+    measurements_scope: Literal["not_included"] = "not_included"
+    revision: int = Field(ge=1)
+    operations_next_cursor: str | None = None
+    types_next_cursor: str | None = None
+    types_total: int = Field(ge=0)
+    page_size: int = Field(ge=1, le=100)
+    type_page_size: int = Field(ge=1, le=25)
+    detail_limit: int = Field(ge=1, le=100)
+    operation_type: str | None = None
+    participant_dimension: Literal["provider", "model", "implementation"] = "provider"
+    participant_metric: Literal["calls", "time", "cost", "tokens"] = "calls"
+    participant_limit: int = Field(default=10, ge=1, le=100)
 
 
 class WorkflowOperationsResponse(BaseModel):
@@ -258,6 +294,8 @@ class WorkflowOperationsResponse(BaseModel):
     measurement_coverage: MeasurementCoverage
     operations: list[OperationFact] = Field(default_factory=list)
     measurements: list[OperationMeasurement] = Field(default_factory=list)
+    participants: list[OperationParticipantRow] | None = None
+    pagination: OperationPagination | None = None
 
 
 class EvaluationSummary(BaseModel):
@@ -273,6 +311,33 @@ class WorkflowEvaluationsResponse(BaseModel):
     summary: EvaluationSummary
     results: list[JsonObject] = Field(default_factory=list)
     campaigns: list[JsonObject] = Field(default_factory=list)
+    definition_groups: list[EvaluationDefinitionGroup] | None = None
+    pagination: EvaluationPagination | None = None
+    campaigns_status: Literal["available", "unavailable"] | None = None
+
+
+class EvaluationDefinitionGroup(BaseModel):
+    name: str
+    reported: int = Field(ge=0)
+    passed: int = Field(ge=0)
+    needs_attention: int = Field(ge=0)
+    unassessed: int = Field(ge=0)
+    average_score: float | None = None
+    target: float | None = None
+    direction: str | None = None
+
+
+class EvaluationPagination(BaseModel):
+    schema_version: Literal["v1alpha1"] = "v1alpha1"
+    summary_scope: Literal["all_projected_executions"] = "all_projected_executions"
+    revision: int = Field(ge=1)
+    results_next_cursor: str | None = None
+    definitions_next_cursor: str | None = None
+    results_total: int = Field(ge=0)
+    definitions_total: int = Field(ge=0)
+    page_size: int = Field(ge=1, le=100)
+    definition_page_size: int = Field(ge=1, le=100)
+    selected_name: str | None = None
 
 
 class WorkflowEvaluationCampaignsResponse(BaseModel):

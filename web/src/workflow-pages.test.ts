@@ -1,6 +1,43 @@
 import { describe, expect, it } from "vitest";
 import { buildStepGraph, effectiveNodeState, goalStageDotColor, groupEvaluations, nodeFailureRecords, observedOutcomeTone, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement, ProjectedWorkflowNode } from "./api";
+import { workflowWindowNotice, workflowEvaluationGroups } from "./workflow-pages";
+import type { WorkflowEvaluations } from "./api";
+
+describe("paginated evaluation aggregates", () => {
+  const data: WorkflowEvaluations = {
+    workflow_id: "review", summary: { reported: 510, passed: 509, needs_attention: 1, unassessed: 0, executions: 510 },
+    results: [{ evaluation_id: "a", execution_id: "a", subject_id: "run", name: "q", score: .1, passed: false, attributes: {} }],
+    campaigns: [], campaigns_status: "unavailable",
+    definition_groups: [{ name: "q", reported: 510, passed: 509, needs_attention: 1, unassessed: 0, average_score: .95, target: .8, direction: ">=" }],
+    pagination: { schema_version: "v1alpha1", summary_scope: "all_projected_executions", revision: 1, results_next_cursor: "next", definitions_next_cursor: null, results_total: 510, definitions_total: 1, page_size: 25, definition_page_size: 25, selected_name: null },
+  };
+  it("does not calculate all-history charts from the supporting page", () => {
+    const group = workflowEvaluationGroups(data)[0];
+    expect(group.reported).toBe(510);
+    expect(group.passed).toBe(509);
+    expect(group.averageScore).toBe(.95);
+    expect(workflowEvaluationGroups({ ...data, definition_groups: [] })).toEqual([]);
+  });
+  it("preserves the legacy complete-array path and rejects missing paginated aggregates", () => {
+    expect(workflowEvaluationGroups({ ...data, pagination: null })[0].averageScore).toBe(.1);
+    expect(() => workflowEvaluationGroups({ ...data, definition_groups: undefined })).toThrow("definition aggregates");
+  });
+});
+
+describe("workflow execution window", () => {
+  it("distinguishes bounded overview metrics from all-time totals", () => {
+    const notice = workflowWindowNotice({ schema_version: "v1alpha1", limit: 100, included_count: 100, total_count: 510, order: "started_at_desc" });
+    expect(notice).toContain("100 of 510");
+    expect(notice).toContain("start time");
+    expect(notice).toContain("not all-time totals");
+  });
+  it("keeps older responses compatible and avoids a partial-window warning for complete coverage", () => {
+    expect(workflowWindowNotice(undefined)).toBeNull();
+    expect(workflowWindowNotice(null)).toBeNull();
+    expect(workflowWindowNotice({ schema_version: "v1alpha1", limit: 100, included_count: 2, total_count: 2, order: "projected_at_desc" })).toBeNull();
+  });
+});
 
 describe("workflow presentation", () => {
   it("links global execution drilldowns by authored workflow identity", () => {

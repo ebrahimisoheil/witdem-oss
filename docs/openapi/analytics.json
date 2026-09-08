@@ -172,6 +172,161 @@
         "title": "EvaluationCampaignResponse",
         "type": "object"
       },
+      "EvaluationDefinitionGroup": {
+        "properties": {
+          "average_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Score"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_attention": {
+            "minimum": 0.0,
+            "title": "Needs Attention",
+            "type": "integer"
+          },
+          "passed": {
+            "minimum": 0.0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "reported": {
+            "minimum": 0.0,
+            "title": "Reported",
+            "type": "integer"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "unassessed": {
+            "minimum": 0.0,
+            "title": "Unassessed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "reported",
+          "passed",
+          "needs_attention",
+          "unassessed"
+        ],
+        "title": "EvaluationDefinitionGroup",
+        "type": "object"
+      },
+      "EvaluationPagination": {
+        "properties": {
+          "definition_page_size": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Definition Page Size",
+            "type": "integer"
+          },
+          "definitions_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definitions Next Cursor"
+          },
+          "definitions_total": {
+            "minimum": 0.0,
+            "title": "Definitions Total",
+            "type": "integer"
+          },
+          "page_size": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "results_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results Next Cursor"
+          },
+          "results_total": {
+            "minimum": 0.0,
+            "title": "Results Total",
+            "type": "integer"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1alpha1",
+            "default": "v1alpha1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "selected_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Name"
+          },
+          "summary_scope": {
+            "const": "all_projected_executions",
+            "default": "all_projected_executions",
+            "title": "Summary Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "results_total",
+          "definitions_total",
+          "page_size",
+          "definition_page_size"
+        ],
+        "title": "EvaluationPagination",
+        "type": "object"
+      },
       "EvaluationSummary": {
         "properties": {
           "executions": {
@@ -1216,8 +1371,15 @@
             "title": "Runtime Id"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
           },
           "subtype": {
             "anyOf": [
@@ -1281,8 +1443,7 @@
           "family",
           "operation_type",
           "interface",
-          "role",
-          "status"
+          "role"
         ],
         "title": "OperationFact",
         "type": "object"
@@ -1496,6 +1657,181 @@
         "title": "OperationMeasurement",
         "type": "object"
       },
+      "OperationPagination": {
+        "properties": {
+          "detail_limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Detail Limit",
+            "type": "integer"
+          },
+          "measurements_scope": {
+            "const": "not_included",
+            "default": "not_included",
+            "title": "Measurements Scope",
+            "type": "string"
+          },
+          "operation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Type"
+          },
+          "operations_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operations Next Cursor"
+          },
+          "page_size": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "participant_dimension": {
+            "default": "provider",
+            "enum": [
+              "provider",
+              "model",
+              "implementation"
+            ],
+            "title": "Participant Dimension",
+            "type": "string"
+          },
+          "participant_limit": {
+            "default": 10,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Participant Limit",
+            "type": "integer"
+          },
+          "participant_metric": {
+            "default": "calls",
+            "enum": [
+              "calls",
+              "time",
+              "cost",
+              "tokens"
+            ],
+            "title": "Participant Metric",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1alpha1",
+            "default": "v1alpha1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "summary_scope": {
+            "const": "all_projected_executions",
+            "default": "all_projected_executions",
+            "title": "Summary Scope",
+            "type": "string"
+          },
+          "type_page_size": {
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Type Page Size",
+            "type": "integer"
+          },
+          "types_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Types Next Cursor"
+          },
+          "types_total": {
+            "minimum": 0.0,
+            "title": "Types Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "types_total",
+          "page_size",
+          "type_page_size",
+          "detail_limit"
+        ],
+        "title": "OperationPagination",
+        "type": "object"
+      },
+      "OperationParticipantRow": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "dimension": {
+            "enum": [
+              "provider",
+              "model",
+              "implementation"
+            ],
+            "title": "Dimension",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "time": {
+            "title": "Time",
+            "type": "number"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens"
+          }
+        },
+        "required": [
+          "dimension",
+          "id",
+          "calls",
+          "time"
+        ],
+        "title": "OperationParticipantRow",
+        "type": "object"
+      },
       "OperationSummary": {
         "properties": {
           "execution_containers": {
@@ -1531,6 +1867,13 @@
           "active_seconds": {
             "title": "Active Seconds",
             "type": "number"
+          },
+          "detail_truncated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Detail Truncated",
+            "type": "array"
           },
           "failed": {
             "title": "Failed",
@@ -2237,6 +2580,16 @@
             "title": "Execution Count",
             "type": "integer"
           },
+          "execution_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowExecutionWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "executions": {
             "items": {
               "$ref": "#/components/schemas/RunSummary"
@@ -2289,6 +2642,45 @@
             "title": "Campaigns",
             "type": "array"
           },
+          "campaigns_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "available",
+                  "unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaigns Status"
+          },
+          "definition_groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EvaluationDefinitionGroup"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition Groups"
+          },
+          "pagination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationPagination"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "results": {
             "items": {
               "additionalProperties": true,
@@ -2312,6 +2704,49 @@
         "title": "WorkflowEvaluationsResponse",
         "type": "object"
       },
+      "WorkflowExecutionWindow": {
+        "properties": {
+          "included_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Included Count",
+            "type": "integer"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "order": {
+            "enum": [
+              "projected_at_desc",
+              "started_at_desc"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "v1alpha1",
+            "default": "v1alpha1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "total_count": {
+            "minimum": 0.0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "included_count",
+          "total_count",
+          "order"
+        ],
+        "title": "WorkflowExecutionWindow",
+        "type": "object"
+      },
       "WorkflowOperationsResponse": {
         "properties": {
           "measurement_coverage": {
@@ -2330,6 +2765,30 @@
             },
             "title": "Operations",
             "type": "array"
+          },
+          "pagination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationPagination"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participants": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OperationParticipantRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participants"
           },
           "summary": {
             "$ref": "#/components/schemas/OperationSummary"

@@ -444,8 +444,8 @@ export type OperationFact = {
   implementation_id?: string | null;
   execution_source?: string | null;
   parent_operation_id?: string | null;
-  duration_seconds: number;
-  status: string;
+  duration_seconds: number | null;
+  status: string | null;
   attributes: Record<string, unknown>;
 };
 export type OperationTypeSummary = {
@@ -470,6 +470,7 @@ export type OperationTypeSummary = {
     implementations: string[];
   }>;
   measurements: Record<string, number>;
+  detail_truncated?: string[];
 };
 export type OperationSummary = {
   total_operations: number;
@@ -483,7 +484,28 @@ export type WorkflowOperations = {
   measurement_coverage: OperationMeasurementCoverage;
   operations: OperationFact[];
   measurements: OperationMeasurement[];
+  participants?: OperationParticipantRow[] | null;
+  pagination?: OperationPagination | null;
 };
+export type OperationPagination = {
+  schema_version: "v1alpha1"; summary_scope: "all_projected_executions"; revision: number;
+  measurements_scope: "not_included";
+  operations_next_cursor: string | null; types_next_cursor: string | null; types_total: number;
+  page_size: number; type_page_size: number; detail_limit: number; operation_type: string | null;
+  participant_dimension: "provider" | "model" | "implementation";
+  participant_metric: "calls" | "time" | "cost" | "tokens"; participant_limit: number;
+};
+export const operationPageQuery = (page: OperationPageRequest) => {
+  const entries = Object.entries(page).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length ? `?${new URLSearchParams(entries).toString()}` : "";
+};
+
+export type OperationPageRequest = {
+  after?: string; types_after?: string; operation_type?: string;
+  participant_dimension?: OperationPagination["participant_dimension"];
+  participant_metric?: OperationPagination["participant_metric"];
+};
+export type OperationParticipantRow = { dimension: "provider" | "model" | "implementation"; id: string; calls: number; time: number; cost: number | null; tokens: number | null };
 export type EvaluationResult = {
   evaluation_id: string;
   execution_id: string;
@@ -499,11 +521,24 @@ export type EvaluationResult = {
   passed?: boolean | null;
   attributes: Record<string, unknown>;
 };
+export type EvaluationDefinitionGroup = {
+  name: string; reported: number; passed: number; needs_attention: number; unassessed: number;
+  average_score: number | null; target: number | null; direction: string | null;
+};
+export type EvaluationPageRequest = { after?: string; definitions_after?: string; name?: string };
 export type WorkflowEvaluations = {
   workflow_id: string;
   summary: { reported: number; passed: number; needs_attention: number; unassessed: number; executions: number };
   results: EvaluationResult[];
   campaigns: Array<Record<string, unknown>>;
+  campaigns_status?: "available" | "unavailable" | null;
+  definition_groups?: EvaluationDefinitionGroup[] | null;
+  pagination?: {
+    schema_version: "v1alpha1"; summary_scope: "all_projected_executions"; revision: number;
+    results_next_cursor: string | null; definitions_next_cursor: string | null;
+    results_total: number; definitions_total: number; page_size: number; definition_page_size: number;
+    selected_name: string | null;
+  } | null;
 };
 
 export type WorkflowDefinitionSummary = {
@@ -520,6 +555,13 @@ export type WorkflowDefinitionSummary = {
 };
 
 export type WorkflowProjectionAnalytics = Pick<Overview, "models" | "providers" | "stages">;
+export type WorkflowExecutionWindow = {
+  schema_version: "v1alpha1";
+  limit: number;
+  included_count: number;
+  total_count: number;
+  order: "projected_at_desc" | "started_at_desc";
+};
 
 export type DeclaredWorkflow = {
   version: 2;
@@ -593,13 +635,13 @@ export const api = {
   workflowDefinitions: () =>
     get<{ items: WorkflowDefinitionSummary[] }>("/api/v1/workflow-definitions"),
   workflowDefinition: (id: string) =>
-    get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
+    get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics; execution_count: number; execution_window?: WorkflowExecutionWindow | null }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
   workflowExecution: (workflowId: string, executionId: string) =>
     get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
-  workflowOperations: (workflowId: string) =>
-    get<WorkflowOperations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/operations`),
-  workflowEvaluations: (workflowId: string) =>
-    get<WorkflowEvaluations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/evaluations`),
+  workflowOperations: (workflowId: string, page: OperationPageRequest = {}) =>
+    get<WorkflowOperations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/operations${operationPageQuery(page)}`),
+  workflowEvaluations: (workflowId: string, page: EvaluationPageRequest = {}) =>
+    get<WorkflowEvaluations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/evaluations${Object.keys(page).length ? `?${new URLSearchParams(page).toString()}` : ""}`),
   compare: (dimension: string, filters: DashboardFilters = {}) =>
     get<{ dimension: string; items: ComparisonInsight[] }>(
       withFilters(`/api/v1/compare/${dimension}`, filters),

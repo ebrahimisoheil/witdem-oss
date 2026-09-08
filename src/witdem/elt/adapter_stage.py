@@ -9,7 +9,8 @@ from typing import Any
 from witdem import __version__
 from witdem.adapters.providers import normalize_provider_spans
 from witdem.adapters.registry import detect_adapter
-from witdem.analytics.core import Execution, Operation
+from witdem.analytics.core import Execution
+from witdem.analytics.operations import descendant_measurement_keys as _descendant_measurement_keys
 from witdem.analytics.operations import operation_identity, operation_measurements
 
 
@@ -28,46 +29,6 @@ def _execution_status(operations: Sequence[Any]) -> str:
     return "failed" if any(root.status == "error" for root in roots) else "completed"
 
 
-def _descendant_measurement_keys(operations: Sequence[Operation]) -> dict[str, set[str]]:
-    """Return measured keys reported below each operation in the span tree.
-
-    Frameworks commonly repeat a model call's aggregate token usage on agent,
-    chain, or workflow wrapper spans. Those values are useful only when the
-    child call did not report them; otherwise treating both as direct facts
-    double-counts usage in operation analytics.
-    """
-
-    operation_by_span = {operation.span_id: operation for operation in operations if operation.span_id}
-    operation_by_id = {operation.operation_id: operation for operation in operations}
-    children: dict[str, list[Operation]] = {operation.operation_id: [] for operation in operations}
-    for operation in operations:
-        parent = operation_by_span.get(operation.parent_span_id or "") or operation_by_id.get(
-            operation.parent_span_id or ""
-        )
-        if parent is not None:
-            children[parent.operation_id].append(operation)
-
-    direct = {
-        operation.operation_id: {
-            str(item["key"])
-            for item in operation_measurements(operation)
-            if item.get("status") == "measured"
-        }
-        for operation in operations
-    }
-    cache: dict[str, set[str]] = {}
-
-    def collect(operation_id: str) -> set[str]:
-        if operation_id in cache:
-            return cache[operation_id]
-        observed: set[str] = set()
-        for child in children.get(operation_id, []):
-            observed.update(direct.get(child.operation_id, set()))
-            observed.update(collect(child.operation_id))
-        cache[operation_id] = observed
-        return observed
-
-    return {operation.operation_id: collect(operation.operation_id) for operation in operations}
 
 
 def _sdk_execution(execution_id: str, records: Sequence[Mapping[str, Any]]) -> Execution:
