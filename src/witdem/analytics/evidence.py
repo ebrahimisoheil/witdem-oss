@@ -189,6 +189,35 @@ def measurement_coverage(measurements: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def evaluation_profile(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Existing dashboard diagnostics over ordered canonical evaluation rows.
+
+    Callers preserve their source ordering: the last row for an execution,
+    subject, name and definition version wins, without moving the first key's
+    position. This does not infer recency from an evaluation ID or timestamp.
+    """
+    deduplicated: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for result in results:
+        key = (
+            str(result.get("execution_id") or ""),
+            str(result.get("subject_id") or "execution"),
+            str(result.get("name") or ""),
+            str(result.get("definition_version") or "unversioned"),
+        )
+        deduplicated[key] = result
+    final = [{**result, "passed": explicit_evaluation_pass(result)} for result in deduplicated.values()]
+    passed = sum(item["passed"] is True for item in final)
+    attention = sum(item["passed"] is False for item in final)
+    return {
+        "summary": {
+            "reported": len(final), "passed": passed, "needs_attention": attention,
+            "unassessed": len(final) - passed - attention,
+            "executions": len({str(item.get("execution_id") or "") for item in final}),
+        },
+        "results": final,
+    }
+
+
 def explicit_evaluation_pass(result: dict[str, Any]) -> bool | None:
     """Return the existing explicit evaluation pass diagnostic."""
 

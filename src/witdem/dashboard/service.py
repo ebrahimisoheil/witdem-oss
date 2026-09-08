@@ -626,35 +626,13 @@ def workflow_evaluations(repo: AnalyticsRepository, workflow_id: str) -> dict[st
     definitions = {**_persisted_definitions(repo), **load_registry().definitions}
     if workflow_id not in definitions:
         return None
-    results = repo.workflow_evaluations(workflow_id)
-    deduplicated: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-    for result in results:
-        key = (
-            str(result.get("execution_id") or ""),
-            str(result.get("subject_id") or "execution"),
-            str(result.get("name") or ""),
-            str(result.get("definition_version") or "unversioned"),
-        )
-        deduplicated[key] = result
-    final = [
-        {**result, "passed": _explicit_evaluation_pass(result)}
-        for result in deduplicated.values()
-    ]
-    passed = sum(_explicit_evaluation_pass(item) is True for item in final)
-    attention = sum(_explicit_evaluation_pass(item) is False for item in final)
+    profile = evidence_contracts.evaluation_profile(repo.workflow_evaluations(workflow_id))
     return cast(
         dict[str, Any],
         jsonable_encoder(
             {
                 "workflow_id": workflow_id,
-                "summary": {
-                    "reported": len(final),
-                    "passed": passed,
-                    "needs_attention": attention,
-                    "unassessed": len(final) - passed - attention,
-                    "executions": len({str(item.get("execution_id") or "") for item in final}),
-                },
-                "results": final,
+                **profile,
                 "campaigns": repo.workflow_evaluation_campaigns(workflow_id),
             }
         ),
