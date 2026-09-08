@@ -146,11 +146,11 @@ function WorkflowSubnav({ workflowId }: { workflowId: string }) {
   return <nav className="mb-4 flex w-fit rounded-lg border border-[#ddd8e5] bg-[#f3f1f5] p-1" aria-label="Workflow views">{links.map((item) => <a key={item.label} href={item.to} aria-current={path === item.to ? "page" : undefined} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${path === item.to ? "bg-white text-[#5b3aa5] shadow-sm" : "text-[#767079] hover:text-[#4c4650]"}`}>{item.label}</a>)}</nav>;
 }
 
-function WorkflowContextSummary({ workflowId, operations, evaluations }: { workflowId: string; operations?: WorkflowOperations; evaluations?: WorkflowEvaluations }) {
+export function WorkflowContextSummary({ workflowId, operations, evaluations }: { workflowId: string; operations?: WorkflowOperations; evaluations?: WorkflowEvaluations }) {
   return <div className="mt-4 grid gap-3 md:grid-cols-2">
     <a href={`/workflows/${encodeURIComponent(workflowId)}/operations`} className="rounded-lg border border-[#e5e2e8] bg-white p-3 text-left transition hover:border-[#cfc6ef]">
       <div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Operation profile</h3><span className="text-[10px] font-semibold text-[#6544b0]">Open →</span></div>
-      <p className="mt-1 text-[10px] text-[#7c767e]">{formatNumber(operations?.summary.total_operations)} observed operations · {formatNumber(operations?.summary.types.length)} types · {formatNumber(operations?.summary.failed_operations)} failed</p>
+      <p className="mt-1 text-[10px] text-[#7c767e]">{formatNumber(operations?.summary.total_operations)} observed operations · {formatNumber(operations?.pagination?.types_total ?? operations?.summary.types.length)} types · {formatNumber(operations?.summary.failed_operations)} failed</p>
     </a>
     <a href={`/workflows/${encodeURIComponent(workflowId)}/evaluations`} className="rounded-lg border border-[#e5e2e8] bg-white p-3 text-left transition hover:border-[#cfc6ef]">
       <div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Evaluation status</h3><span className="text-[10px] font-semibold text-[#6544b0]">Open →</span></div>

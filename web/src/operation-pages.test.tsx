@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { operationPageQuery, type WorkflowOperations } from "./api";
-import { WorkflowOperationsView } from "./workflow-pages";
+import { WorkflowContextSummary, WorkflowOperationsView } from "./workflow-pages";
 
 describe("paginated operation scope", () => {
   const data: WorkflowOperations = {
@@ -41,5 +41,13 @@ describe("paginated operation scope", () => {
   it("omits cleared cursor/filter parameters and encodes exact values", () => {
     expect(operationPageQuery({ after: undefined, operation_type: undefined })).toBe("");
     expect(operationPageQuery({ after: "a+b=", operation_type: "a/b" })).toBe("?after=a%2Bb%3D&operation_type=a%2Fb");
+  });
+  it("uses the all-history type count in the workflow overview link", () => {
+    const html = renderToStaticMarkup(<WorkflowContextSummary workflowId="review" operations={data} />);
+    expect(html).toContain("30");
+    expect(html).toContain("510");
+    const legacy = renderToStaticMarkup(<WorkflowContextSummary workflowId="review" operations={{ ...data, pagination: null }} />);
+    expect(legacy).not.toContain("30");
+    expect(legacy).toContain("1");
   });
 });
