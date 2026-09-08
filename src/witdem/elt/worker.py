@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import shutil
 import subprocess
 import sys
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
@@ -186,8 +187,16 @@ def run_pending(
     rebuild: bool = False,
     maintenance_lock_held: bool = False,
     max_batches: int | None = None,
+    on_publish: Callable[[tuple[str, ...]], object] | None = None,
 ) -> dict[str, Any]:
-    """Run one bounded Duckle transformation over pending or all batches."""
+    """Run one bounded Duckle transformation over pending or all batches.
+
+    ``on_publish`` receives sorted, unique execution IDs after canonical and
+    workflow projection, before input batches become ready. It must synchronously
+    persist its handoff and return None. Failures use the existing bounded ELT
+    retry policy; callbacks can be redelivered and must be idempotent. The hook
+    does not infer execution finality or change public evidence semantics.
+    """
 
     if not maintenance_lock_held:
         with corpus.maintenance_lock():
@@ -195,9 +204,26 @@ def run_pending(
                 rebuild=rebuild,
                 maintenance_lock_held=True,
                 max_batches=max_batches,
+                on_publish=on_publish,
             )
 
-    selected = corpus.list_commits() if rebuild else corpus.list_commits(statuses={"accepted", "failed"})
+    selected = (
+        corpus.list_commits()
+        if rebuild
+        else corpus.list_commits(statuses={"accepted", "failed", "transforming"})
+    )
+    # The maintenance lock excludes every other ELT publisher. A transforming
+    # batch here belongs to an interrupted attempt, not a concurrent worker.
+    # Preserve its attempt count so repeated crashes cannot bypass retry limits.
+    for commit in selected:
+        state = corpus.read_state(commit.ingest_id) or {}
+        if state.get("status") == "transforming":
+            corpus.update_state(
+                commit.ingest_id,
+                "failed",
+                error="ELT attempt interrupted before readiness; recovery required",
+                transform_run_id=state.get("transform_run_id"),
+            )
     if not rebuild:
         selected = [
             commit for commit in selected if int((corpus.read_state(commit.ingest_id) or {}).get("attempts") or 0) < 3
@@ -283,6 +309,15 @@ def run_pending(
 
     try:
         materialize_workflow_projections(db_path(), sorted(set(published)))
+        if on_publish is not None:
+            try:
+                result_value = on_publish(tuple(sorted(set(published))))
+                if result_value is not None:
+                    if inspect.iscoroutine(result_value):
+                        result_value.close()
+                    raise TypeError("publication observers must synchronously return None")
+            except Exception:
+                raise RuntimeError("execution publication observer failed") from None
     except Exception as exc:
         for commit in selected:
             corpus.update_state(commit.ingest_id, "failed", error=str(exc), transform_run_id=transform_run_id)

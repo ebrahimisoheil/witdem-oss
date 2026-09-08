@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from witdem.update import verify_manifest
+
+PLATFORM_VERSION = json.loads((Path(__file__).parents[1] / "release.json").read_text())["platform_version"]
+PLATFORM_TAG = f"analytics-v{PLATFORM_VERSION}"
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "release" / "verify.py"
 SPEC = importlib.util.spec_from_file_location("release_verify", SCRIPT)
@@ -35,14 +39,14 @@ def test_existing_version_tag_cannot_point_to_another_commit(monkeypatch) -> Non
     real_git = MODULE._git
 
     def fake_git(*arguments: str, check: bool = True) -> str:
-        if arguments[:2] == ("rev-parse", "refs/tags/analytics-v0.2.6^{commit}"):
+        if arguments[:2] == ("rev-parse", f"refs/tags/{PLATFORM_TAG}^{{commit}}"):
             return "old-commit"
         if arguments == ("rev-parse", "HEAD"):
             return "new-commit"
         return real_git(*arguments, check=check)
 
     monkeypatch.setattr(MODULE, "_git", fake_git)
-    errors = MODULE.validate("platform", "analytics-v0.2.6", require_clean=False)
+    errors = MODULE.validate("platform", PLATFORM_TAG, require_clean=False)
     assert any("version reuse refused" in error for error in errors)
 
 
@@ -115,7 +119,7 @@ def test_release_manifest_links_to_analytics_tag() -> None:
         signing_key=signing_key,
     )
 
-    assert manifest["release_notes_url"].endswith("/releases/tag/analytics-v0.2.6")
+    assert manifest["release_notes_url"].endswith(f"/releases/tag/{PLATFORM_TAG}")
     assert manifest["evidence_bundle_schema_version"] == "1.0"
 
 
@@ -141,7 +145,7 @@ def test_release_manifest_accepts_standard_ed25519_secret_encodings(encoding: st
     )
     public_key = base64.b64encode(private_key.public_key().public_bytes_raw()).decode()
 
-    assert verify_manifest(manifest, public_key=public_key)["platform_version"] == "0.2.6"
+    assert verify_manifest(manifest, public_key=public_key)["platform_version"] == PLATFORM_VERSION
 
 
 def test_release_manifest_rejects_unrecognized_signing_key() -> None:
