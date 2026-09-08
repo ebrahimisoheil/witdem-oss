@@ -520,6 +520,13 @@ export type WorkflowDefinitionSummary = {
 };
 
 export type WorkflowProjectionAnalytics = Pick<Overview, "models" | "providers" | "stages">;
+export type WorkflowExecutionWindow = {
+  schema_version: "v1alpha1";
+  limit: number;
+  included_count: number;
+  total_count: number;
+  order: "projected_at_desc" | "started_at_desc";
+};
 
 export type DeclaredWorkflow = {
   version: 2;
@@ -593,7 +600,7 @@ export const api = {
   workflowDefinitions: () =>
     get<{ items: WorkflowDefinitionSummary[] }>("/api/v1/workflow-definitions"),
   workflowDefinition: (id: string) =>
-    get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
+    get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics; execution_count: number; execution_window?: WorkflowExecutionWindow | null }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
   workflowExecution: (workflowId: string, executionId: string) =>
     get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
   workflowOperations: (workflowId: string) =>

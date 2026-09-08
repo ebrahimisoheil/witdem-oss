@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { buildStepGraph, effectiveNodeState, goalStageDotColor, groupEvaluations, nodeFailureRecords, observedOutcomeTone, participantOperationRows, resolveGoalDiagnostic, resolveGoalOutcome, statePresentation, summarizeWorkflowRuns, trackpadZoomTarget, uniqueIdentities, validateWorkflowGeometry, workflowFitZoom, workflowLayout, workflowRunsHref } from "./workflow-pages";
 import type { EvaluationResult, OperationFact, OperationMeasurement, ProjectedWorkflowNode } from "./api";
+import { workflowWindowNotice } from "./workflow-pages";
+
+describe("workflow execution window", () => {
+  it("distinguishes bounded overview metrics from all-time totals", () => {
+    const notice = workflowWindowNotice({ schema_version: "v1alpha1", limit: 100, included_count: 100, total_count: 510, order: "started_at_desc" });
+    expect(notice).toContain("100 of 510");
+    expect(notice).toContain("start time");
+    expect(notice).toContain("not all-time totals");
+  });
+  it("keeps older responses compatible and avoids a partial-window warning for complete coverage", () => {
+    expect(workflowWindowNotice(undefined)).toBeNull();
+    expect(workflowWindowNotice(null)).toBeNull();
+    expect(workflowWindowNotice({ schema_version: "v1alpha1", limit: 100, included_count: 2, total_count: 2, order: "projected_at_desc" })).toBeNull();
+  });
+});
 
 describe("workflow presentation", () => {
   it("links global execution drilldowns by authored workflow identity", () => {

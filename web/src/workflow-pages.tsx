@@ -101,6 +101,17 @@ export function WorkflowDefinitionsPage() {
   </>;
 }
 
+export function workflowWindowNotice(window: Awaited<ReturnType<typeof api.workflowDefinition>>["execution_window"]) {
+  if (!window || window.included_count >= window.total_count) return null;
+  const order = window.order === "started_at_desc" ? "start time" : "projection update time";
+  return `This overview covers ${formatNumber(window.included_count)} of ${formatNumber(window.total_count)} executions, ordered by ${order}. Charts and rates describe this window, not all-time totals.`;
+}
+
+function WorkflowWindowNotice({ window, workflowId }: { window: Awaited<ReturnType<typeof api.workflowDefinition>>["execution_window"]; workflowId: string }) {
+  const notice = workflowWindowNotice(window);
+  return notice ? <p className="mb-4 text-xs text-[#74746e]">{notice} <a href={workflowRunsHref(workflowId)} className="font-semibold text-[#5c35c8] hover:underline">Browse all executions →</a></p> : null;
+}
+
 export function WorkflowDefinitionPage() {
   const { workflowId } = useParams({ from: "/workflows/$workflowId" });
   const q = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
@@ -114,6 +125,7 @@ export function WorkflowDefinitionPage() {
   return <>
     <PageHeader compact eyebrow="Workflow" title={workflow.name} description={workflow.description || "Declared workflow template"} action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
+    <WorkflowWindowNotice window={q.data!.execution_window} workflowId={workflowId} />
     <Panel title="Declared structure" note="The YAML topology stays stable while telemetry activates the path taken by each runtime.">
       <DeclaredOverview replay={{ workflow, execution: { execution_id: "template" }, stages: workflow.stages.map((stage) => ({ ...stage, state: "inactive", active_nodes: 0, duration_seconds: null, known_cost: null, total_tokens: null })), nodes: [], transitions: workflow.transitions, outcomes: workflow.outcomes, discrepancies: { unexpected_operations: [], unexpected_transitions: [] } }} />
     </Panel>
@@ -184,6 +196,7 @@ export function WorkflowExecutionsPage() {
   return <>
     <PageHeader compact eyebrow="Workflow executions" title={workflow.name} description="Runs matched to this workflow and its historical template versions." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
+    <WorkflowWindowNotice window={q.data!.execution_window} workflowId={workflowId} />
     <Panel title="Executions" note="Select a run to inspect its path, operations, measurements, and evaluations.">
       <div className="space-y-2">{executions.map((run) => <ExecutionListCard key={run.execution_id} run={run} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(run.execution_id)}`} />)}</div>
       {!executions.length ? <Empty>No executions have matched this workflow yet.</Empty> : null}

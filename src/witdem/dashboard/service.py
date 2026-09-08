@@ -543,7 +543,7 @@ def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, An
         (row for row in repo.workflow_projection_catalog() if str(row["workflow_id"]) == workflow_id),
         None,
     )
-    for projected_row in repo.workflow_projection_rows(workflow_id):
+    for projected_row in repo.workflow_projection_rows(workflow_id, limit=100):
         replay = projected_row.get("projection")
         if not isinstance(replay, dict) or replay.get("workflow", {}).get("id") != workflow_id:
             continue
@@ -578,6 +578,13 @@ def workflow_detail(repo: AnalyticsRepository, workflow_id: str) -> dict[str, An
                 "executions": executions,
                 "analytics": _workflow_projection_analytics(replays),
                 "execution_count": int((catalog_row or {}).get("execution_count") or len(executions)),
+                "execution_window": {
+                    "schema_version": "v1alpha1",
+                    "limit": 100,
+                    "included_count": len(executions),
+                    "total_count": int((catalog_row or {}).get("execution_count") or len(executions)),
+                    "order": "projected_at_desc",
+                },
             }
         ),
     )

@@ -2237,6 +2237,16 @@
             "title": "Execution Count",
             "type": "integer"
           },
+          "execution_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowExecutionWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "executions": {
             "items": {
               "$ref": "#/components/schemas/RunSummary"
@@ -2310,6 +2320,49 @@
           "summary"
         ],
         "title": "WorkflowEvaluationsResponse",
+        "type": "object"
+      },
+      "WorkflowExecutionWindow": {
+        "properties": {
+          "included_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Included Count",
+            "type": "integer"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "order": {
+            "enum": [
+              "projected_at_desc",
+              "started_at_desc"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "v1alpha1",
+            "default": "v1alpha1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "total_count": {
+            "minimum": 0.0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "included_count",
+          "total_count",
+          "order"
+        ],
+        "title": "WorkflowExecutionWindow",
         "type": "object"
       },
       "WorkflowOperationsResponse": {

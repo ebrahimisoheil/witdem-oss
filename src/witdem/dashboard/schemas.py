@@ -245,11 +245,20 @@ class WorkflowCatalogResponse(BaseModel):
     items: list[JsonObject] = Field(default_factory=list)
 
 
+class WorkflowExecutionWindow(BaseModel):
+    schema_version: Literal["v1alpha1"] = "v1alpha1"
+    limit: int = Field(ge=1, le=100)
+    included_count: int = Field(ge=0, le=100)
+    total_count: int = Field(ge=0)
+    order: Literal["projected_at_desc", "started_at_desc"]
+
+
 class WorkflowDetailResponse(ExtensibleModel):
     workflow: JsonObject
     executions: list[RunSummary] = Field(default_factory=list)
     analytics: JsonObject
     execution_count: int
+    execution_window: WorkflowExecutionWindow | None = None
 
 
 class WorkflowOperationsResponse(BaseModel):
