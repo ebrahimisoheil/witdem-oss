@@ -470,6 +470,7 @@ export type OperationTypeSummary = {
     implementations: string[];
   }>;
   measurements: Record<string, number>;
+  detail_truncated?: string[];
 };
 export type OperationSummary = {
   total_operations: number;
@@ -484,6 +485,25 @@ export type WorkflowOperations = {
   operations: OperationFact[];
   measurements: OperationMeasurement[];
   participants?: OperationParticipantRow[] | null;
+  pagination?: OperationPagination | null;
+};
+export type OperationPagination = {
+  schema_version: "v1alpha1"; summary_scope: "all_projected_executions"; revision: number;
+  measurements_scope: "not_included";
+  operations_next_cursor: string | null; types_next_cursor: string | null; types_total: number;
+  page_size: number; type_page_size: number; detail_limit: number; operation_type: string | null;
+  participant_dimension: "provider" | "model" | "implementation";
+  participant_metric: "calls" | "time" | "cost" | "tokens"; participant_limit: number;
+};
+export const operationPageQuery = (page: OperationPageRequest) => {
+  const entries = Object.entries(page).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length ? `?${new URLSearchParams(entries).toString()}` : "";
+};
+
+export type OperationPageRequest = {
+  after?: string; types_after?: string; operation_type?: string;
+  participant_dimension?: OperationPagination["participant_dimension"];
+  participant_metric?: OperationPagination["participant_metric"];
 };
 export type OperationParticipantRow = { dimension: "provider" | "model" | "implementation"; id: string; calls: number; time: number; cost: number | null; tokens: number | null };
 export type EvaluationResult = {
@@ -618,8 +638,8 @@ export const api = {
     get<{ workflow: DeclaredWorkflow; executions: Run[]; analytics: WorkflowProjectionAnalytics; execution_count: number; execution_window?: WorkflowExecutionWindow | null }>(`/api/v1/workflow-definitions/${encodeURIComponent(id)}`),
   workflowExecution: (workflowId: string, executionId: string) =>
     get<RunDetail>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`),
-  workflowOperations: (workflowId: string) =>
-    get<WorkflowOperations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/operations`),
+  workflowOperations: (workflowId: string, page: OperationPageRequest = {}) =>
+    get<WorkflowOperations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/operations${operationPageQuery(page)}`),
   workflowEvaluations: (workflowId: string, page: EvaluationPageRequest = {}) =>
     get<WorkflowEvaluations>(`/api/v1/workflow-definitions/${encodeURIComponent(workflowId)}/evaluations${Object.keys(page).length ? `?${new URLSearchParams(page).toString()}` : ""}`),
   compare: (dimension: string, filters: DashboardFilters = {}) =>

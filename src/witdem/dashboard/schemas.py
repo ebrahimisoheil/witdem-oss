@@ -120,6 +120,7 @@ class OperationTypeSummary(BaseModel):
     model_applicability: ModelApplicability
     linked_children: list[LinkedOperationSummary] = Field(default_factory=list)
     measurements: dict[str, float] = Field(default_factory=dict)
+    detail_truncated: list[str] = Field(default_factory=list)
 
 
 class OperationSummary(BaseModel):
@@ -270,6 +271,23 @@ class OperationParticipantRow(BaseModel):
     tokens: float | None = None
 
 
+class OperationPagination(BaseModel):
+    schema_version: Literal["v1alpha1"] = "v1alpha1"
+    summary_scope: Literal["all_projected_executions"] = "all_projected_executions"
+    measurements_scope: Literal["not_included"] = "not_included"
+    revision: int = Field(ge=1)
+    operations_next_cursor: str | None = None
+    types_next_cursor: str | None = None
+    types_total: int = Field(ge=0)
+    page_size: int = Field(ge=1, le=100)
+    type_page_size: int = Field(ge=1, le=25)
+    detail_limit: int = Field(ge=1, le=100)
+    operation_type: str | None = None
+    participant_dimension: Literal["provider", "model", "implementation"] = "provider"
+    participant_metric: Literal["calls", "time", "cost", "tokens"] = "calls"
+    participant_limit: int = Field(default=10, ge=1, le=100)
+
+
 class WorkflowOperationsResponse(BaseModel):
     workflow_id: str
     summary: OperationSummary
@@ -277,6 +295,7 @@ class WorkflowOperationsResponse(BaseModel):
     operations: list[OperationFact] = Field(default_factory=list)
     measurements: list[OperationMeasurement] = Field(default_factory=list)
     participants: list[OperationParticipantRow] | None = None
+    pagination: OperationPagination | None = None
 
 
 class EvaluationSummary(BaseModel):

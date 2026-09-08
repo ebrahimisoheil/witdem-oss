@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { api, type DeclaredWorkflow, type EvaluationResult, type OperationFact, type OperationParticipantRow, type OperationMeasurement, type OperationSummary, type OperationTypeSummary, type ProjectedWorkflowNode, type Run, type WorkflowDefinitionSummary, type WorkflowEvaluations, type WorkflowOperations, type WorkflowReplay } from "./api";
 import { AnalyticsChart, AttributionHealthChart, Badge, Button, Empty, ErrorPage, ExecutionListCard, ExecutionStepDiagnostics, ExecutionTrendChart, LoadingPage, PageHeader, Panel, RatioDonutChart, RetryPressureChart, RuntimeDonutChart, StageDiagnosticsChart, StatusBadge, chartColors, formatBrowserDate, formatDateTime, formatNumber, money, seconds, stableColor, useQuery } from "./components";
 import { contractOutcomeColors } from "./outcome-colors";
-import type { EvaluationPageRequest } from "./api";
+import type { EvaluationPageRequest, OperationPageRequest, OperationPagination } from "./api";
 
 export const workflowRunsHref = (
   workflowId: string,
@@ -160,16 +160,21 @@ function WorkflowContextSummary({ workflowId, operations, evaluations }: { workf
 }
 
 export function WorkflowOperationsPage() {
+  const [page, setPage] = useState<OperationPageRequest>({});
   const { workflowId } = useParams({ from: "/workflows/$workflowId/operations" });
   const workflow = useQuery({ queryKey: ["workflow-definition", workflowId], queryFn: () => api.workflowDefinition(workflowId) });
-  const operations = useQuery({ queryKey: ["workflow-operations", workflowId], queryFn: () => api.workflowOperations(workflowId) });
+  const operations = useQuery({ queryKey: ["workflow-operations", workflowId, page], queryFn: () => api.workflowOperations(workflowId, page), placeholderData: (previous: WorkflowOperations | undefined) => previous, retry: false });
+  useEffect(() => { setPage({}); }, [workflowId]);
   if (workflow.isLoading || operations.isLoading) return <LoadingPage />;
   if (workflow.error) return <ErrorPage error={workflow.error} />;
-  if (operations.error) return <ErrorPage error={operations.error} />;
+  if (operations.error) return <><ErrorPage error={operations.error} /><Button onClick={() => { setPage({}); void operations.refetch(); }}>Reload operations from the first page</Button></>;
   return <>
     <PageHeader compact eyebrow="Workflow operations" title={workflow.data!.workflow.name} description="What ran, where time and usage accumulated, and which providers or models performed the work." action={<Link to="/workflows"><Button variant="outline">All workflows</Button></Link>} />
     <WorkflowSubnav workflowId={workflowId} />
-    <WorkflowOperationsView workflowId={workflowId} data={operations.data} loading={false} />
+    {operations.isFetching ? <p role="status" className="mb-3 text-xs text-[#777178]">Updating operations…</p> : null}
+    <fieldset disabled={operations.isFetching} aria-busy={operations.isFetching} className="min-w-0">
+      <WorkflowOperationsView workflowId={workflowId} data={operations.data} loading={false} onRequest={(next) => setPage({ ...page, ...next })} />
+    </fieldset>
   </>;
 }
 
@@ -227,15 +232,56 @@ export function WorkflowExecutionsPage() {
   </>;
 }
 
+export function PaginatedOperationsView({ workflowId, data, onRequest }: { workflowId: string; data: WorkflowOperations; onRequest?: (page: OperationPageRequest) => void }) {
+  const page = data.pagination!;
+  const coverage = data.measurement_coverage;
+  const selectType = (type: string) => onRequest?.({ operation_type: page.operation_type === type ? undefined : type, after: undefined });
+  const typeCharts = data.summary.types;
+  return <div className="space-y-4">
+    <p className="text-xs text-[#777178]">Totals cover all projected executions. Showing {typeCharts.length} of {page.types_total} type summaries and {data.operations.length} supporting operations. Type charts cover this page only.</p>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <InsightCard label="Operations" value={formatNumber(data.summary.total_operations)} note="All classified operations; execution containers excluded" />
+      <InsightCard label="Failed operations" value={formatNumber(data.summary.failed_operations)} note="Reported failures across all projected executions" tone={data.summary.failed_operations ? "attention" : "good"} />
+      <InsightCard label="Usage coverage" value={coverage.coverage == null ? "Not applicable" : `${Math.round(coverage.coverage * 100)}%`} note={`${formatNumber(coverage.measured)} measured · ${formatNumber(coverage.missing)} missing applicable meters`} tone={coverage.missing ? "attention" : "good"} />
+      <InsightCard label="Operation types" value={formatNumber(page.types_total)} note="Distinct types across all projected executions" />
+    </div>
+    {onRequest ? <div className="flex flex-wrap gap-2" aria-label="Operation pagination">
+      <Button variant="outline" onClick={() => onRequest({ after: undefined, types_after: undefined, operation_type: undefined })}>First pages</Button>
+      <Button variant="outline" disabled={!page.types_next_cursor} onClick={() => onRequest({ types_after: page.types_next_cursor! })}>Next type summaries</Button>
+      <Button variant="outline" disabled={!page.operations_next_cursor} onClick={() => onRequest({ after: page.operations_next_cursor! })}>Next supporting operations</Button>
+    </div> : <a className="text-xs text-[#6d4aff]" href={`/workflows/${encodeURIComponent(workflowId)}/operations`}>Open operations to change pages and chart filters →</a>}
+    <Panel title="Operation types · this page" note="Volume, time and usage for the displayed types. Each type total covers all projected executions; this is not a chart of every type.">
+      {typeCharts.length ? <OperationActivityChart items={typeCharts} onSelect={selectType} /> : <Empty>No type summaries on this page.</Empty>}
+      <div className="grid auto-rows-fr gap-2.5 md:grid-cols-2">{typeCharts.map((item) => <div key={item.type}>
+        <OperationTypeCard item={item} active={page.operation_type === item.type} onClick={() => selectType(item.type)} />
+        {item.detail_truncated?.length ? <p className="mt-1 text-[10px] text-[#777178]">Supporting metadata limited to {page.detail_limit} entries per list: {item.detail_truncated.join(", ")}. Counts and reported meter totals are not reduced.</p> : null}
+      </div>)}</div>
+    </Panel>
+    <Panel title="Who performed the work" note={`Top ${page.participant_limit} ${page.participant_dimension} identities by ${page.participant_metric}, across all projected work operations. This chart is independent of the type and operation pages.`}>
+      {data.participants == null ? <Empty>Participant aggregates are unavailable.</Empty> : <fieldset disabled={!onRequest} className="min-w-0"><ParticipantOperationChart operations={[]} measurements={[]} participants={data.participants} selection={{ dimension: page.participant_dimension, metric: page.participant_metric, onChange: (next) => onRequest?.(next) }} /></fieldset>}
+    </Panel>
+    <Panel title={`Supporting operations · ${page.operation_type ? operationLabel(page.operation_type) : "All types"}`} note="Exact type filter; ordered by execution and operation identity. Open an execution for its full path and measurements.">
+      {page.operation_type && onRequest ? <Button variant="outline" onClick={() => onRequest({ operation_type: undefined, after: undefined })}>Clear type filter</Button> : null}
+      <div className="divide-y divide-[#ece9ed]">{data.operations.map((operation) => <a key={JSON.stringify([operation.execution_id, operation.operation_id])} href={`/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(operation.execution_id)}`} className="grid grid-cols-[1.5fr_1fr_.7fr] gap-3 py-3 text-xs">
+        <div><strong>{operationLabel(operation.operation_type)}</strong><div className="text-[#89838b]">{operation.node_id || operation.operation_id}</div></div>
+        <div>{operation.model_id || operation.provider_id || operation.implementation_id || "Not reported"}</div>
+        <div className={operationStatusPresentation(operation.status).className}>{operationStatusPresentation(operation.status).label}<div className="text-[#89838b]">{seconds(operation.duration_seconds)}</div></div>
+      </a>)}</div>
+      {!data.operations.length ? <Empty>No supporting operations match this page and filter.</Empty> : null}
+    </Panel>
+  </div>;
+}
+
 export function operationStatusPresentation(status: string | null | undefined) {
   if (status === "error" || status === "failed") return { label: status, failed: true, className: "font-semibold text-red-700" };
   if (status === "ok" || status === "success" || status === "completed") return { label: status, failed: false, className: "text-[#27754c]" };
   return { label: status === "unset" ? "Observed" : status || "Not reported", failed: false, className: "text-[#89838b]" };
 }
 
-export function WorkflowOperationsView({ workflowId, data, loading }: { workflowId: string; data?: WorkflowOperations; loading: boolean }) {
+export function WorkflowOperationsView({ workflowId, data, loading, onRequest }: { workflowId: string; data?: WorkflowOperations; loading: boolean; onRequest?: (page: OperationPageRequest) => void }) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   if (loading) return <LoadingPage />;
+  if (data?.pagination) return <PaginatedOperationsView workflowId={workflowId} data={data} onRequest={onRequest} />;
   if (!data?.summary.types.length) return <Panel title="Operations"><Empty>No classified operations have been materialized yet. Run workflow rebuild after telemetry arrives.</Empty></Panel>;
   const operationPlane = (item: OperationTypeSummary) => item.plane || (["orchestration", "agent_control"].includes(item.family) ? "control" : "work");
   const workTypes = data.summary.types.filter((item) => operationPlane(item) === "work");
@@ -346,9 +392,13 @@ function OperationActivityChart({ items, onSelect }: { items: OperationTypeSumma
   return <div><MetricToggle choices={["operations", "time", "cost", "tokens", "pages"]} active={metric} onChange={setMetric} labels={{ operations: "Volume", time: "Active time", cost: "Cost", tokens: "Tokens", pages: "Pages" }} />{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} onEvents={{ click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item.type) }} option={{ color: [metric === "cost" ? "#16a085" : metric === "time" ? "#2477e6" : "#6d4aff"], tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${operationLabel(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Cost: ${money(item.measurements["cost.usd"])}<br/>Tokens: ${item.measurements["tokens.total"] == null ? "Not applicable" : formatNumber(item.measurements["tokens.total"])}<br/><span style="color:#6d4aff">Select to inspect operations</span>` : ""; } }, grid: { left: 132, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", name: labels[metric], nameLocation: "middle", nameGap: 26, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((item) => operationLabel(item.type)), axisLabel: { width: 122, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }] }} /> : <Empty>This measurement is not applicable to the observed operation types.</Empty>}</div>;
 }
 
-function ParticipantOperationChart({ operations, measurements, participants }: { operations: OperationFact[]; measurements: OperationMeasurement[]; participants?: OperationParticipantRow[] | null }) {
-  const [dimension, setDimension] = useState<"provider" | "model" | "implementation">("provider");
-  const [metric, setMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
+function ParticipantOperationChart({ operations, measurements, participants, selection }: { operations: OperationFact[]; measurements: OperationMeasurement[]; participants?: OperationParticipantRow[] | null; selection?: { dimension: OperationPagination["participant_dimension"]; metric: OperationPagination["participant_metric"]; onChange: (page: OperationPageRequest) => void } }) {
+  const [localDimension, setLocalDimension] = useState<"provider" | "model" | "implementation">("provider");
+  const [localMetric, setLocalMetric] = useState<"calls" | "time" | "cost" | "tokens">("calls");
+  const dimension = selection?.dimension ?? localDimension;
+  const metric = selection?.metric ?? localMetric;
+  const setDimension = (next: typeof dimension) => selection ? selection.onChange({ participant_dimension: next }) : setLocalDimension(next);
+  const setMetric = (next: typeof metric) => selection ? selection.onChange({ participant_metric: next }) : setLocalMetric(next);
   const rows = workflowParticipantRows(operations, measurements, dimension, participants).filter((row) => row[metric] != null).sort((left, right) => Number(right[metric]) - Number(left[metric])).slice(0, 10).reverse();
   return <div><div className="mb-2 flex flex-wrap justify-between gap-2"><MetricToggle choices={["provider", "model", "implementation"]} active={dimension} onChange={setDimension} labels={{ provider: "Provider", model: "Model", implementation: "Implementation" }} /><MetricToggle choices={["calls", "time", "cost", "tokens"]} active={metric} onChange={setMetric} labels={{ calls: "Calls", time: "Call time", cost: "Cost", tokens: "Tokens" }} /></div>{rows.length ? <AnalyticsChart style={{ height: 270, width: "100%" }} option={{ color: rows.map((row) => stableColor(`${dimension}:${row.id}`)), tooltip: { trigger: "axis", confine: true, axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: ParticipantOperationRow } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.id}</b><br/>${formatNumber(item.calls)} calls<br/>Call time: ${seconds(item.time)}<br/>Measured cost: ${money(item.cost)}<br/>Tokens: ${item.tokens == null ? "Not measured" : formatNumber(item.tokens)}` : ""; } }, grid: { left: 150, right: 26, top: 12, bottom: 34 }, xAxis: { type: "value", axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } }, yAxis: { type: "category", data: rows.map((row) => row.id), axisLabel: { width: 140, overflow: "truncate", fontSize: 9 } }, series: [{ type: "bar", barMaxWidth: 20, data: rows.map((row) => ({ value: row[metric], item: row, itemStyle: { color: stableColor(`${dimension}:${row.id}`), borderRadius: [0, 4, 4, 0] } })) }] }} /> : <Empty>No explicitly reported {dimension} measurements are available.</Empty>}</div>;
 }

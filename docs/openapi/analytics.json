@@ -1657,6 +1657,126 @@
         "title": "OperationMeasurement",
         "type": "object"
       },
+      "OperationPagination": {
+        "properties": {
+          "detail_limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Detail Limit",
+            "type": "integer"
+          },
+          "measurements_scope": {
+            "const": "not_included",
+            "default": "not_included",
+            "title": "Measurements Scope",
+            "type": "string"
+          },
+          "operation_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Type"
+          },
+          "operations_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operations Next Cursor"
+          },
+          "page_size": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "participant_dimension": {
+            "default": "provider",
+            "enum": [
+              "provider",
+              "model",
+              "implementation"
+            ],
+            "title": "Participant Dimension",
+            "type": "string"
+          },
+          "participant_limit": {
+            "default": 10,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Participant Limit",
+            "type": "integer"
+          },
+          "participant_metric": {
+            "default": "calls",
+            "enum": [
+              "calls",
+              "time",
+              "cost",
+              "tokens"
+            ],
+            "title": "Participant Metric",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1alpha1",
+            "default": "v1alpha1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "summary_scope": {
+            "const": "all_projected_executions",
+            "default": "all_projected_executions",
+            "title": "Summary Scope",
+            "type": "string"
+          },
+          "type_page_size": {
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Type Page Size",
+            "type": "integer"
+          },
+          "types_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Types Next Cursor"
+          },
+          "types_total": {
+            "minimum": 0.0,
+            "title": "Types Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "types_total",
+          "page_size",
+          "type_page_size",
+          "detail_limit"
+        ],
+        "title": "OperationPagination",
+        "type": "object"
+      },
       "OperationParticipantRow": {
         "properties": {
           "calls": {
@@ -1747,6 +1867,13 @@
           "active_seconds": {
             "title": "Active Seconds",
             "type": "number"
+          },
+          "detail_truncated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Detail Truncated",
+            "type": "array"
           },
           "failed": {
             "title": "Failed",
@@ -2638,6 +2765,16 @@
             },
             "title": "Operations",
             "type": "array"
+          },
+          "pagination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationPagination"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "participants": {
             "anyOf": [
