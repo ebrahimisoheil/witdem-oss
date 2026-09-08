@@ -12,6 +12,7 @@ from witdem.analytics.assurance import (
     project_goal_portfolio,
     summarize_goal_assurance,
 )
+from witdem.analytics.contract_catalog import summarize_contract_definitions
 from witdem.analytics.core import Evaluation, Event, Outcome
 from witdem.analytics.evidence import EvidenceBundle
 from witdem.analytics.repository.analytics_repository import AnalyticsRepository
@@ -207,10 +208,13 @@ def test_contract_context_preserves_unreported_population(tmp_path, monkeypatch,
     assert "NEVER_EXPOSE_CONTEXT_CONTENT" not in repr(projection)
     if definition_kind == "absent":
         assert projection.contract is None
+        assert projection.definition is None
     else:
         assert projection.contract.contract_hash == ("selected-contract" if definition_kind == "versioned" else None)
         assert projection.contract.contract_name == "Selected"
         assert projection.contract.observed_at == latest
+        assert projection.definition == {key: value for key, value in definition.items()
+                                         if key not in {"prompt", "response"}}
     live_db.publish_transformed_bundle(bundle.execution, bundle.operations, bundle.links, [*events, *outcomes])
     reader = AnalyticsRepository(database)
     try:
@@ -223,6 +227,7 @@ def test_contract_context_preserves_unreported_population(tmp_path, monkeypatch,
         if contracts:
             assert contracts[0]["run_count"] == 1
             assert contracts[0]["contract_hash"] == projection.contract.contract_hash
+            assert contracts[0] == {**projection.definition, "run_count": 1}
     finally:
         reader.close()
 
@@ -235,3 +240,44 @@ def test_portfolio_context_rejects_foreign_execution_records():
                   type="event", name="contract.definition", payload={"contract_hash": "foreign"})
     with pytest.raises(ValueError, match="another execution"):
         project_goal_portfolio(bundle.model_copy(update={"events": [event]}))
+
+
+def test_projected_catalog_matches_reader_observation_order_and_unreported_counts(tmp_path, monkeypatch):
+    database = tmp_path / "catalog.duckdb"
+    monkeypatch.setenv("WITDEM_DB_PATH", str(database))
+    monkeypatch.setenv("WITDEM_DATA_DIR", str(tmp_path))
+    base = EvidenceBundle.model_validate_json(
+        (Path(__file__).parent / "fixtures/evidence-bundle-v1-oldest.json").read_text()
+    )
+    projections = []
+    for index, identity in enumerate(("shared", "other", "shared")):
+        execution_id = f"catalog-execution-{index}"
+        # Execution-start order deliberately disagrees with definition order.
+        execution = base.execution.model_copy(update={
+            "execution_id": execution_id, "started_at": base.execution.started_at + timedelta(days=3 - index),
+        })
+        event = Event(execution_id=execution_id, timestamp=base.execution.started_at + timedelta(days=index),
+                      type="event", name="contract.definition", payload={
+                          "contract_hash": identity, "contract_name": f"Definition {index}",
+                          "product_goal": {"name": "Review"}, "contract_version": str(index),
+                          "metrics": [{"name": "cost"}], "prompt": "DO_NOT_EXPORT",
+                      })
+        bundle = base.model_copy(update={"execution": execution, "operations": [], "links": [],
+                                        "events": [event], "evaluations": [], "outcomes": []})
+        projection = project_goal_portfolio(bundle)
+        assert projection.counts["reported_runs"] == 0
+        projections.append(projection)
+        live_db.publish_transformed_bundle(execution, [], [], [event])
+    definitions = [projection.definition for projection in sorted(
+        projections, key=lambda projection: projection.contract.observed_at, reverse=True,
+    )]
+    reader = AnalyticsRepository(database)
+    try:
+        for identity in (None, "shared", "other", "absent"):
+            assert summarize_contract_definitions(definitions, contract_hash=identity) == reader.contract_definitions(
+                FilterState(contract_hash=identity),
+            )
+        assert reader.contract_definitions()[0]["contract_name"] == "Definition 2"
+        assert reader.contract_definitions()[0]["run_count"] == 2
+    finally:
+        reader.close()

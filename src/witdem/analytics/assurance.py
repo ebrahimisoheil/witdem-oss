@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from witdem.analytics.contract_catalog import contract_definition_metadata
 from witdem.analytics.core import Evaluation, Event, Outcome
 from witdem.analytics.evidence import EvidenceBundle
 from witdem.analytics.serving import build_serving_rows
@@ -102,6 +103,7 @@ class GoalPortfolioProjection:
     groups: list[dict[str, Any]]
     counts: dict[str, int | float]
     assurance_state: AssuranceState
+    definition: dict[str, Any] | None = None
 
 
 def project_goal_assurance(bundle: EvidenceBundle) -> tuple[list[dict[str, Any]], dict[str, int | float]]:
@@ -143,7 +145,8 @@ def project_goal_portfolio(bundle: EvidenceBundle) -> GoalPortfolioProjection:
         observed_at=contracts[0]["observed_at"],
     ) if contracts else None
     return GoalPortfolioProjection(contract=contract, groups=groups, counts=counts,
-                                   assurance_state=goal_assurance_state(row))
+                                   assurance_state=goal_assurance_state(row),
+                                   definition=contract_definition_metadata(definition) if contracts else None)
 
 
 def summarize_goal_assurance(

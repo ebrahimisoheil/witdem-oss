@@ -53,6 +53,21 @@ inventing a goal or reparsing arbitrary event payloads. No definition means
 synthetic public contract. Only the goal grouping uses the existing `unversioned`
 fallback. The older `project_goal_assurance` pair interface is unchanged.
 
+The projection's `definition` is a detached copy of the selected contract's
+public metadata fields, or `None` when no definition exists. It uses
+`contract_definition_metadata` from `witdem.analytics.contract_catalog`, the
+same allowlist as the repository catalogue. It excludes arbitrary top-level
+event attributes, but preserves nested public definition values unchanged; it
+is not a sanitizer for content a producer embeds in declared metadata.
+
+`summarize_contract_definitions` reduces one selected definition per execution
+into the existing catalogue shape and run counts. Supply the selected population
+in definition-observation order (newest first, nulls last), not execution-start
+order: first metadata wins for each hash. Unreported-goal executions still count;
+definitions without a hash do not create synthetic catalogue entries. Incremental
+adapters must preserve these rules when replacing memberships and selecting
+metadata. The helper copies its output and does not mutate supplied definitions.
+
 The projection also returns the execution's typed `assurance_state`, using the
 same rule as the repository's assurance filter. It is separate from reported-goal
 counters: an unreported or unknown-achievement execution is `not_achieved` for

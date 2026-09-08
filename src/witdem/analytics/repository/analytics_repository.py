@@ -29,6 +29,7 @@ from witdem.analytics.assurance import (
 from witdem.analytics.assurance import (
     goal_assurance_state as _goal_assurance_state,
 )
+from witdem.analytics.contract_catalog import summarize_contract_definitions
 from witdem.analytics.contracts import (
     CostSummary,
     ExecutionSummary,
@@ -626,36 +627,10 @@ class AnalyticsRepository:
 
         without_contract = replace(filters, contract_hash=None)
         allowed = {str(row["execution_id"]) for row in self._serving_execution_rows(without_contract, limit=None)}
-        grouped: dict[str, dict[str, Any]] = {}
-        for execution_id, definition in self._serving_contracts_by_execution().items():
-            if execution_id not in allowed:
-                continue
-            contract_hash = str(definition.get("contract_hash") or "")
-            if not contract_hash or (filters.contract_hash and contract_hash != filters.contract_hash):
-                continue
-            if contract_hash not in grouped:
-                public_keys = (
-                    "contract_hash",
-                    "contract_name",
-                    "contract_version",
-                    "protocol_version",
-                    "service",
-                    "contract",
-                    "result",
-                    "decision",
-                    "product_goal",
-                    "evaluations",
-                    "metrics",
-                    "dimensions",
-                )
-                grouped[contract_hash] = {
-                    **{key: definition[key] for key in public_keys if key in definition},
-                    "run_count": 0,
-                }
-            grouped[contract_hash]["run_count"] += 1
-        return sorted(
-            grouped.values(),
-            key=lambda item: (-int(item["run_count"]), str(item.get("contract_name") or "")),
+        return summarize_contract_definitions(
+            (definition for execution_id, definition in self._serving_contracts_by_execution().items()
+             if execution_id in allowed),
+            contract_hash=filters.contract_hash,
         )
 
     def _filtered_operation_rows(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
