@@ -12,6 +12,16 @@ from witdem.analytics.identity import display_execution, display_model, display_
 from witdem.analytics.operations import operation_identity
 from witdem.analytics.runtime import NormalizedExecutionGraph, derive_repeated_patterns
 
+
+def serving_runtime_outcome(status: str, failures: int) -> str:
+    """Existing serving-reader recovery interpretation, shared by projections."""
+    if not failures:
+        return "completed"
+    if status.casefold() in {"completed", "success", "succeeded", "ok"}:
+        return "recovered"
+    return "failed"
+
+
 SERVING_DDL = """
 CREATE SCHEMA IF NOT EXISTS serving;
 CREATE SCHEMA IF NOT EXISTS witdem_control;
