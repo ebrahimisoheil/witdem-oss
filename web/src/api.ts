@@ -665,8 +665,14 @@ export const api = {
     get<{ items: WorkflowInsight[]; stages: WorkflowStage[]; paths: WorkflowPath[] }>(
       withFilters("/api/v1/workflows", filters),
     ),
-  issues: (filters: DashboardFilters = {}) =>
-    get<Issues>(withFilters("/api/v1/issues", filters)),
+  issues: async (filters: DashboardFilters = {}) => {
+    const data = await get<Issues>(withFilters("/api/v1/issues", filters));
+    if (![data.summary?.runs, data.summary?.terminal_failures, data.summary?.recovered_runs,
+      data.summary?.extra_attempts, data.summary?.quality_gaps, data.measurement?.total,
+      data.measurement?.cost, data.measurement?.tokens, data.measurement?.business_goal].every(Number.isFinite))
+      throw new Error("Issue summaries are incomplete on this server; absence of issues is not verified.");
+    return data;
+  },
 };
 
 export const formatNumber = (value?: number | null) => {

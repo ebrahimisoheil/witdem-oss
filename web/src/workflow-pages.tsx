@@ -560,10 +560,16 @@ const operationLabel = (value: string) => {
   return value.replace(/^x\.[^.]+\./, "").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 };
 
+export function liveExecutionRefreshInterval(summary?: Record<string, unknown>): number | false {
+  const status = summary?.runtime_status ?? summary?.status ?? summary?.runtime_outcome;
+  return status === "running" ? 2_000 : false;
+}
+
 export function WorkflowExecutionPage() {
   const { workflowId, executionId } = useParams({ from: "/workflows/$workflowId/executions/$executionId" });
   const [summaryView, setSummaryView] = useState<ExecutionSummaryView | null>(null);
-  const q = useQuery({ queryKey: ["workflow-execution", workflowId, executionId], queryFn: () => api.workflowExecution(workflowId, executionId) });
+  const q = useQuery({ queryKey: ["workflow-execution", workflowId, executionId], queryFn: () => api.workflowExecution(workflowId, executionId),
+    refetchInterval: query => query.state.error ? false : liveExecutionRefreshInterval(query.state.data?.summary) });
   if (q.isLoading) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   const replay = q.data!.workflow_replay!;

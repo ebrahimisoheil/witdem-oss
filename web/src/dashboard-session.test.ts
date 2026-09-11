@@ -4,6 +4,11 @@ import { connectDashboardSession } from "./dashboard-session";
 
 afterEach(() => vi.unstubAllGlobals());
 
+it("does not report a clean population from incomplete issue summaries", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({status:200,ok:true,json:async()=>({summary:{},measurement:{}})}));
+  await expect(api.issues()).rejects.toThrow("absence of issues is not verified");
+});
+
 it("does not save a rejected token", async () => {
   const setItem = vi.fn();
   vi.stubGlobal("window", {sessionStorage: {setItem}});
