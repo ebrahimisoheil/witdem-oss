@@ -35,6 +35,38 @@ def _percentile(values: Iterable[float], percentile: float) -> float | None:
     return ordered[index]
 
 
+def retry_contributions(operations: Iterable[Operation]) -> dict[str, dict[str, Any]]:
+    """Untruncated retry counts keyed by the public canonical operation identity."""
+    groups: dict[str, dict[str, Any]] = {}
+    for operation in operations:
+        if (operation.attempt or 1) <= 1:
+            continue
+        item = groups.setdefault(canonical_operation_key(operation), {
+            "label": display_operation(operation), "extra_attempts": 0,
+        })
+        item["extra_attempts"] += 1
+    return groups
+
+
+def quality_gap_contribution(fact: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Interpret a normalized evaluation fact using the existing target rules."""
+    if fact.get("score") is None:
+        return None
+    attributes = fact.get("attributes") or {}
+    target = attributes.get("target")
+    direction = str(attributes.get("direction") or "higher_is_better")
+    if not isinstance(target, (int, float)):
+        return None
+    score = float(fact["score"])
+    missed = score < float(target) if direction != "lower_is_better" else score > float(target)
+    if not missed:
+        return None
+    return {
+        "name": fact.get("name") or attributes.get("evaluation_key") or "Evaluation",
+        "score": score, "target": float(target), "direction": direction,
+    }
+
+
 def summarize_issue_insights(
     rows: list[dict[str, Any]],
     operations_by_execution: Mapping[str, list[Operation]],
@@ -66,15 +98,11 @@ def summarize_issue_insights(
                     "known_cost": row.get("known_cost"),
                 }
             )
-        for operation in operations:
-            if (operation.attempt or 1) <= 1:
-                continue
-            label = display_operation(operation)
-            item = retry_groups.setdefault(
-                canonical_operation_key(operation),
-                {"label": label, "extra_attempts": 0, "execution_ids": set()},
-            )
-            item["extra_attempts"] += 1
+        for key, contribution in retry_contributions(operations).items():
+            item = retry_groups.setdefault(key, {
+                "label": contribution["label"], "extra_attempts": 0, "execution_ids": set(),
+            })
+            item["extra_attempts"] += contribution["extra_attempts"]
             item["execution_ids"].add(execution_id)
     retries = []
     for item in retry_groups.values():
@@ -92,22 +120,13 @@ def summarize_issue_insights(
         execution_id = str(fact["execution_id"])
         if execution_id not in run_by_id or fact.get("score") is None:
             continue
-        attributes = fact.get("attributes") or {}
-        target = attributes.get("target")
-        direction = str(attributes.get("direction") or "higher_is_better")
-        if not isinstance(target, (int, float)):
-            continue
-        score = float(fact["score"])
-        missed = score < float(target) if direction != "lower_is_better" else score > float(target)
-        if missed:
+        gap = quality_gap_contribution(fact)
+        if gap is not None:
             quality_gaps.append(
                 {
                     "execution_id": execution_id,
                     "display_name": run_by_id[execution_id].get("display_name"),
-                    "name": fact.get("name") or attributes.get("evaluation_key") or "Evaluation",
-                    "score": score,
-                    "target": float(target),
-                    "direction": direction,
+                    **gap,
                 }
             )
 
