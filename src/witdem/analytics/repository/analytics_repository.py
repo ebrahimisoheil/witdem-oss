@@ -70,6 +70,7 @@ from witdem.analytics.identity import (
     display_tool,
     model_value,
 )
+from witdem.analytics.issues import failure_for_operations, summarize_issue_insights
 from witdem.analytics.operations import operation_identity, token_measurement_applicable
 from witdem.analytics.read_model import aggregate_performance, dashboard_metrics, runtime_state
 from witdem.analytics.repository.sql_loader import load_query
@@ -763,11 +764,7 @@ class AnalyticsRepository:
 
     @staticmethod
     def _failure_for_operations(operations: list[Operation]) -> dict[str, Any]:
-        if not operations:
-            return {}
-        execution_id = operations[0].execution_id
-        graph = NormalizedExecutionGraph(execution=Execution(execution_id=execution_id), operations=operations)
-        return derive_failure_stage(graph)
+        return failure_for_operations(operations)
 
     def capabilities(self) -> Capabilities:
         cached = self._cached(("capabilities",))
@@ -1993,125 +1990,19 @@ class AnalyticsRepository:
         with self._overview_read_session():
             rows = self.execution_rows(filters, limit=None)
             operations_by_execution = self._operations_by_execution(filters)
-            run_by_id = {str(row["execution_id"]): row for row in rows}
-            failures: list[dict[str, Any]] = []
-            retry_groups: dict[str, dict[str, Any]] = {}
-            for execution_id, row in run_by_id.items():
-                operations = operations_by_execution.get(execution_id, [])
-                failure = self._failure_for_operations(operations)
-                if failure.get("primary_break_point"):
-                    failures.append(
-                        {
-                            "execution_id": execution_id,
-                            "display_name": row.get("display_name"),
-                            "failure_location": failure["primary_break_point"],
-                            "runtime_outcome": row.get("runtime_outcome") or row.get("status"),
-                            "duration_seconds": row.get("duration_seconds"),
-                            "known_cost": row.get("known_cost"),
-                        }
-                    )
-                for operation in operations:
-                    if (operation.attempt or 1) <= 1:
-                        continue
-                    label = display_operation(operation)
-                    item = retry_groups.setdefault(
-                        canonical_operation_key(operation),
-                        {"label": label, "extra_attempts": 0, "execution_ids": set()},
-                    )
-                    item["extra_attempts"] += 1
-                    item["execution_ids"].add(execution_id)
-            retries = []
-            for item in retry_groups.values():
-                execution_ids = sorted(item.pop("execution_ids"))
-                item["affected_runs"] = len(execution_ids)
-                item["runs"] = [
-                    {"execution_id": execution_id, "display_name": run_by_id[execution_id].get("display_name")}
-                    for execution_id in execution_ids
-                ]
-                retries.append(item)
-            retries.sort(key=lambda item: (-int(item["extra_attempts"]), str(item["label"])))
-
-            quality_gaps: list[dict[str, Any]] = []
+            evaluations = []
             if "semantic_facts" in self._serving_tables:
-                for fact in self._query(
-                    "SELECT execution_id, name, score, attributes FROM serving.semantic_facts "
-                    "WHERE record_type = 'evaluation'"
-                ):
-                    execution_id = str(fact["execution_id"])
-                    if execution_id not in run_by_id or fact.get("score") is None:
-                        continue
-                    attributes = _json(fact.get("attributes"))
-                    target = attributes.get("target")
-                    direction = str(attributes.get("direction") or "higher_is_better")
-                    if not isinstance(target, (int, float)):
-                        continue
-                    score = float(fact["score"])
-                    missed = score < float(target) if direction != "lower_is_better" else score > float(target)
-                    if missed:
-                        quality_gaps.append(
-                            {
-                                "execution_id": execution_id,
-                                "display_name": run_by_id[execution_id].get("display_name"),
-                                "name": fact.get("name") or attributes.get("evaluation_key") or "Evaluation",
-                                "score": score,
-                                "target": float(target),
-                                "direction": direction,
-                            }
-                        )
-
-            thresholds = {
-                "duration_seconds": _percentile(
-                    [float(row["duration_seconds"]) for row in rows if row.get("duration_seconds") is not None], 0.95
-                ),
-                "known_cost": _percentile(
-                    [float(row["known_cost"]) for row in rows if row.get("known_cost") is not None], 0.95
-                ),
-                "total_tokens": _percentile(
-                    [float(row["total_tokens"]) for row in rows if row.get("total_tokens") is not None], 0.95
-                ),
-            }
-            outliers = []
-            for row in rows:
-                reasons = [
-                    metric
-                    for metric, threshold in thresholds.items()
-                    if threshold is not None and row.get(metric) is not None and float(row[metric]) >= threshold
-                ]
-                if reasons:
-                    outliers.append(
-                        {
-                            "execution_id": row["execution_id"],
-                            "display_name": row.get("display_name"),
-                            "reasons": reasons,
-                            "duration_seconds": row.get("duration_seconds"),
-                            "known_cost": row.get("known_cost"),
-                            "total_tokens": row.get("total_tokens"),
-                        }
+                evaluations = [
+                    {**fact, "attributes": _json(fact.get("attributes"))}
+                    for fact in self._query(
+                        "SELECT execution_id, name, score, attributes FROM serving.semantic_facts "
+                        "WHERE record_type = 'evaluation'"
                     )
-            outliers.sort(key=lambda item: (-len(item["reasons"]), -float(item.get("duration_seconds") or 0)))
-            return {
-                "summary": {
-                    "runs": len(rows),
-                    "terminal_failures": sum(
-                        int(row.get("failure_count") or 0) > 0 and row.get("runtime_outcome") != "recovered"
-                        for row in rows
-                    ),
-                    "recovered_runs": sum(row.get("runtime_outcome") == "recovered" for row in rows),
-                    "extra_attempts": sum(int(item["extra_attempts"]) for item in retries),
-                    "quality_gaps": len(quality_gaps),
-                },
-                "failures": failures,
-                "retries": retries[:10],
-                "quality_gaps": quality_gaps[:10],
-                "outliers": outliers[:10],
-                "measurement": {
-                    "cost": sum(row.get("known_cost") is not None for row in rows),
-                    "tokens": sum(row.get("total_tokens") is not None for row in rows),
-                    "business_goal": sum(row.get("product_goal_achieved") is not None for row in rows),
-                    "total": len(rows),
-                    "cost_unavailable": self.cost_unavailable_reasons(filters),
-                },
-            }
+                ]
+            return summarize_issue_insights(
+                rows, operations_by_execution, evaluations,
+                cost_unavailable=self.cost_unavailable_reasons(filters),
+            )
 
     def performance(self, dimension: str, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Compare run performance across one user-facing dimension."""
