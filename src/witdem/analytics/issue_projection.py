@@ -16,7 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from witdem.analytics.core import Evaluation, Event, Link, Operation, Outcome
 from witdem.analytics.evidence import EvidenceBundle, operation_summary, required_measurement_alerts
 from witdem.analytics.issues import failure_for_operations, quality_gap_contribution, retry_contributions
+from witdem.analytics.operation_facts import workflow_operation_facts
+from witdem.analytics.runtime import NormalizedExecutionGraph, derive_replay_graph
 from witdem.analytics.serving import build_serving_rows, serving_runtime_outcome
+from witdem.workflows import WorkflowDefinition, project_execution
 
 
 class IssueProjectionRecord(BaseModel):
@@ -230,3 +233,34 @@ def project_bundle_issue_execution(bundle: EvidenceBundle) -> IssueExecutionProj
         for item in serving["semantic_facts"] if item["record_type"] == "evaluation"
     ]
     return project_issue_execution(row, bundle.operations, evaluations)
+
+
+def project_bundle_issue_operations(
+    bundle: EvidenceBundle, *, definition: WorkflowDefinition | None,
+) -> IssueOperationProjection:
+    """Project operation diagnostics with an explicitly resolved OSS definition.
+
+    The caller resolves the authoritative authored/registry definition. Explicit
+    None supports genuinely undeclared workflows, not an unresolved declaration.
+    Unsupported declarations must not silently lose their required meters.
+    """
+    identity = bundle.execution.execution_id
+    if any(operation.execution_id != identity for operation in bundle.operations):
+        raise ValueError("issue bundle operations must belong to the selected execution")
+    if any(event.execution_id != identity for event in bundle.events):
+        raise ValueError("issue bundle events must belong to the selected execution")
+    if any(link.execution_id != identity for link in bundle.links):
+        raise ValueError("issue bundle links must belong to the selected execution")
+    if definition is None and any(event.name == "workflow.definition" for event in bundle.events):
+        raise ValueError("an authored workflow declaration requires explicit resolution")
+    execution = {"execution_id": identity}
+    if definition is None:
+        projection: dict[str, Any] = {"execution": execution, "nodes": []}
+    else:
+        graph = derive_replay_graph(
+            NormalizedExecutionGraph(execution=bundle.execution, operations=bundle.operations, links=bundle.links),
+            events=bundle.events,
+        )
+        projection = project_execution(definition, execution=execution, graph=graph.model_dump(mode="json"))
+    facts, measurements = workflow_operation_facts(projection, bundle.operations)
+    return project_issue_operations(identity, facts, measurements)
