@@ -602,8 +602,23 @@ export type WorkflowReplay = {
   };
 };
 
+export class AuthenticationRequiredError extends Error {}
+
 async function get<T>(path: string, attempt = 0): Promise<T> {
-  const response = await fetch(path);
+  const headers = new Headers();
+  if (typeof window !== "undefined") {
+    try {
+      const token = window.sessionStorage.getItem("witdem:access-token");
+      const organization = window.sessionStorage.getItem("witdem:organization-id");
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      if (organization) headers.set("X-Witdem-Organization-ID", organization);
+    } catch { /* The server continues to fail closed when storage is unavailable. */ }
+  }
+  const response = await fetch(path, { headers });
+  if (response.status === 401) {
+    window.dispatchEvent(new Event("witdem:authentication-required"));
+    throw new AuthenticationRequiredError("Dashboard authentication is required.");
+  }
   if (response.status === 503 && attempt < 2) {
     await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
     return get<T>(path, attempt + 1);
