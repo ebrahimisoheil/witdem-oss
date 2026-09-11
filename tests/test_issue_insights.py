@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 from witdem.analytics.core import Operation
+from witdem.analytics.evidence import required_measurement_alerts
 from witdem.analytics.issues import summarize_issue_insights
 
 
@@ -68,3 +69,42 @@ def test_percentile_nearest_rank_ties_and_selected_population():
     tied = [{'execution_id': str(i), 'known_cost': 0} for i in range(12)]
     assert len(summarize(tied)['outliers']) == 10
     assert all(item['reasons'] == ['known_cost'] for item in summarize(tied)['outliers'])
+
+
+def test_required_measurement_alerts_count_operations_and_distinct_executions():
+    operations = [
+        {'operation_id': 'a', 'execution_id': 'run-a', 'operation_type': 'model', 'workflow_id': 'z'},
+        {'operation_id': 'b', 'execution_id': 'run-a', 'operation_type': 'model', 'workflow_id': 'z'},
+        {'operation_id': 'c', 'execution_id': 'run-b', 'operation_type': 'model', 'workflow_id': 'a'},
+    ]
+    measurements = [
+        {'operation_id': key, 'measurement_key': 'cost.usd', 'measurement_status': 'missing'}
+        for key in ('a', 'b', 'c')
+    ]
+    original = deepcopy((operations, measurements))
+    assert required_measurement_alerts(operations, measurements) == [{
+        'operation_type': 'model', 'measurement_key': 'cost.usd', 'operations': 3,
+        'executions': 2, 'workflow_ids': ['a', 'z'],
+    }]
+    assert (operations, measurements) == original
+
+
+def test_only_explicit_missing_measurements_of_actual_operations_are_alerts():
+    operations = [
+        {'operation_id': 'container', 'entity_kind': 'execution', 'execution_id': 'run'},
+        {'operation_id': 'work', 'execution_id': 'run', 'operation_type': 'ocr'},
+    ]
+    measurements = [
+        {'operation_id': 'container', 'measurement_key': 'cost.usd', 'measurement_status': 'missing'},
+        {'operation_id': 'orphan', 'measurement_key': 'cost.usd', 'measurement_status': 'missing'},
+        {'operation_id': 'work', 'measurement_key': 'cost.usd', 'measurement_status': 'measured', 'value': 0},
+        {'operation_id': 'work', 'measurement_key': 'tokens.total', 'measurement_status': 'not_applicable'},
+        {'operation_id': 'work', 'measurement_key': 'optional'},
+    ]
+    assert required_measurement_alerts(operations, measurements) == []
+    assert required_measurement_alerts([], []) == []
+    measurements.append({'operation_id': 'work', 'measurement_key': 'duration', 'measurement_status': 'missing'})
+    assert required_measurement_alerts(operations, measurements) == [{
+        'operation_type': 'ocr', 'measurement_key': 'duration', 'operations': 1,
+        'executions': 1, 'workflow_ids': [],
+    }]

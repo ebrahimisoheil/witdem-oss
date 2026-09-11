@@ -64,6 +64,45 @@ def operation_profile_inputs(
     ]
 
 
+def required_measurement_alerts(
+    operations: list[dict[str, Any]], measurements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group explicitly missing operation measurements, excluding containers."""
+    operations, measurements = operation_profile_inputs(operations, measurements)
+    operation_map = {str(item.get("operation_id") or ""): item for item in operations}
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for measurement in measurements:
+        if measurement.get("measurement_status") != "missing":
+            continue
+        operation = operation_map.get(str(measurement.get("operation_id") or ""), {})
+        key = (
+            str(operation.get("operation_type") or "unknown"),
+            str(measurement.get("measurement_key") or "unknown"),
+        )
+        bucket = groups.setdefault(
+            key,
+            {
+                "operation_type": key[0],
+                "measurement_key": key[1],
+                "operations": 0,
+                "executions": set(),
+                "workflow_ids": set(),
+            },
+        )
+        bucket["operations"] += 1
+        bucket["executions"].add(str(operation.get("execution_id") or ""))
+        if operation.get("workflow_id"):
+            bucket["workflow_ids"].add(str(operation["workflow_id"]))
+    return [
+        {
+            **bucket,
+            "executions": len(bucket["executions"]),
+            "workflow_ids": sorted(bucket["workflow_ids"]),
+        }
+        for bucket in sorted(groups.values(), key=lambda item: (-int(item["operations"]), str(item["operation_type"])))
+    ]
+
+
 def operation_summary(operations: list[dict[str, Any]], measurements: list[dict[str, Any]]) -> dict[str, Any]:
     """Return the existing per-execution operation diagnostic summary."""
 
