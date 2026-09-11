@@ -82,6 +82,7 @@ from witdem.analytics.runtime import (
     derive_repeated_patterns,
     derive_replay_graph,
 )
+from witdem.analytics.serving import serving_runtime_outcome as _serving_runtime_outcome
 
 _CACHE_MISS = object()
 _CacheValue = TypeVar("_CacheValue")
@@ -3336,13 +3337,3 @@ class AnalyticsRepository:
     def _operations(self, execution_id: str) -> list[Operation]:
         rows = self._query(load_query("execution/execution_timeline"), [execution_id])
         return [Operation.model_validate({**row, "attributes": _json(row.get("attributes"))}) for row in rows]
-
-
-def _serving_runtime_outcome(status: str, failures: int) -> str:
-    """Separate recovered child failures from terminal execution failures."""
-
-    if not failures:
-        return "completed"
-    if status.casefold() in {"completed", "success", "succeeded", "ok"}:
-        return "recovered"
-    return "failed"

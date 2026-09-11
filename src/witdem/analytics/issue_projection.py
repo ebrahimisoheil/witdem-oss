@@ -6,14 +6,17 @@ belong to the read reducer. No raw operation/evaluation attributes are retained.
 Names and display labels are selected metadata, not a general PII sanitizer.
 """
 
+import json
 from collections.abc import Iterable, Mapping
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from witdem.analytics.core import Operation
-from witdem.analytics.evidence import operation_summary, required_measurement_alerts
+from witdem.analytics.core import Evaluation, Event, Link, Operation, Outcome
+from witdem.analytics.evidence import EvidenceBundle, operation_summary, required_measurement_alerts
 from witdem.analytics.issues import failure_for_operations, quality_gap_contribution, retry_contributions
+from witdem.analytics.serving import build_serving_rows, serving_runtime_outcome
 
 
 class IssueProjectionRecord(BaseModel):
@@ -194,3 +197,36 @@ def project_issue_execution(
         retries=[IssueRetryContribution(key=key, **item) for key, item in retry_contributions(operations).items()],
         quality_gaps=gaps,
     )
+
+
+def project_bundle_issue_execution(bundle: EvidenceBundle) -> IssueExecutionProjection:
+    """Derive compact run issues through the OSS canonical serving projection.
+
+    This publication-time function performs no I/O. It does not use Enterprise
+    counters or reconstruct a dashboard database. Operation-type diagnostics are
+    projected separately from public workflow operation facts, which may require
+    the authored workflow definition; they must not be assumed empty here.
+    """
+    identity = bundle.execution.execution_id
+    records: list[Event | Evaluation | Outcome] = [
+        *bundle.events, *bundle.evaluations, *sorted(bundle.outcomes, key=lambda item: item.timestamp),
+    ]
+    members: list[Operation | Link | Event | Evaluation | Outcome] = [*bundle.operations, *bundle.links, *records]
+    if any(item.execution_id != identity for item in members):
+        raise ValueError("issue bundle records must belong to the selected execution")
+    serving = build_serving_rows(
+        bundle.execution, bundle.operations, bundle.links, records,
+        transformed_at=datetime(1970, 1, 1, tzinfo=timezone.utc), transform_version="issue-projection-1",
+    )
+    fact = serving["execution_facts"][0]
+    status = str(fact.get("runtime_status") or "")
+    row = {
+        **fact, "status": status,
+        "runtime_outcome": serving_runtime_outcome(status, int(fact.get("failure_count") or 0)),
+        "known_cost": fact.get("measured_cost"),
+    }
+    evaluations = [
+        {**item, "attributes": json.loads(item["attributes"])}
+        for item in serving["semantic_facts"] if item["record_type"] == "evaluation"
+    ]
+    return project_issue_execution(row, bundle.operations, evaluations)
