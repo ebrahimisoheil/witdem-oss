@@ -21,6 +21,15 @@ from typing import Any, TypeVar, cast
 import duckdb
 from filelock import FileLock
 
+from witdem.analytics.assurance import (
+    evaluation_met_target,
+    latest_goal_evaluations,
+    summarize_goal_assurance,
+)
+from witdem.analytics.assurance import (
+    goal_assurance_state as _goal_assurance_state,
+)
+from witdem.analytics.contract_catalog import summarize_contract_definitions
 from witdem.analytics.contracts import (
     CostSummary,
     ExecutionSummary,
@@ -267,20 +276,6 @@ def _participant_identity(
     family = canonical_model_key(operation)
     participant_id = f"{provider or 'unknown-provider'}::{family}"
     return participant_id, display_model(operation), provider, model, family, vendor
-
-
-def _goal_assurance_state(row: Mapping[str, Any]) -> str:
-    if row.get("product_goal_achieved") is not True:
-        return "not_achieved"
-    explicit = str(row.get("assurance_status") or "").strip().casefold()
-    if explicit in {"assured", "needs_attention"}:
-        return explicit
-    evidence_sufficient = row.get("evidence_sufficient")
-    if evidence_sufficient is True:
-        return "assured"
-    if evidence_sufficient is False:
-        return "needs_attention"
-    return "unassessed"
 
 
 def _percentile(values: Iterable[float], percentile: float) -> float | None:
@@ -632,36 +627,10 @@ class AnalyticsRepository:
 
         without_contract = replace(filters, contract_hash=None)
         allowed = {str(row["execution_id"]) for row in self._serving_execution_rows(without_contract, limit=None)}
-        grouped: dict[str, dict[str, Any]] = {}
-        for execution_id, definition in self._serving_contracts_by_execution().items():
-            if execution_id not in allowed:
-                continue
-            contract_hash = str(definition.get("contract_hash") or "")
-            if not contract_hash or (filters.contract_hash and contract_hash != filters.contract_hash):
-                continue
-            if contract_hash not in grouped:
-                public_keys = (
-                    "contract_hash",
-                    "contract_name",
-                    "contract_version",
-                    "protocol_version",
-                    "service",
-                    "contract",
-                    "result",
-                    "decision",
-                    "product_goal",
-                    "evaluations",
-                    "metrics",
-                    "dimensions",
-                )
-                grouped[contract_hash] = {
-                    **{key: definition[key] for key in public_keys if key in definition},
-                    "run_count": 0,
-                }
-            grouped[contract_hash]["run_count"] += 1
-        return sorted(
-            grouped.values(),
-            key=lambda item: (-int(item["run_count"]), str(item.get("contract_name") or "")),
+        return summarize_contract_definitions(
+            (definition for execution_id, definition in self._serving_contracts_by_execution().items()
+             if execution_id in allowed),
+            contract_hash=filters.contract_hash,
         )
 
     def _filtered_operation_rows(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
@@ -1352,17 +1321,7 @@ class AnalyticsRepository:
         )
 
     def _latest_evaluation_facts(self, allowed: set[str] | None = None) -> list[dict[str, Any]]:
-        latest: dict[tuple[str, str], dict[str, Any]] = {}
-        for fact in self._evaluation_facts():
-            execution_id = str(fact["execution_id"])
-            if allowed is not None and execution_id not in allowed:
-                continue
-            attributes = _json(fact.get("attributes"))
-            key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
-            existing = latest.get((execution_id, key))
-            if existing is None or str(fact.get("observed_at") or "") >= str(existing.get("observed_at") or ""):
-                latest[(execution_id, key)] = fact
-        return list(latest.values())
+        return latest_goal_evaluations(self._evaluation_facts(), allowed)
 
     def evaluation_summary(self, filters: FilterState = FilterState()) -> list[dict[str, Any]]:
         """Aggregate reported evaluations without interpreting contract-specific names."""
@@ -1407,24 +1366,7 @@ class AnalyticsRepository:
             )
         return sorted(result, key=lambda item: (-int(item["reported_runs"]), str(item["name"])))
 
-    @staticmethod
-    def _evaluation_met_target(row: dict[str, Any], attributes: dict[str, Any]) -> bool | None:
-        passed = attributes.get("passed")
-        if isinstance(passed, bool):
-            return passed
-        score = row.get("score") if row.get("score") is not None else row.get("value")
-        target = attributes.get("target")
-        direction = str(attributes.get("direction") or "equal").casefold()
-        if isinstance(score, (int, float)) and isinstance(target, (int, float)):
-            if direction in {"lower_is_better", "max", "at_most", "<="}:
-                return float(score) <= float(target)
-            if direction in {"higher_is_better", "min", "at_least", ">="}:
-                return float(score) >= float(target)
-            return float(score) == float(target)
-        observed = row.get("value") if row.get("value") is not None else row.get("label")
-        if target is not None and observed is not None:
-            return bool(observed == target)
-        return None
+    _evaluation_met_target = staticmethod(evaluation_met_target)
 
     def goal_assurance(
         self,
@@ -1442,127 +1384,7 @@ class AnalyticsRepository:
                     evaluations_by_execution.setdefault(execution_id, []).append(fact)
 
         definitions = {str(item.get("contract_hash") or ""): item for item in self.contract_definitions(filters)}
-        grouped: dict[str, dict[str, Any]] = {}
-        summary: dict[str, int | float] = {
-            "reported_runs": 0,
-            "achieved_runs": 0,
-            "assured_runs": 0,
-            "attention_runs": 0,
-            "not_achieved_runs": 0,
-            "unassessed_runs": 0,
-        }
-        for row in rows:
-            if row.get("product_goal_reported") is not True:
-                continue
-            contract_hash = str(row.get("contract_hash") or "unversioned")
-            definition = definitions.get(contract_hash, {})
-            goal_definition = definition.get("product_goal") if isinstance(definition.get("product_goal"), dict) else {}
-            goal_name = str(
-                (goal_definition or {}).get("name")
-                or row.get("contract_name")
-                or definition.get("contract_name")
-                or "Business goal"
-            )
-            description = (goal_definition or {}).get("description")
-            goal_key = f"{goal_name.casefold()}::{str(description or '').casefold()}"
-            item = grouped.setdefault(
-                goal_key,
-                {
-                    "goal_id": goal_key,
-                    "contract_hashes": [],
-                    "contract_name": row.get("contract_name") or definition.get("contract_name"),
-                    "goal_name": goal_name,
-                    "description": description,
-                    "single_execution_id": str(row["execution_id"]),
-                    "runs": 0,
-                    "achieved_runs": 0,
-                    "assured_runs": 0,
-                    "attention_runs": 0,
-                    "not_achieved_runs": 0,
-                    "unassessed_runs": 0,
-                    "evaluations": {},
-                },
-            )
-            if contract_hash not in item["contract_hashes"]:
-                item["contract_hashes"].append(contract_hash)
-            item["runs"] += 1
-            summary["reported_runs"] = int(summary["reported_runs"]) + 1
-            achieved = row.get("product_goal_achieved") is True
-            if not achieved:
-                item["not_achieved_runs"] += 1
-                summary["not_achieved_runs"] = int(summary["not_achieved_runs"]) + 1
-                continue
-            item["achieved_runs"] += 1
-            summary["achieved_runs"] = int(summary["achieved_runs"]) + 1
-            facts = evaluations_by_execution.get(str(row["execution_id"]), [])
-            for fact in facts:
-                attributes = _json(fact.get("attributes"))
-                met = self._evaluation_met_target(fact, attributes)
-                if met is None:
-                    continue
-                key = str(attributes.get("evaluation_key") or fact.get("name") or "Evaluation")
-                evaluation = item["evaluations"].setdefault(
-                    key,
-                    {
-                        "key": key,
-                        "name": str(fact.get("name") or key),
-                        "description": attributes.get("evaluation_description"),
-                        "unit": attributes.get("unit"),
-                        "target": attributes.get("target"),
-                        "direction": attributes.get("direction"),
-                        "reported_runs": 0,
-                        "passed_runs": 0,
-                        "attention_runs": 0,
-                        "score_total": 0.0,
-                        "score_runs": 0,
-                    },
-                )
-                evaluation["reported_runs"] += 1
-                evaluation["passed_runs"] += int(met)
-                evaluation["attention_runs"] += int(not met)
-                if isinstance(fact.get("score"), (int, float)):
-                    evaluation["score_total"] += float(fact["score"])
-                    evaluation["score_runs"] += 1
-            explicit_assurance = _goal_assurance_state(row)
-            if explicit_assurance == "needs_attention":
-                item["attention_runs"] += 1
-                summary["attention_runs"] = int(summary["attention_runs"]) + 1
-            elif explicit_assurance == "assured":
-                item["assured_runs"] += 1
-                summary["assured_runs"] = int(summary["assured_runs"]) + 1
-            else:
-                item["unassessed_runs"] += 1
-                summary["unassessed_runs"] = int(summary["unassessed_runs"]) + 1
-
-        portfolio: list[dict[str, Any]] = []
-        for item in grouped.values():
-            evaluations = []
-            for evaluation in item.pop("evaluations").values():
-                score_runs = int(evaluation.pop("score_runs"))
-                score_total = float(evaluation.pop("score_total"))
-                evaluations.append({**evaluation, "average_score": score_total / score_runs if score_runs else None})
-            achieved_runs = int(item["achieved_runs"])
-            assessed_runs = int(item["assured_runs"]) + int(item["attention_runs"])
-            attention = sorted(evaluations, key=lambda value: (-int(value["attention_runs"]), str(value["name"])))
-            portfolio.append(
-                {
-                    **item,
-                    "single_execution_id": item["single_execution_id"] if int(item["runs"]) == 1 else None,
-                    "contract_hash": item["contract_hashes"][0] if len(item["contract_hashes"]) == 1 else None,
-                    "contract_count": len(item["contract_hashes"]),
-                    "success_rate": achieved_runs / int(item["runs"]) if item["runs"] else 0.0,
-                    "assurance_rate": int(item["assured_runs"]) / achieved_runs if achieved_runs else 0.0,
-                    "assessment_coverage": assessed_runs / achieved_runs if achieved_runs else 0.0,
-                    "top_attention": attention[0] if attention and attention[0]["attention_runs"] else None,
-                    "evaluations": evaluations,
-                }
-            )
-        achieved_total = int(summary["achieved_runs"])
-        assessed_total = int(summary["assured_runs"]) + int(summary["attention_runs"])
-        summary["assurance_rate"] = int(summary["assured_runs"]) / achieved_total if achieved_total else 0.0
-        summary["attention_rate"] = int(summary["attention_runs"]) / achieved_total if achieved_total else 0.0
-        summary["assessment_coverage"] = assessed_total / achieved_total if achieved_total else 0.0
-        return sorted(portfolio, key=lambda item: (-int(item["runs"]), str(item["goal_name"]))), summary
+        return summarize_goal_assurance(rows, evaluations_by_execution, definitions)
 
     def _measurement_summary(
         self, filters: FilterState, *, measurement: str
