@@ -28,7 +28,3 @@ examples/product-factory/reports/
 
 # Local screenshots and investigation output
 /artifacts/
-.dyad/
-
-# Root workspace install (do not commit)
-node_modules/

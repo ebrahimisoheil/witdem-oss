@@ -9,70 +9,10 @@ import witdemMark from "./assets/witdem-mark-purple.png";
 const EChartsRuntime = lazy(() => import("./echarts-runtime"));
 const echarts = undefined;
 
-export function AnalyticsChart({ option, ...props }: React.ComponentProps<typeof EChartsRuntime>) {
-  const source = option as Record<string, unknown>;
-  const axisStyle = (axis: unknown) => {
-    if (!axis || typeof axis !== "object") return axis;
-    const record = axis as Record<string, unknown>;
-    return {
-      ...record,
-      axisLine: { lineStyle: { color: "#e6e8f0" }, ...(record.axisLine as Record<string, unknown> || {}) },
-      axisTick: { show: false, ...(record.axisTick as Record<string, unknown> || {}) },
-      axisLabel: { color: "#7b8193", fontSize: 10, ...(record.axisLabel as Record<string, unknown> || {}) },
-      splitLine: { lineStyle: { color: "#eef0f5", type: "dashed" }, ...(record.splitLine as Record<string, unknown> || {}) },
-    };
-  };
-  const styledOption = option && typeof option === "object" ? {
-    ...source,
-    color: source.color || chartColors,
-    animationDuration: source.animationDuration || 420,
-    textStyle: {
-      fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-      color: "#687087",
-      ...(source.textStyle || {}),
-    },
-    grid: {
-      left: 18,
-      right: 18,
-      top: 22,
-      bottom: 28,
-      containLabel: true,
-      ...(source.grid || {}),
-    },
-    legend: source.legend ? {
-      itemWidth: 8,
-      itemHeight: 8,
-      itemGap: 16,
-      ...(source.legend as Record<string, unknown>),
-      textStyle: {
-        color: "#687087",
-        fontSize: 11,
-        ...(((source.legend as Record<string, unknown>).textStyle as Record<string, unknown>) || {}),
-      },
-    } : source.legend,
-    xAxis: Array.isArray(source.xAxis) ? source.xAxis.map(axisStyle) : axisStyle(source.xAxis),
-    yAxis: Array.isArray(source.yAxis) ? source.yAxis.map(axisStyle) : axisStyle(source.yAxis),
-    series: Array.isArray(source.series) ? source.series.map((series: unknown) => {
-      const record = series as Record<string, unknown>;
-      return {
-        ...record,
-        itemStyle: record.type === "bar" ? { borderRadius: [5, 5, 0, 0], ...(record.itemStyle as Record<string, unknown> || {}) } : record.itemStyle,
-        lineStyle: record.type === "line" ? { width: 2.5, cap: "round", ...(record.lineStyle as Record<string, unknown> || {}) } : record.lineStyle,
-        areaStyle: record.type === "line" && !record.areaStyle ? { color: "rgba(111, 82, 199, .10)" } : record.areaStyle,
-        emphasis: { focus: "series", ...(record.emphasis as Record<string, unknown> || {}) },
-      };
-    }) : source.series,
-    tooltip: {
-      backgroundColor: "rgba(23, 24, 58, .96)",
-      borderWidth: 0,
-      padding: [9, 12],
-      textStyle: { color: "#fff", fontSize: 11 },
-      ...(source.tooltip || {}),
-    },
-  } : option;
+export function AnalyticsChart(props: React.ComponentProps<typeof EChartsRuntime>) {
   return (
     <Suspense fallback={<div className="animate-pulse rounded-lg bg-[#f4f3f0]" style={props.style as React.CSSProperties} />}>
-      <EChartsRuntime {...props} option={styledOption} />
+      <EChartsRuntime {...props} />
     </Suspense>
   );
 }
@@ -80,13 +20,13 @@ export function AnalyticsChart({ option, ...props }: React.ComponentProps<typeof
 const ReactEChartsCore = AnalyticsChart;
 
 export const chartColors = [
-  "#6f52c7",
-  "#4f86c6",
-  "#4ca88c",
-  "#d99a45",
-  "#cf6b7c",
-  "#7d8798",
-  "#9278b8",
+  "#6d4aff",
+  "#2477e6",
+  "#16a085",
+  "#e38317",
+  "#d34f6f",
+  "#637083",
+  "#9b59b6",
 ];
 export const stableColor = (identity: string) => {
   let hash = 2166136261;
@@ -103,63 +43,42 @@ const nav = [
   ["/compare", "Compare"],
   ["/issues", "Issues"],
 ] as const;
-
-function NavigationIcon({ name }: { name: string }) {
-  const paths: Record<string, string> = {
-    "/": "M4 10.5 10 5l6 5.5v5.25a1.25 1.25 0 0 1-1.25 1.25h-3.5v-4.5h-2.5V17H5.25A1.25 1.25 0 0 1 4 15.75V10.5Z",
-    "/system-health": "M3.5 10h3l1.7-4 3.1 8 1.7-4h3.5M4 16.5h12",
-    "/goal-performance": "M4 16V9m4 7V5m4 11v-4m4 4V3",
-    "/workflows": "M5 5.5h10M5 10h10M5 14.5h6M3.5 5.5h.01M3.5 10h.01M3.5 14.5h.01",
-    "/runs": "M5 3.5h7l3 3v10H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5Zm7 0V7h3",
-    "/compare": "M4 5.5h5v9H4zM11 5.5h5v9h-5zM9 8h2M9 12h2",
-    "/issues": "M10 3.5 17 16H3L10 3.5Zm0 4v4m0 2.5v.01",
-    "/developer": "M7 5 3.5 10 7 15M13 5l3.5 5-3.5 5M11.5 3.5 8.5 16.5",
-  };
-  return <svg className="witdem-nav-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d={paths[name] || paths["/"]} stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" /></svg>;
-}
-
 export function Shell() {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const [navOpen, setNavOpen] = useState(true);
   return (
-    <div className={`witdem-shell min-h-screen bg-[#fbfcff] text-[#11152f] ${navOpen ? "is-nav-open" : "is-nav-collapsed"}`}>
-      <header className="witdem-topbar">
-        <div className="witdem-topbar-inner">
-          <div className="witdem-sidebar-head">
-            <Link to="/" className="witdem-brand">
-              <img src={witdemMark} alt="Witdem AI" aria-hidden="true" />
-              <span>WITDEM AI</span>
-            </Link>
-            <button
-              type="button"
-              className="witdem-nav-toggle"
-              aria-label={navOpen ? "Collapse navigation" : "Expand navigation"}
-              aria-expanded={navOpen}
-              onClick={() => setNavOpen((open) => !open)}
+    <div className="min-h-screen bg-[#f8f8f5] text-[#242424]">
+      <aside className="fixed inset-y-0 left-0 z-20 w-56 border-r border-[#e7e7e1] bg-white px-4 py-5">
+        <Link to="/" className="mb-8 flex items-center gap-3 px-2">
+          <img
+            src={witdemMark}
+            alt=""
+            aria-hidden="true"
+            className="h-7 w-11 shrink-0 object-contain"
+          />
+          <span className="font-semibold">Witdem AI</span>
+        </Link>
+        <nav className="space-y-1">
+          {nav.map(([to, label]) => (
+            <Link
+              key={to}
+              to={to}
+              className={`block rounded-lg px-3 py-2 text-sm font-medium ${path === to || (to !== "/" && path.startsWith(to)) ? "bg-[#f0edff] text-[#5a35c8]" : "text-[#666] hover:bg-[#f5f5f1]"}`}
             >
-              <span aria-hidden="true">{navOpen ? "‹" : "›"}</span>
-            </button>
-          </div>
-          <nav className="witdem-nav" aria-label="Main navigation">
-            {nav.map(([to, label]) => (
-              <Link
-                key={to}
-                to={to}
-                className={path === to || (to !== "/" && path.startsWith(to)) ? "is-active" : ""}
-              >
-                <NavigationIcon name={to} />
-                <span>{label}</span>
-              </Link>
-            ))}
-            <Link to="/developer" className={path === "/developer" ? "is-active" : ""}>
-              <NavigationIcon name="/developer" />
-              <span>Developer</span>
+              {label}
             </Link>
-          </nav>
+          ))}
+        </nav>
+        <div className="absolute bottom-5 left-4 right-4 border-t pt-4">
+          <Link
+            to="/developer"
+            className="px-3 text-xs font-medium text-[#777]"
+          >
+            Developer data
+          </Link>
         </div>
-      </header>
-      <main className="witdem-main min-h-screen">
-        <div className="witdem-content mx-auto max-w-[1480px] px-8 py-7">
+      </aside>
+      <main className="ml-56 min-h-screen">
+        <div className="mx-auto max-w-[1480px] px-8 py-7">
           <UpdateNotice />
           <Outlet />
         </div>
@@ -217,34 +136,34 @@ export function PageHeader({
   action?: React.ReactNode;
   compact?: boolean;
 }) {
-  return (
-    <header className={`witdem-page-header ${compact ? "is-compact mb-4" : "mb-7"}`}>
-      <div>
-        {eyebrow && <div className="witdem-eyebrow">{eyebrow}</div>}
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
-    </header>
-  );
-}
-
-export function RefreshButton({ className = "", onClick }: { className?: string; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
   const queryClient = useQueryClient();
   const isFetching = useIsFetching() > 0;
-  const handleClick: React.MouseEventHandler<HTMLButtonElement> = (event) => {
-    void queryClient.invalidateQueries();
-    onClick?.(event);
-  };
   return (
-    <Button
-      className={className}
-      variant="outline"
-      disabled={isFetching}
-      onClick={handleClick}
-    >
-      {isFetching ? "Refreshing…" : "Refresh"}
-    </Button>
+    <header className={`${compact ? "mb-4" : "mb-7"} flex items-start justify-between gap-6`}>
+      <div>
+        {eyebrow && (
+          <div className={`${compact ? "mb-1" : "mb-2"} text-xs font-semibold uppercase tracking-[.12em] text-[#8062df]`}>
+            {eyebrow}
+          </div>
+        )}
+        <h1 className={`${compact ? "text-[26px]" : "text-[30px]"} font-semibold leading-tight tracking-[-.03em]`}>
+          {title}
+        </h1>
+        <p className={`${compact ? "mt-1 leading-5" : "mt-2 leading-6"} max-w-2xl text-sm text-[#6d6d68]`}>
+          {description}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          variant="outline"
+          disabled={isFetching}
+          onClick={() => void queryClient.invalidateQueries()}
+        >
+          {isFetching ? "Refreshing…" : "Refresh"}
+        </Button>
+        {action}
+      </div>
+    </header>
   );
 }
 export function Panel({
@@ -261,7 +180,7 @@ export function Panel({
 }>) {
   return (
     <section
-      className={`witdem-panel min-w-0 overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,.02)] ${className}`}
+      className={`min-w-0 overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,.02)] ${className}`}
     >
       <div className="mb-4">
         <h2 className="text-sm font-semibold">
@@ -335,16 +254,8 @@ export function Kpi({
   tone?: "neutral" | "good" | "warn";
   href?: string;
 }) {
-  const iconPath = label.toLowerCase().includes("goal")
-    ? "M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2M5.4 5.4l1.4 1.4m5.6 5.6 1.4 1.4m0-8.4-1.4 1.4m-5.6 5.6-1.4 1.4M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"
-    : label.toLowerCase().includes("elapsed")
-      ? "M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 3v3.8l2.5 1.5"
-      : label.toLowerCase().includes("spend")
-        ? "M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm2.2 4.8c-.5-.5-1.2-.8-2.1-.8-1.1 0-1.8.5-1.8 1.2 0 1.9 4 1 4 3 0 .8-.8 1.4-2 1.4-.9 0-1.7-.3-2.3-.9M10 6.2v7.6"
-        : "M5 3.5h7l3 3v10H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5Zm7 0V7h3M6.5 10h5M6.5 13h5";
   const content = (
     <>
-      <span className="witdem-kpi-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d={iconPath} stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
       <div className="break-words text-xs font-medium text-[#73736d]">{label}</div>
       <div
         className={`mt-3 min-w-0 break-words text-2xl font-semibold leading-tight tracking-[-.03em] [overflow-wrap:anywhere] ${tone === "good" ? "text-[#14794c]" : tone === "warn" ? "text-[#a15c00]" : ""}`}
@@ -356,7 +267,7 @@ export function Kpi({
       {href && <div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div>}
     </>
   );
-  const className = "witdem-kpi group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-4 transition";
+  const className = "group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-4 transition";
   return href
     ? <a href={href} className={`${className} hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]`}>{content}</a>
     : <div className={className}>{content}</div>;
@@ -580,6 +491,10 @@ export function RuntimeDonutChart({
       option={{
         tooltip: { trigger: "item", formatter: "{b}<br/>{c} runs · {d}%" },
         legend: { type: "scroll", orient: "vertical", right: 4, top: "center", itemWidth: compact ? 7 : 10, itemHeight: compact ? 7 : 10, textStyle: { fontSize: compact ? 9 : 11 }, width: compact ? "42%" : undefined },
+        graphic: [
+          { type: "text", left: compact ? "27%" : "31%", top: "42%", style: { text: formatNumber(total), textAlign: "center", fill: "#292925", fontSize: compact ? 18 : 24, fontWeight: 700 } },
+          { type: "text", left: compact ? "27%" : "31%", top: "57%", style: { text: "runs", textAlign: "center", fill: "#7a7a74", fontSize: compact ? 8 : 11 } },
+        ],
         series: [{
           type: "pie",
           radius: ["50%", "72%"],
@@ -590,7 +505,7 @@ export function RuntimeDonutChart({
             name: name.replaceAll("_", " "),
             status: name,
             value,
-            label: name === entries[0]?.[0] ? { show: true, position: "center", formatter: `{value|${formatNumber(total)}}\n{caption|runs}`, rich: { value: { color: "#292925", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif", fontSize: compact ? 17 : 22, fontWeight: 700, lineHeight: compact ? 19 : 25 }, caption: { color: "#7a7a74", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif", fontSize: compact ? 8 : 10, lineHeight: 12 } } } : { show: false },
+            label: name === entries[0]?.[0] ? { show: true, position: "center", formatter: `{value|${formatNumber(total)}}\n{caption|runs}`, rich: { value: { color: "#292925", fontSize: compact ? 17 : 22, fontWeight: 700, lineHeight: compact ? 19 : 25 }, caption: { color: "#7a7a74", fontSize: compact ? 8 : 10, lineHeight: 12 } } } : { show: false },
             itemStyle: { color: colors[name.toLowerCase()] || "#7a8290", borderColor: "#fff", borderWidth: 2 },
           })),
         }],
