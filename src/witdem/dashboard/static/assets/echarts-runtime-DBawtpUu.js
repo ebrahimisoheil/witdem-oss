@@ -1,0 +1,1 @@
+import{j as s}from"./react-CpFK3TJm.js";import{e as t,u as l,i,a as r,b as n,c as o,d as e,f as m,g as u,h as p,j as $}from"./echarts-CTfyrj4F.js";import{R as f}from"./echarts-react-IErMplvY.js";import"./vendor-Chl1XkDp.js";import"./zrender-Be2zjQa0.js";l([i,r,n,o,e,m,u,p,$]);function C({echarts:c,...a}){return s.jsx(f,{echarts:t,...a})}export{C as default};
