@@ -29,6 +29,7 @@ _explicit_evaluation_pass = evidence_contracts.explicit_evaluation_pass
 _measurement_coverage = evidence_contracts.measurement_coverage
 _operation_profile_inputs = evidence_contracts.operation_profile_inputs
 _operation_summary = evidence_contracts.operation_summary
+_measurement_alerts = evidence_contracts.required_measurement_alerts
 
 
 def filters_from_values(
@@ -538,42 +539,6 @@ def workflow_evaluation_campaigns(repo: AnalyticsRepository, workflow_id: str) -
 
 def evaluation_campaign(repo: AnalyticsRepository, campaign_id: str) -> dict[str, Any] | None:
     return repo.evaluation_campaign(campaign_id)
-
-
-def _measurement_alerts(operations: list[dict[str, Any]], measurements: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    operations, measurements = _operation_profile_inputs(operations, measurements)
-    operation_map = {str(item.get("operation_id") or ""): item for item in operations}
-    groups: dict[tuple[str, str], dict[str, Any]] = {}
-    for measurement in measurements:
-        if measurement.get("measurement_status") != "missing":
-            continue
-        operation = operation_map.get(str(measurement.get("operation_id") or ""), {})
-        key = (
-            str(operation.get("operation_type") or "unknown"),
-            str(measurement.get("measurement_key") or "unknown"),
-        )
-        bucket = groups.setdefault(
-            key,
-            {
-                "operation_type": key[0],
-                "measurement_key": key[1],
-                "operations": 0,
-                "executions": set(),
-                "workflow_ids": set(),
-            },
-        )
-        bucket["operations"] += 1
-        bucket["executions"].add(str(operation.get("execution_id") or ""))
-        if operation.get("workflow_id"):
-            bucket["workflow_ids"].add(str(operation["workflow_id"]))
-    return [
-        {
-            **bucket,
-            "executions": len(bucket["executions"]),
-            "workflow_ids": sorted(bucket["workflow_ids"]),
-        }
-        for bucket in sorted(groups.values(), key=lambda item: (-int(item["operations"]), str(item["operation_type"])))
-    ]
 
 
 def compare(repo: AnalyticsRepository, dimension: str, filters: FilterState) -> dict[str, Any]:

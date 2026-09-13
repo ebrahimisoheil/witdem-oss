@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, RouterProvider } from "@tanstack/react-router";
 import { Shell } from "./components";
+import { AuthenticationRequiredError } from "./api";
+import { DashboardSession } from "./dashboard-session";
 import "./styles.css";
 
 // Recover an open tab whose previous deployment references a lazy chunk that
@@ -28,8 +30,8 @@ const router=createRouter({routeTree:root.addChildren(routes),defaultPreload:"in
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }
 const queryClient=new QueryClient({defaultOptions:{queries:{
   staleTime:15_000,
-  retry:4,
+  retry:(count,error)=>!(error instanceof AuthenticationRequiredError) && count < 4,
   retryDelay:(attempt)=>Math.min(500 * 2 ** attempt, 4_000),
-  refetchInterval:(query)=>query.state.status === "error" ? 3_000 : false,
+  refetchInterval:(query)=>query.state.status === "error" && !(query.state.error instanceof AuthenticationRequiredError) ? 3_000 : false,
 }}});
-ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><QueryClientProvider client={queryClient}><RouterProvider router={router}/></QueryClientProvider></React.StrictMode>);
+ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><QueryClientProvider client={queryClient}><DashboardSession/><RouterProvider router={router}/></QueryClientProvider></React.StrictMode>);
