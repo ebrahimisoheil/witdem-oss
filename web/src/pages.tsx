@@ -36,7 +36,6 @@ import {
   percent,
   PerformanceList,
   ProviderSpendChart,
-  RefreshButton,
   RuntimeDonutChart,
   QualityComparisonChart,
   seconds,
@@ -114,46 +113,23 @@ export function OverviewPage() {
   const issuesHref = drilldownHref("/issues", routeBase);
   const issueCount = issues.data ? issueSignalCount(issues.data) : 0;
   return (
-    <div className="witdem-overview-page">
-      <div className="witdem-overview-intro">
-        <PageHeader
-          eyebrow="Runtime analytics"
-          title="Understand how your AI system actually behaves"
-          description="Execution, outcome quality, traceability, and cost in one independent view. Explore the evidence behind every run and product goal."
-        />
-        <aside className="witdem-tldr" aria-label="Overview summary">
-          <div className="witdem-tldr-title">At a glance</div>
-          <ol>
-            <li><span>1</span><strong>Runtime activity is measurable</strong><small>Every execution is connected to its operational evidence.</small></li>
-            <li><span>2</span><strong>Goals need independent checks</strong><small>Execution success does not automatically mean product success.</small></li>
-            <li><span>3</span><strong>Cost and quality belong together</strong><small>Compare providers, models, and outcomes in one view.</small></li>
-          </ol>
-        </aside>
-      </div>
-      {d?.metadata || meta.data ? <div className="witdem-filter-row">
-        <div className="min-w-0 flex-1">
-          <SharedFilterBar
-            metadata={d?.metadata || meta.data!}
-            values={filterValues}
-            onChange={(values) => preserveViewport(() => {
-              setFilterValues(values);
-              replaceSharedFilterUrl(values);
-            })}
-            includeGoal={false}
-          />
-        </div>
-        <RefreshButton className="witdem-refresh-button shrink-0" />
-      </div> : <IncrementalState label="dashboard filters" error={meta.error} onRetry={() => void meta.refetch()} className="mb-4 min-h-20" />}
-      {d ? <div className="witdem-stat-grid">
-        <Kpi label="Input runs" value={formatNumber(d.execution.total_runs)} note="Recorded executions" href={drilldownHref("/runs", routeBase)} />
-        <Kpi label="Reported goals" value={formatNumber(d.goals.reported_runs)} note="Business results" href={goalHref} />
-        <Kpi label="Completed runs" value={formatNumber(d.execution.successful_runs)} note="Runtime successful" tone="good" href={healthHref} />
-        <Kpi label="Average elapsed" value={seconds(d.execution.avg_duration_seconds)} note="End-to-end runtime" href={healthHref} />
-        <Kpi label="Measured spend" value={money(d.costs.measured_cost)} note="Known billable activity" href={healthHref} />
-        <Kpi label="Goal success" value={percent(d.goals.success_rate)} note="Product outcome rate" tone={d.goals.success_rate >= 0.8 ? "good" : "warn"} href={goalHref} />
-      </div> : null}
+    <>
+      <PageHeader
+        eyebrow="Command center"
+        title="What is working and what needs attention?"
+        description="Business outcomes and operational health in one view. Drill into any goal, model, or provider with the same filters preserved."
+      />
+      {d?.metadata || meta.data ? <SharedFilterBar
+        metadata={d?.metadata || meta.data!}
+        values={filterValues}
+        onChange={(values) => preserveViewport(() => {
+          setFilterValues(values);
+          replaceSharedFilterUrl(values);
+        })}
+        includeGoal={false}
+      /> : <IncrementalState label="dashboard filters" error={meta.error} onRetry={() => void meta.refetch()} className="mb-4 min-h-20" />}
       {d && assurance ? <div className="grid gap-4 xl:grid-cols-[1.05fr_.72fr_.48fr]">
-        <section className="witdem-outcome-hero relative overflow-hidden rounded-2xl bg-[#231b3d] p-6 text-white shadow-[0_12px_35px_rgba(43,29,83,.14)]">
+        <section className="relative overflow-hidden rounded-2xl bg-[#231b3d] p-6 text-white shadow-[0_12px_35px_rgba(43,29,83,.14)]">
           <a href={goalHref} aria-label="Explore goal performance" className="absolute inset-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bdaaff] focus-visible:ring-inset" />
           <div className="pointer-events-none relative">
             <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#bdaaff]">Business outcomes</div>
@@ -170,7 +146,7 @@ export function OverviewPage() {
             <a href={goalHref} className="pointer-events-auto mt-6 inline-flex rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Explore goal performance →</a>
           </div>
         </section>
-        <section className="witdem-health-card relative flex flex-col rounded-2xl border border-[#e2e1db] bg-white p-6 shadow-[0_8px_30px_rgba(40,40,30,.05)]">
+        <section className="relative flex flex-col rounded-2xl border border-[#e2e1db] bg-white p-6 shadow-[0_8px_30px_rgba(40,40,30,.05)]">
           <a href={healthHref} aria-label="Explore system health" className="absolute inset-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#603bd1] focus-visible:ring-inset" />
           <div className="pointer-events-none relative flex h-full flex-col">
             <div className="flex items-center justify-between gap-4">
@@ -193,7 +169,7 @@ export function OverviewPage() {
             <a href={healthHref} className="pointer-events-auto mt-auto inline-flex pt-5 text-xs font-semibold text-[#603bd1]">Explore system health →</a>
           </div>
         </section>
-        <section className="witdem-spend-card flex min-w-0 flex-col rounded-2xl border border-[#ded7f3] bg-[#f8f5ff] p-6 shadow-[0_8px_30px_rgba(62,42,112,.06)]">
+        <section className="flex min-w-0 flex-col rounded-2xl border border-[#ded7f3] bg-[#f8f5ff] p-6 shadow-[0_8px_30px_rgba(62,42,112,.06)]">
           <div className="text-xs font-semibold uppercase tracking-[.14em] text-[#7151cc]">{costIncomplete ? "Known subtotal" : "Measured spend"}</div>
           <div className="mt-3 break-words text-4xl font-semibold tracking-[-.04em] text-[#2f2450]">
             {money(d.costs.measured_cost)}
@@ -218,9 +194,9 @@ export function OverviewPage() {
           </div>
         </section>
       </div> : <IncrementalState label="business and system summary" error={q.error} onRetry={() => void q.refetch()} className="min-h-64" />}
-      {issues.data ? <a href={issuesHref} className={`witdem-issue-banner mt-3 flex items-center justify-between rounded-xl border px-4 py-3 text-xs transition hover:brightness-[.98] ${issueCount ? "has-issues border-[#ead9c8] bg-[#fff9f1] text-[#805527]" : "border-[#d7e9dc] bg-[#f3faf5] text-[#286b45]"}`}>
-        <span className="witdem-issue-copy"><span className="witdem-issue-heading"><span className="witdem-issue-icon" aria-hidden="true">!</span><strong>{issueCount ? `${formatNumber(issueCount)} issue signals` : "No active issue signals"}</strong></span><span className="witdem-issue-description">Failures, quality gaps, retry pressure, outliers, and missing evidence.</span></span>
-        <span className="witdem-issue-action">Open issues <span aria-hidden="true">→</span></span>
+      {issues.data ? <a href={issuesHref} className={`mt-3 flex items-center justify-between rounded-xl border px-4 py-3 text-xs transition hover:brightness-[.98] ${issueCount ? "border-[#ead9c8] bg-[#fff9f1] text-[#805527]" : "border-[#d7e9dc] bg-[#f3faf5] text-[#286b45]"}`}>
+        <span><strong>{issueCount ? `${formatNumber(issueCount)} issue signals` : "No active issue signals"}</strong><span className="ml-2">Failures, quality gaps, retry pressure, outliers, and missing evidence.</span></span>
+        <span className="shrink-0 font-semibold">Open issues →</span>
       </a> : <IncrementalState label="issue signals" error={issues.error} onRetry={() => void issues.refetch()} className="mt-3 min-h-14" />}
       {d ? <div className="mt-4 grid gap-4 xl:grid-cols-12 xl:items-stretch">
         <Panel
@@ -264,7 +240,7 @@ export function OverviewPage() {
           <ProviderSpendChart height={310} items={d.providers} breakdown="provider" onSelect={(item) => window.location.assign(drilldownHref("/system-health", { ...routeBase, provider: item.label }))} />
         </Panel> : <IncrementalState label="provider spend" error={q.error} onRetry={() => void q.refetch()} />}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -317,14 +293,6 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
     else url.searchParams.set(key, value);
     window.history.replaceState(window.history.state, "", url);
   });
-  const updateSharedFilters = (values: SharedFilterValues) => preserveViewport(() => {
-    setContractHash(values.contractHash);
-    setProvider(values.provider);
-    setModel(values.model);
-    setStatus(values.status);
-    setRange(values.range);
-    replaceSharedFilterUrl(values);
-  });
   if (q.isLoading || (mode === "goals" && goalComparison.isLoading)) return <LoadingPage />;
   if (q.error) return <ErrorPage error={q.error} />;
   if (mode === "goals" && goalComparison.error) return <ErrorPage error={goalComparison.error} />;
@@ -362,15 +330,36 @@ function DashboardSectionPage({ mode }: { mode: "health" | "goals" }) {
             : "Understand which goals were achieved, how strongly their declared checks support that result, and what needs attention."
         }
       />
-      <div className="witdem-filter-row">
-        <div className="min-w-0 flex-1">
-          <SharedFilterBar
-            metadata={metadata}
-            values={{ contractHash, provider, model, status, range }}
-            onChange={updateSharedFilters}
-          />
-        </div>
-        <RefreshButton className="witdem-refresh-button shrink-0" />
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-white p-3">
+          <span className="mr-1 text-xs font-semibold text-[#555]">Filter this view</span>
+          <FilterSelect value={contractHash} onChange={(value) => updateFilter("contract_hash", value, setContractHash)} label="All business goals">
+            {metadata.contracts.map((item) => (
+              <option key={item.contract_hash} value={item.contract_hash}>
+                {item.product_goal?.name || item.contract_name || "Business goal"}
+              </option>
+            ))}
+          </FilterSelect>
+          <FilterSelect value={provider} onChange={(value) => updateFilter("provider", value, setProvider)} label="All providers">
+            {(metadata.filters.provider || []).map((value) => (
+              <option key={value} value={value}>{providerDisplayName(value)}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect value={model} onChange={(value) => updateFilter("model", value, setModel)} label="All models">
+            {(metadata.filters.model || []).map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect value={status} onChange={(value) => updateFilter("status", value, setStatus)} label="All runtime states">
+            <option value="completed">Completed or recovered</option>
+            <option value="recovered">Recovered</option>
+            <option value="failed">Failed</option>
+            <option value="running">Running</option>
+          </FilterSelect>
+          <FilterSelect value={range} onChange={(value) => updateFilter("range", value, setRange)} label="All time" includeEmpty={false}>
+            <option value="1">Last 24 hours</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+          </FilterSelect>
       </div>
       <ActiveFilterChips filters={semanticFilters} />
       {selectedContract && <ContractBanner contract={selectedContract} />}
@@ -798,15 +787,15 @@ function GoalPortfolio({ items, destination, compact = false, drilldownBase }: {
         const segmentHref = (filters: Record<string, string | undefined>) => drilldownHref("/runs", { ...drilldownBase, contract_hash: contract, ...filters });
         const runsHref = goalPortfolioRunsHref(item, drilldownBase);
         return (
-          <div key={item.goal_id} className="witdem-goal-row rounded-xl border border-[#e9e8e2] p-4">
+          <div key={item.goal_id} className="rounded-xl border border-[#e9e8e2] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="witdem-goal-title min-w-0">
+              <div className="min-w-0">
                 {destination ? (
-                  <a href={drilldownHref(destination, { ...drilldownBase, contract_hash: item.contract_hash || item.contract_hashes[0] })} className="text-sm font-semibold text-[#3d2b76] hover:text-[#6d4aff]">{item.goal_name} <span aria-hidden="true">→</span></a>
+                  <a href={drilldownHref(destination, { ...drilldownBase, contract_hash: item.contract_hash || item.contract_hashes[0] })} className="text-sm font-semibold text-[#3d2b76] hover:text-[#6d4aff]">{item.goal_name} →</a>
                 ) : <div className="text-sm font-semibold">{item.goal_name}</div>}
                 {!compact && item.description && <div className="mt-1 max-w-3xl text-xs leading-5 text-[#71716b]">{item.description}</div>}
               </div>
-              <div className="witdem-goal-metrics flex gap-4 text-right text-xs">
+              <div className="flex gap-4 text-right text-xs">
                 <a href={segmentHref({ goal_status: "achieved" })} className="rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"><div className="font-semibold text-[#333]">{percent(item.success_rate)}</div><div className="text-[#7a7a74]">achieved</div></a>
                 <a href={segmentHref({ goal_status: "achieved", assurance_status: "assured" })} className="rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"><div className="font-semibold text-[#333]">{percent(item.assurance_rate)}</div><div className="text-[#7a7a74]">assured</div></a>
                 <a href={runsHref} className="rounded hover:text-[#603bd1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]"><div className="font-semibold text-[#333]">{formatNumber(item.runs)}</div><div className="text-[#7a7a74]">runs · {formatNumber(item.contract_count)} contract{item.contract_count === 1 ? "" : "s"}</div></a>
@@ -851,7 +840,7 @@ function ModeButton({ active, onClick, children }: React.PropsWithChildren<{ act
 
 function FilterSelect({ value, onChange, label, includeEmpty = true, children }: React.PropsWithChildren<{ value: string; onChange: (value: string) => void; label: string; includeEmpty?: boolean }>) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="witdem-filter-select max-w-[220px] rounded-lg border border-[#dddcd6] bg-white px-3 py-2 text-xs text-[#555]">
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="max-w-[220px] rounded-lg border border-[#dddcd6] bg-white px-3 py-2 text-xs text-[#555]">
       {includeEmpty && <option value="">{label}</option>}
       {!includeEmpty && <option value="all">{label}</option>}
       {children}
@@ -973,7 +962,7 @@ function ActiveFilterChips({ filters, contracts = [] }: { filters: DashboardFilt
   const entries = Object.entries(filters).filter(([, value]) => value != null && value !== "");
   if (!entries.length) return null;
   return (
-    <div className="witdem-active-filters mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-[#f9f7ff] px-3 py-2 text-xs">
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#ddd8ef] bg-[#f9f7ff] px-3 py-2 text-xs">
       <span className="font-semibold text-[#555]">Showing</span>
       {entries.map(([key, value]) => {
         const params = new URLSearchParams(window.location.search);
@@ -987,51 +976,32 @@ function ActiveFilterChips({ filters, contracts = [] }: { filters: DashboardFilt
 }
 function SharedFilterBar({ metadata, values, onChange, includeGoal = true }: { metadata: Meta; values: SharedFilterValues; onChange: (values: SharedFilterValues) => void; includeGoal?: boolean }) {
   const set = (key: keyof SharedFilterValues, value: string) => onChange({ ...values, [key]: value });
-  const activeCount = Object.values(values).filter((value) => value && value !== "all").length;
   return (
-    <details className="witdem-filter-bar mb-4 rounded-xl border border-[#e4e2da] bg-white p-3" open={activeCount > 0}>
-      <summary className="witdem-filter-heading">
-        <span className="witdem-filter-label"><span className="witdem-filter-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 4.5h13L11.8 11v4.2l-3.6 1.8V11L3.5 4.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg></span> Filter</span>
-        {activeCount > 0 && <span className="witdem-filter-count">{activeCount} aktiv</span>}
-      </summary>
-      <div className="witdem-filter-controls">
-        {includeGoal && (
-          <FilterSelect value={values.contractHash} onChange={(value) => set("contractHash", value)} label="All business goals">
-            {metadata.contracts.map((item) => <option key={item.contract_hash} value={item.contract_hash}>{item.product_goal?.name || item.contract_name}</option>)}
-          </FilterSelect>
-        )}
-        <FilterSelect value={values.provider} onChange={(value) => set("provider", value)} label="All providers">
-          {(metadata.filters.provider || []).map((value) => <option key={value} value={value}>{providerDisplayName(value)}</option>)}
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#e4e2da] bg-white p-3">
+      <span className="mr-1 text-xs font-semibold text-[#555]">Filter this view</span>
+      {includeGoal && (
+        <FilterSelect value={values.contractHash} onChange={(value) => set("contractHash", value)} label="All business goals">
+          {metadata.contracts.map((item) => <option key={item.contract_hash} value={item.contract_hash}>{item.product_goal?.name || item.contract_name}</option>)}
         </FilterSelect>
-        <FilterSelect value={values.model} onChange={(value) => set("model", value)} label="All models">
-          {(metadata.filters.model || []).map((value) => <option key={value} value={value}>{value}</option>)}
-        </FilterSelect>
-        <FilterSelect value={values.status} onChange={(value) => set("status", value)} label="All runtime states">
-          <option value="completed">Completed or recovered</option>
-          <option value="recovered">Recovered</option>
-          <option value="failed">Failed</option>
-          <option value="running">Running</option>
-        </FilterSelect>
-        <FilterSelect value={values.range} onChange={(value) => set("range", value)} label="All time" includeEmpty={false}>
-          <option value="1">Last 24 hours</option>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-        </FilterSelect>
-        {activeCount > 0 && (
-          <button
-            type="button"
-            className="witdem-filter-reset"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onChange(EMPTY_FILTERS);
-            }}
-          >
-            Zurücksetzen
-          </button>
-        )}
-      </div>
-    </details>
+      )}
+      <FilterSelect value={values.provider} onChange={(value) => set("provider", value)} label="All providers">
+        {(metadata.filters.provider || []).map((value) => <option key={value} value={value}>{providerDisplayName(value)}</option>)}
+      </FilterSelect>
+      <FilterSelect value={values.model} onChange={(value) => set("model", value)} label="All models">
+        {(metadata.filters.model || []).map((value) => <option key={value} value={value}>{value}</option>)}
+      </FilterSelect>
+      <FilterSelect value={values.status} onChange={(value) => set("status", value)} label="All runtime states">
+        <option value="completed">Completed or recovered</option>
+        <option value="recovered">Recovered</option>
+        <option value="failed">Failed</option>
+        <option value="running">Running</option>
+      </FilterSelect>
+      <FilterSelect value={values.range} onChange={(value) => set("range", value)} label="All time" includeEmpty={false}>
+        <option value="1">Last 24 hours</option>
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+      </FilterSelect>
+    </div>
   );
 }
 
@@ -1076,9 +1046,9 @@ function ExecutionFilterBar({
     </FilterSelect>
   );
   return (
-    <div className="witdem-filter-bar mb-4 rounded-xl border border-[#e4e2da] bg-white p-3">
+    <div className="mb-4 rounded-xl border border-[#e4e2da] bg-white p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="witdem-filter-label mr-1 text-xs font-semibold text-[#555]"><span aria-hidden="true">◌</span> Filter</span>
+        <span className="mr-1 text-xs font-semibold text-[#555]">Filter executions</span>
         <FilterSelect value={shared.contractHash} onChange={(value) => onSharedChange({ ...shared, contractHash: value })} label="All business goals">
           {metadata.contracts.map((item) => <option key={item.contract_hash} value={item.contract_hash}>{item.product_goal?.name || item.contract_name}</option>)}
         </FilterSelect>
@@ -1092,7 +1062,7 @@ function ExecutionFilterBar({
           <option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option>
         </FilterSelect>
       </div>
-      <details className="witdem-filter-more mt-3 border-t border-[#eceae4] pt-3" open={Object.entries(semantic).some(([key, value]) => !["goal_status", "assurance_status", "application_outcome"].includes(key) && value != null)}>
+      <details className="mt-3 border-t border-[#eceae4] pt-3" open={Object.entries(semantic).some(([key, value]) => !["goal_status", "assurance_status", "application_outcome"].includes(key) && value != null)}>
         <summary className="cursor-pointer text-xs font-semibold text-[#5a35c8]">More filters</summary>
         <div className="mt-3 flex flex-wrap gap-2">
           {select("workflow", "All workflows", (metadata.filters.workflow || []).map((value) => [value, value]))}
