@@ -1185,9 +1185,9 @@ export function LatencyVariabilityChart({ items, onSelect, height }: { items: Co
       color: ["#6d4aff", "#d8d2ff"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ dataIndex: number }>) => { const row = rows[points[0]?.dataIndex || 0]; return `<b>${row.label}</b><br/>p50: ${seconds(row.p50_duration_seconds)}<br/>p95: ${seconds(row.p95_duration_seconds)}<br/>Tail spread: ${seconds((row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0))}`; } },
       legend: { top: 0 },
-      grid: { left: 70, right: 25, top: 39, bottom: 42, containLabel: false },
+      grid: { left: 42, right: 18, top: 39, bottom: 42, containLabel: false },
       xAxis: { type: "value", min: 0, max: axisMax, splitNumber: 4, name: "Seconds", nameLocation: "middle", nameGap: 28, axisLabel: { formatter: (value: number) => `${value}s` }, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 76, overflow: "truncate", lineHeight: 16, margin: 8 } },
+      yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 52, overflow: "truncate", lineHeight: 16, margin: 6 } },
       series: [
         { name: "p50", type: "bar", stack: "latency", data: rows.map((row) => ({ value: row.p50_duration_seconds, item: row })), barMaxWidth: 18, itemStyle: { borderRadius: [4, 0, 0, 4] } },
         {
