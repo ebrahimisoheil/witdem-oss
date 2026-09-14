@@ -1368,9 +1368,9 @@ export function ExecutionTrendChart({ runs, height = 210 }: { runs: Run[]; heigh
     color: ["#7153b5"],
     tooltip: { trigger: "axis", formatter: (points: Array<{ data: { run: Run; value: number } }>) => { const run = points[0]?.data.run; return run ? `<b>${formatDateTime(run.started_at)}</b><br/>Elapsed: ${seconds(run.duration_seconds)}<br/>Retries: ${formatNumber(Number(run.workflow_retry_attempts || 0))}<br/>${String(run.application_outcome || run.runtime_outcome || "Not reported").replaceAll("_", " ")}` : ""; } },
     legend: { top: 0, data: ["Elapsed"], itemWidth: 10, itemHeight: 7, textStyle: { fontSize: 9 } },
-    grid: { left: 52, right: 12, top: 28, bottom: 34 },
+    grid: { left: 28, right: 8, top: 28, bottom: 34, containLabel: false },
     xAxis: { type: "category", name: "Execution order", nameLocation: "middle", nameGap: 24, data: ordered.map((_run, index) => `Run ${index + 1}`), nameTextStyle: { fontSize: 9 }, axisLabel: { hideOverlap: true, fontSize: 9 } },
-    yAxis: { type: "value", axisLabel: { formatter: (value: number) => seconds(value), fontSize: 9 }, splitLine: { lineStyle: { color: "#ecece7" } } },
+    yAxis: { type: "value", axisLabel: { formatter: (value: number) => seconds(value), fontSize: 9, margin: 4 }, splitLine: { lineStyle: { color: "#ecece7" } } },
     series: [{ name: "Elapsed", type: "line", smooth: true, symbolSize: 8, emphasis: { focus: "series" }, data: ordered.map((run) => ({ value: run.duration_seconds, run })) }],
   }} />;
 }
@@ -1423,9 +1423,9 @@ export function StageDiagnosticsChart({ items, height = 310 }: { items: Overview
       color: [metric === "failures" ? "#dc5a5a" : metric === "retries" ? "#d58b24" : "#7153b5"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: Overview["stages"][number] } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.label}</b><br/>Elapsed: ${seconds(item.time_seconds)}<br/>Failures: ${formatNumber(item.failures)}<br/>Extra attempts: ${formatNumber(item.extra_attempts)}<br/>Cost: ${money(item.known_cost)}<br/>Tokens: ${formatNumber(item.total_tokens)}` : ""; } },
       legend: { top: 0, data: [metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1)], itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
-      grid: { left: 128, right: 18, top: 28, bottom: 22 },
+      grid: { left: 86, right: 18, top: 28, bottom: 22, containLabel: false },
       xAxis: { type: "value", splitNumber: 4, minInterval: metric === "failures" || metric === "retries" ? 1 : undefined, axisLabel: { fontSize: 8, hideOverlap: true, margin: 5, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 116, overflow: "truncate", fontSize: 8 } },
+      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 74, overflow: "truncate", fontSize: 8 } },
       series: [{ name: metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1), type: "bar", data: shown.map((item) => ({ value: value(item), item })), barMaxWidth: 16, itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }],
     }} />}
   </div>;
