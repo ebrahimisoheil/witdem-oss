@@ -1423,9 +1423,9 @@ export function StageDiagnosticsChart({ items, height = 310 }: { items: Overview
       color: [metric === "failures" ? "#dc5a5a" : metric === "retries" ? "#d58b24" : "#7153b5"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: Overview["stages"][number] } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.label}</b><br/>Elapsed: ${seconds(item.time_seconds)}<br/>Failures: ${formatNumber(item.failures)}<br/>Extra attempts: ${formatNumber(item.extra_attempts)}<br/>Cost: ${money(item.known_cost)}<br/>Tokens: ${formatNumber(item.total_tokens)}` : ""; } },
       legend: { top: 0, data: [metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1)], itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
-      grid: { left: 70, right: 12, top: 28, bottom: 22, containLabel: false },
+      grid: { left: 128, right: 18, top: 28, bottom: 22 },
       xAxis: { type: "value", splitNumber: 4, minInterval: metric === "failures" || metric === "retries" ? 1 : undefined, axisLabel: { fontSize: 8, hideOverlap: true, margin: 5, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 64, overflow: "truncate", fontSize: 8 } },
+      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 116, overflow: "truncate", fontSize: 8 } },
       series: [{ name: metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1), type: "bar", data: shown.map((item) => ({ value: value(item), item })), barMaxWidth: 16, itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }],
     }} />}
   </div>;
