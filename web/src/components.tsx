@@ -9,24 +9,86 @@ import witdemMark from "./assets/witdem-mark-purple.png";
 const EChartsRuntime = lazy(() => import("./echarts-runtime"));
 const echarts = undefined;
 
-export function AnalyticsChart(props: React.ComponentProps<typeof EChartsRuntime>) {
+export function AnalyticsChart({ option, ...props }: React.ComponentProps<typeof EChartsRuntime>) {
+  const source = option as Record<string, unknown>;
+  const axisStyle = (axis: unknown) => {
+    if (!axis || typeof axis !== "object") return axis;
+    const record = axis as Record<string, unknown>;
+    return {
+      ...record,
+      axisLine: { lineStyle: { color: "#e6e8f0" }, ...(record.axisLine as Record<string, unknown> || {}) },
+      axisTick: { show: false, ...(record.axisTick as Record<string, unknown> || {}) },
+      axisLabel: { color: "#7b8193", fontSize: 10, ...(record.axisLabel as Record<string, unknown> || {}) },
+      splitLine: { lineStyle: { color: "#eef0f5", type: "dashed" }, ...(record.splitLine as Record<string, unknown> || {}) },
+    };
+  };
+  const styledOption = option && typeof option === "object" ? {
+    ...source,
+    color: source.color || chartColors,
+    animationDuration: source.animationDuration || 420,
+    textStyle: {
+      fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+      color: "#687087",
+      ...(source.textStyle || {}),
+    },
+    grid: {
+      left: 18,
+      right: 18,
+      top: 22,
+      bottom: 28,
+      containLabel: true,
+      ...(source.grid || {}),
+    },
+    legend: source.legend ? {
+      itemWidth: 8,
+      itemHeight: 8,
+      itemGap: 16,
+      ...(source.legend as Record<string, unknown>),
+      textStyle: {
+        color: "#687087",
+        fontSize: 11,
+        ...(((source.legend as Record<string, unknown>).textStyle as Record<string, unknown>) || {}),
+      },
+    } : source.legend,
+    xAxis: Array.isArray(source.xAxis) ? source.xAxis.map(axisStyle) : axisStyle(source.xAxis),
+    yAxis: Array.isArray(source.yAxis) ? source.yAxis.map(axisStyle) : axisStyle(source.yAxis),
+    series: Array.isArray(source.series) ? source.series.map((series: unknown) => {
+      const record = series as Record<string, unknown>;
+      return {
+        ...record,
+        itemStyle: record.type === "bar" ? { borderRadius: [5, 5, 0, 0], ...(record.itemStyle as Record<string, unknown> || {}) } : record.itemStyle,
+        lineStyle: record.type === "line" ? { width: 2.5, cap: "round", ...(record.lineStyle as Record<string, unknown> || {}) } : record.lineStyle,
+        areaStyle: record.type === "line" && !record.areaStyle ? { color: "rgba(111, 82, 199, .10)" } : record.areaStyle,
+        emphasis: { focus: "series", ...(record.emphasis as Record<string, unknown> || {}) },
+      };
+    }) : source.series,
+    tooltip: {
+      backgroundColor: "rgba(23, 24, 58, .96)",
+      borderWidth: 0,
+      padding: [9, 12],
+      textStyle: { color: "#fff", fontSize: 11 },
+      ...(source.tooltip || {}),
+    },
+  } : option;
   return (
-    <Suspense fallback={<div className="animate-pulse rounded-lg bg-[#f4f3f0]" style={props.style as React.CSSProperties} />}>
-      <EChartsRuntime {...props} />
-    </Suspense>
+    <div className="witdem-chart-frame">
+      <Suspense fallback={<div className="animate-pulse rounded-lg bg-[#f4f3f0]" style={props.style as React.CSSProperties} />}>
+        <EChartsRuntime {...props} option={styledOption} />
+      </Suspense>
+    </div>
   );
 }
 
 const ReactEChartsCore = AnalyticsChart;
 
 export const chartColors = [
-  "#6d4aff",
-  "#2477e6",
-  "#16a085",
-  "#e38317",
-  "#d34f6f",
-  "#637083",
-  "#9b59b6",
+  "#6f52c7",
+  "#4f86c6",
+  "#4ca88c",
+  "#d99a45",
+  "#cf6b7c",
+  "#7d8798",
+  "#9278b8",
 ];
 export const stableColor = (identity: string) => {
   let hash = 2166136261;
@@ -38,47 +100,79 @@ const nav = [
   ["/", "Overview"],
   ["/system-health", "System health"],
   ["/goal-performance", "Goal performance"],
-  ["/workflows", "Workflows"],
   ["/runs", "All executions"],
+  ["/workflows", "Workflows"],
   ["/compare", "Compare"],
   ["/issues", "Issues"],
 ] as const;
+
+function NavigationIcon({ name }: { name: string }) {
+  const paths: Record<string, string> = {
+    "/": "M4 10.5 10 5l6 5.5v5.25a1.25 1.25 0 0 1-1.25 1.25h-3.5v-4.5h-2.5V17H5.25A1.25 1.25 0 0 1 4 15.75V10.5Z",
+    "/system-health": "M3.5 10h3l1.7-4 3.1 8 1.7-4h3.5M4 16.5h12",
+    "/goal-performance": "M4 16V9m4 7V5m4 11v-4m4 4V3",
+    "/workflows": "M5 5.5h10M5 10h10M5 14.5h6M3.5 5.5h.01M3.5 10h.01M3.5 14.5h.01",
+    "/runs": "M5 3.5h7l3 3v10H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5Zm7 0V7h3",
+    "/compare": "M4 5.5h5v9H4zM11 5.5h5v9h-5zM9 8h2M9 12h2",
+    "/issues": "M10 3.5 17 16H3L10 3.5Zm0 4v4m0 2.5v.01",
+    "/developer": "M7 5 3.5 10 7 15M13 5l3.5 5-3.5 5M11.5 3.5 8.5 16.5",
+  };
+  return <svg className="witdem-nav-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d={paths[name] || paths["/"]} stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
 export function Shell() {
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const [navOpen, setNavOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 680);
+  const closeMobileNav = () => {
+    if (window.innerWidth <= 680) setNavOpen(false);
+  };
   return (
-    <div className="min-h-screen bg-[#f8f8f5] text-[#242424]">
-      <aside className="fixed inset-y-0 left-0 z-20 w-56 border-r border-[#e7e7e1] bg-white px-4 py-5">
-        <Link to="/" className="mb-8 flex items-center gap-3 px-2">
-          <img
-            src={witdemMark}
-            alt=""
-            aria-hidden="true"
-            className="h-7 w-11 shrink-0 object-contain"
-          />
-          <span className="font-semibold">Witdem AI</span>
-        </Link>
-        <nav className="space-y-1">
-          {nav.map(([to, label]) => (
-            <Link
-              key={to}
-              to={to}
-              className={`block rounded-lg px-3 py-2 text-sm font-medium ${path === to || (to !== "/" && path.startsWith(to)) ? "bg-[#f0edff] text-[#5a35c8]" : "text-[#666] hover:bg-[#f5f5f1]"}`}
-            >
-              {label}
+    <div className={`witdem-shell min-h-screen bg-[#fbfcff] text-[#11152f] ${navOpen ? "is-nav-open" : "is-nav-collapsed"}`}>
+      <header className="witdem-topbar">
+        <div className="witdem-topbar-inner">
+          <div className="witdem-sidebar-head">
+            <Link to="/" className="witdem-brand">
+              <img src={witdemMark} alt="Witdem AI" aria-hidden="true" />
+              <span>WITDEM AI</span>
             </Link>
-          ))}
-        </nav>
-        <div className="absolute bottom-5 left-4 right-4 border-t pt-4">
-          <Link
-            to="/developer"
-            className="px-3 text-xs font-medium text-[#777]"
-          >
-            Developer data
-          </Link>
+            <button
+              type="button"
+              className="witdem-nav-toggle"
+              aria-label={navOpen ? "Collapse navigation" : "Expand navigation"}
+              aria-expanded={navOpen}
+              onClick={() => setNavOpen((open) => !open)}
+            >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                {navOpen ? (
+                  <path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                ) : (
+                  <path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                )}
+              </svg>
+            </button>
+          </div>
+          <nav className="witdem-nav" aria-label="Main navigation">
+            {nav.map(([to, label]) => (
+              <Link
+                key={to}
+                to={to}
+                onClick={closeMobileNav}
+                className={path === to || (to !== "/" && path.startsWith(to)) ? "is-active" : ""}
+              >
+                <NavigationIcon name={to} />
+                <span>{label}</span>
+              </Link>
+            ))}
+            <Link to="/developer" onClick={closeMobileNav} className={path === "/developer" ? "is-active" : ""}>
+              <NavigationIcon name="/developer" />
+              <span>Developer</span>
+            </Link>
+          </nav>
         </div>
-      </aside>
-      <main className="ml-56 min-h-screen">
-        <div className="mx-auto max-w-[1480px] px-8 py-7">
+      </header>
+      {navOpen && <button type="button" className="witdem-mobile-backdrop" aria-label="Close navigation menu" onClick={closeMobileNav} />}
+      <main className="witdem-main min-h-screen">
+        <div className="witdem-content mx-auto max-w-[1480px] px-8 py-7">
           <UpdateNotice />
           <Outlet />
         </div>
@@ -136,34 +230,34 @@ export function PageHeader({
   action?: React.ReactNode;
   compact?: boolean;
 }) {
+  return (
+    <header className={`witdem-page-header ${compact ? "is-compact mb-4" : "mb-7"}`}>
+      <div>
+        {eyebrow && <div className="witdem-eyebrow">{eyebrow}</div>}
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+    </header>
+  );
+}
+
+export function RefreshButton({ className = "", onClick }: { className?: string; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
   const queryClient = useQueryClient();
   const isFetching = useIsFetching() > 0;
+  const handleClick: React.MouseEventHandler<HTMLButtonElement> = (event) => {
+    void queryClient.invalidateQueries();
+    onClick?.(event);
+  };
   return (
-    <header className={`${compact ? "mb-4" : "mb-7"} flex items-start justify-between gap-6`}>
-      <div>
-        {eyebrow && (
-          <div className={`${compact ? "mb-1" : "mb-2"} text-xs font-semibold uppercase tracking-[.12em] text-[#8062df]`}>
-            {eyebrow}
-          </div>
-        )}
-        <h1 className={`${compact ? "text-[26px]" : "text-[30px]"} font-semibold leading-tight tracking-[-.03em]`}>
-          {title}
-        </h1>
-        <p className={`${compact ? "mt-1 leading-5" : "mt-2 leading-6"} max-w-2xl text-sm text-[#6d6d68]`}>
-          {description}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button
-          variant="outline"
-          disabled={isFetching}
-          onClick={() => void queryClient.invalidateQueries()}
-        >
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </Button>
-        {action}
-      </div>
-    </header>
+    <Button
+      className={className}
+      variant="outline"
+      disabled={isFetching}
+      onClick={handleClick}
+    >
+      {isFetching ? "Refreshing…" : "Refresh"}
+    </Button>
   );
 }
 export function Panel({
@@ -180,7 +274,7 @@ export function Panel({
 }>) {
   return (
     <section
-      className={`min-w-0 overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,.02)] ${className}`}
+      className={`witdem-panel min-w-0 overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,.02)] ${className}`}
     >
       <div className="mb-4">
         <h2 className="text-sm font-semibold">
@@ -254,8 +348,16 @@ export function Kpi({
   tone?: "neutral" | "good" | "warn";
   href?: string;
 }) {
+  const iconPath = label.toLowerCase().includes("goal")
+    ? "M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2M5.4 5.4l1.4 1.4m5.6 5.6 1.4 1.4m0-8.4-1.4 1.4m-5.6 5.6-1.4 1.4M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"
+    : label.toLowerCase().includes("elapsed")
+      ? "M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 3v3.8l2.5 1.5"
+      : label.toLowerCase().includes("spend")
+        ? "M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm2.2 4.8c-.5-.5-1.2-.8-2.1-.8-1.1 0-1.8.5-1.8 1.2 0 1.9 4 1 4 3 0 .8-.8 1.4-2 1.4-.9 0-1.7-.3-2.3-.9M10 6.2v7.6"
+        : "M5 3.5h7l3 3v10H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5Zm7 0V7h3M6.5 10h5M6.5 13h5";
   const content = (
     <>
+      <span className="witdem-kpi-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d={iconPath} stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
       <div className="break-words text-xs font-medium text-[#73736d]">{label}</div>
       <div
         className={`mt-3 min-w-0 break-words text-2xl font-semibold leading-tight tracking-[-.03em] [overflow-wrap:anywhere] ${tone === "good" ? "text-[#14794c]" : tone === "warn" ? "text-[#a15c00]" : ""}`}
@@ -267,7 +369,7 @@ export function Kpi({
       {href && <div className="mt-auto pt-3 text-[10px] font-semibold text-[#603bd1]">View runs →</div>}
     </>
   );
-  const className = "group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-4 transition";
+  const className = "witdem-kpi group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-[#e4e4df] bg-white p-4 transition";
   return href
     ? <a href={href} className={`${className} hover:-translate-y-px hover:border-[#cfc6ef] hover:shadow-[0_8px_24px_rgba(45,35,78,.07)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4aff]`}>{content}</a>
     : <div className={className}>{content}</div>;
@@ -368,8 +470,8 @@ export function CostSpeedChart({
         option={{
           color: chartColors,
           grid: {
-            left: 64,
-            right: 24,
+            left: 48,
+            right: 20,
             top: 18,
             bottom: 54,
             containLabel: false,
@@ -386,8 +488,8 @@ export function CostSpeedChart({
             splitLine: { lineStyle: { color: "#eee" } },
           },
           yAxis: {
-            name: "Measured spend",
-            nameGap: 48,
+            name: "Spend",
+            nameGap: 30,
             nameLocation: "middle",
             axisLabel: { formatter: (v: number) => money(v) },
             splitLine: { lineStyle: { color: "#eee" } },
@@ -490,22 +592,18 @@ export function RuntimeDonutChart({
       style={{ height, width: "100%" }}
       option={{
         tooltip: { trigger: "item", formatter: "{b}<br/>{c} runs · {d}%" },
-        legend: { type: "scroll", orient: "vertical", right: 4, top: "center", itemWidth: compact ? 7 : 10, itemHeight: compact ? 7 : 10, textStyle: { fontSize: compact ? 9 : 11 }, width: compact ? "42%" : undefined },
-        graphic: [
-          { type: "text", left: compact ? "27%" : "31%", top: "42%", style: { text: formatNumber(total), textAlign: "center", fill: "#292925", fontSize: compact ? 18 : 24, fontWeight: 700 } },
-          { type: "text", left: compact ? "27%" : "31%", top: "57%", style: { text: "runs", textAlign: "center", fill: "#7a7a74", fontSize: compact ? 8 : 11 } },
-        ],
+        legend: { type: "scroll", orient: "horizontal", bottom: 4, left: "center", itemWidth: compact ? 7 : 10, itemHeight: compact ? 7 : 10, itemGap: 10, textStyle: { fontSize: compact ? 9 : 11 }, width: "86%" },
         series: [{
           type: "pie",
-          radius: ["50%", "72%"],
-          center: [compact ? "28%" : "34%", "50%"],
+          radius: ["42%", "62%"],
+          center: ["50%", "43%"],
           minShowLabelAngle: 5,
           label: { show: false },
           data: entries.map(([name, value]) => ({
             name: name.replaceAll("_", " "),
             status: name,
             value,
-            label: name === entries[0]?.[0] ? { show: true, position: "center", formatter: `{value|${formatNumber(total)}}\n{caption|runs}`, rich: { value: { color: "#292925", fontSize: compact ? 17 : 22, fontWeight: 700, lineHeight: compact ? 19 : 25 }, caption: { color: "#7a7a74", fontSize: compact ? 8 : 10, lineHeight: 12 } } } : { show: false },
+            label: name === entries[0]?.[0] ? { show: true, position: "center", formatter: `{value|${formatNumber(total)}}\n{caption|runs}`, rich: { value: { color: "#292925", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif", fontSize: compact ? 17 : 22, fontWeight: 700, lineHeight: compact ? 19 : 25 }, caption: { color: "#7a7a74", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif", fontSize: compact ? 8 : 10, lineHeight: 12 } } } : { show: false },
             itemStyle: { color: colors[name.toLowerCase()] || "#7a8290", borderColor: "#fff", borderWidth: 2 },
           })),
         }],
@@ -545,10 +643,12 @@ export function WorkflowBarChart({ items, onSelect }: { items: Performance[]; on
           axisPointer: { type: "shadow" },
           valueFormatter: (value: number) => `${formatNumber(value)} runs`,
         },
-        grid: { left: 205, right: 25, top: 42, bottom: 28 },
+        grid: { left: 150, right: 55, top: 42, bottom: 50, containLabel: false },
         xAxis: {
           type: "value",
           name: "Runs",
+          nameLocation: "middle",
+          nameGap: 30,
           axisLabel: { formatter: (value: number) => formatNumber(value) },
         },
         yAxis: {
@@ -599,6 +699,7 @@ export function EconomicsBarChart({ items, onSelect }: { items: Performance[]; o
     ...shown.map((item) => item.measured_cost || 0),
   );
   const scaledCost = (cost: number | null) => ((cost || 0) / maxCost) * maxTime;
+  const chartHeight = Math.min(360, Math.max(250, shown.length * 30 + 150));
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -630,7 +731,7 @@ export function EconomicsBarChart({ items, onSelect }: { items: Performance[]; o
       <ReactEChartsCore
         echarts={echarts}
         onEvents={onSelect ? { click: (point: { data?: { item?: Performance } }) => point.data?.item && onSelect(point.data.item) } : undefined}
-        style={{ height: 500, width: "100%" }}
+        style={{ height: chartHeight, width: "100%" }}
         option={{
           color: ["#2477e6", "#e38317"],
           tooltip: {
@@ -657,7 +758,7 @@ export function EconomicsBarChart({ items, onSelect }: { items: Performance[]; o
               return `<b>${p[0]?.name || ""}</b><br/>Time: ${seconds(timeValue)}<br/>Cost: ${money(costValue)}`;
             },
           },
-          grid: { left: 74, right: 78, top: 34, bottom: 145 },
+          grid: { left: 48, right: 48, top: 18, bottom: 82, containLabel: false },
           xAxis: {
             type: "category",
             data: shown.map((x) => x.label),
@@ -671,7 +772,7 @@ export function EconomicsBarChart({ items, onSelect }: { items: Performance[]; o
           yAxis: [
             {
               type: "value",
-              name: "Time (seconds)",
+              name: "Time",
               position: "left",
               nameLocation: "middle",
               nameGap: 48,
@@ -679,7 +780,7 @@ export function EconomicsBarChart({ items, onSelect }: { items: Performance[]; o
             },
             {
               type: "value",
-              name: "Cost (USD)",
+              name: "Cost",
               position: "right",
               nameLocation: "middle",
               nameGap: 54,
@@ -743,6 +844,7 @@ export function ProviderSpendChart({
   const data = items
     .filter((x) => x.measured_cost != null)
     .sort((a, b) => (b.measured_cost || 0) - (a.measured_cost || 0));
+  const spendColors = ["#6d4aff", "#2f86c9", "#24a267", "#e28a2b", "#d95858", "#9a63c7", "#168e89", "#d06b9b", "#6875d8", "#7b9f3a", "#c26b35", "#4d9aa6"];
   return (
     <div>
       <ReactEChartsCore
@@ -750,7 +852,7 @@ export function ProviderSpendChart({
         onEvents={onSelect ? { click: (point: { data?: { item?: Performance } }) => point.data?.item && onSelect(point.data.item) } : undefined}
         style={{ height, width: "100%" }}
         option={{
-          color: chartColors,
+          color: spendColors,
           tooltip: {
             trigger: "item",
             formatter: (p: { name: string; value: number; percent: number }) =>
@@ -767,12 +869,7 @@ export function ProviderSpendChart({
                 name: breakdown === "provider" ? x.label.replace(/(^|[\s_-])\p{L}/gu, (match) => match.toUpperCase()) : x.label,
                 value: x.measured_cost,
                 item: x,
-                itemStyle: {
-                  color:
-                    breakdown === "provider"
-                      ? stableColor(x.participant_id || `provider:${x.label}`)
-                      : chartColors[index % chartColors.length],
-                },
+                itemStyle: { color: spendColors[index % spendColors.length] },
               })),
               label: {
                 show: true,
@@ -848,7 +945,7 @@ export function CostLatencyScatter({ items, xLabel = "Attributable model time / 
           icon: "circle",
           textStyle: { color: "#5f5f5a", fontSize: 11 },
         },
-        grid: { left: 76, right: 34, top: 20, bottom: 86 },
+        grid: { left: 42, right: 20, top: 16, bottom: 70, containLabel: false },
         xAxis: {
           type: "value",
           name: xLabel,
@@ -861,9 +958,9 @@ export function CostLatencyScatter({ items, xLabel = "Attributable model time / 
         },
         yAxis: {
           type: "value",
-          name: "Cost / run (USD)",
+          name: "Cost",
           nameLocation: "middle",
-          nameGap: 56,
+          nameGap: 30,
           min: 0,
           splitNumber: 4,
           axisLine: { show: true, lineStyle: { color: "#8b8b86" } },
@@ -921,14 +1018,14 @@ export function NormalizedComparisonChart({ items }: { items: ComparisonInsight[
   return (
     <ReactEChartsCore
       echarts={echarts}
-      style={{ height: Math.max(300, shown.length * 48), width: "100%" }}
+      style={{ height: Math.max(220, shown.length * 48 + 100), width: "100%" }}
       option={{
         color: chartColors,
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (value: number) => `${formatNumber(value)}× median` },
-        legend: { top: 0 },
-        grid: { left: 205, right: 36, top: 42, bottom: 42 },
-        xAxis: { type: "value", name: "Relative to selected median", nameLocation: "middle", nameGap: 28, axisLabel: { formatter: (value: number) => `${value}×` } },
-        yAxis: { type: "category", data: shown.map((item) => item.label).reverse(), axisLabel: { width: 188, overflow: "break", lineHeight: 16 } },
+        legend: { top: 0, itemWidth: 10, itemHeight: 10, itemGap: 10, textStyle: { fontSize: 10 } },
+        grid: { left: 88, right: 24, top: 42, bottom: 56, containLabel: false },
+        xAxis: { type: "value", name: "Relative to selected median", nameLocation: "middle", nameGap: 30, axisLabel: { formatter: (value: number) => `${value}×` } },
+        yAxis: { type: "category", data: shown.map((item) => item.label).reverse(), axisLabel: { width: 76, overflow: "truncate", lineHeight: 16 } },
         series: metrics.map(([name, key]) => ({
           name,
           type: "bar",
@@ -953,13 +1050,13 @@ export function QualityComparisonChart({ items, onSelect }: { items: ComparisonI
   if (!rows.length) return <Empty>No evaluation scores are reported for this selection.</Empty>;
   const maximum = Math.max(1, ...rows.flatMap((row) => [row.score || 0, row.target || 0]));
   return (
-    <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { dataIndex?: number }) => { const row = rows[point.dataIndex ?? -1]; if (row) onSelect(row.participant, row.evaluationKey); } } : undefined} style={{ height: Math.max(290, rows.length * 56), width: "100%" }} option={{
+    <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { dataIndex?: number }) => { const row = rows[point.dataIndex ?? -1]; if (row) onSelect(row.participant, row.evaluationKey); } } : undefined} style={{ height: Math.max(230, rows.length * 48 + 100), width: "100%" }} option={{
       color: ["#6d4aff", "#282824"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ dataIndex: number }>) => { const row = rows[points[0]?.dataIndex || 0]; return `<b>${row.participant}</b><br/>${row.evaluation}<br/>Average: ${formatNumber(row.score)}<br/>Target: ${formatNumber(row.target)}<br/>${formatNumber(row.runs)} evaluated runs`; } },
-      legend: { top: 0, itemWidth: 12, itemHeight: 8 },
-      grid: { left: 285, right: 48, top: 44, bottom: 34 },
-      xAxis: { type: "value", min: 0, max: maximum, splitNumber: 5, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 260, overflow: "break", lineHeight: 17 } },
+      legend: { top: 0, itemWidth: 10, itemHeight: 8, itemGap: 10, textStyle: { fontSize: 10 } },
+      grid: { left: 100, right: 24, top: 42, bottom: 50, containLabel: false },
+      xAxis: { type: "value", min: 0, max: maximum, splitNumber: 5, axisLabel: { formatter: (value: number) => formatNumber(value) }, splitLine: { lineStyle: { color: "#ecece7" } } },
+      yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 86, overflow: "truncate", lineHeight: 17 } },
       series: [
         {
           name: "Average score",
@@ -1003,7 +1100,7 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
       <ReactEChartsCore
       echarts={echarts}
       onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined}
-      style={{ height: 360, width: "100%" }}
+      style={{ height: 260, width: "100%" }}
       option={{
         color: chartColors,
         tooltip: {
@@ -1013,20 +1110,23 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
             return `<b>${item.label}</b><br/>Goal achievement for involved runs: ${percent(item.goal_rate)}<br/>Direct cost / involved run: ${money(item.avg_cost_per_run)}<br/>Attributed active time / involved run: ${seconds(item.avg_duration_seconds)}<br/>${formatNumber(item.runs)} involved runs`;
           },
         },
-        legend: { type: "scroll", bottom: 0, left: 72, right: 24, itemWidth: 10, itemHeight: 10, icon: "circle" },
-        grid: { left: 76, right: 34, top: 18, bottom: 78 },
+        legend: { type: "scroll", bottom: 0, left: "center", right: 12, itemWidth: 10, itemHeight: 10, itemGap: 10, icon: "circle", textStyle: { fontSize: 10 } },
+        grid: { left: 72, right: 26, top: 24, bottom: 60, containLabel: false },
         xAxis: {
           type: "value",
-          name: "Measured cost / run",
+          name: "Cost / run",
           nameLocation: "middle",
-          nameGap: 38,
+          nameGap: 24,
           min: 0,
-          axisLabel: { formatter: (value: number) => money(value) },
+          axisLabel: { hideOverlap: true, formatter: (value: number) => value < 0.01 ? `$${value.toFixed(3)}` : money(value) },
           splitLine: { lineStyle: { color: "#ecece7" } },
         },
         yAxis: {
           type: "value",
-          name: "Goal success of involved runs",
+          name: "Goal success",
+          nameLocation: "middle",
+          nameRotate: 90,
+          nameGap: 32,
           min: 0,
           max: 1,
           axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` },
@@ -1052,16 +1152,17 @@ export function GoalTradeoffChart({ items, onSelect }: { items: ComparisonInsigh
 export function GoalRateColumns({ items, onSelect, height = 330 }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void; height?: number }) {
   const shown = [...items].filter((item) => item.goal_rate != null).sort((a, b) => b.runs - a.runs).slice(0, 8);
   if (!shown.length) return <Empty>No participant cohorts have reported goal outcomes in this view.</Empty>;
+  const chartHeight = Math.min(height, Math.max(220, shown.length * 38 + 150));
   return (
     <ReactEChartsCore
       echarts={echarts}
       onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined}
-      style={{ height, width: "100%" }}
+      style={{ height: chartHeight, width: "100%" }}
       option={{
         color: ["#6d4aff", "#27a46b"],
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (value: number) => percent(value) },
-        legend: { top: 0 },
-        grid: { left: 54, right: 20, top: 42, bottom: 90 },
+        legend: { type: "plain", bottom: 2, left: "center", itemWidth: 10, itemHeight: 10, itemGap: 14, textStyle: { fontSize: 10 } },
+        grid: { left: 34, right: 20, top: 18, bottom: 64, containLabel: false },
         xAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { rotate: 30, interval: 0, width: 100, overflow: "truncate" } },
         yAxis: { type: "value", min: 0, max: 1, axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` }, splitLine: { lineStyle: { color: "#ecece7" } } },
         series: [
@@ -1076,21 +1177,24 @@ export function GoalRateColumns({ items, onSelect, height = 330 }: { items: Comp
 export function LatencyVariabilityChart({ items, onSelect, height }: { items: ComparisonInsight[]; onSelect?: (item: ComparisonInsight) => void; height?: number }) {
   const rows = items.filter((item) => item.p50_duration_seconds != null && item.p95_duration_seconds != null).slice(0, 10).reverse();
   if (!rows.length) return <Empty>No duration distribution is available.</Empty>;
+  const maxSeconds = Math.max(...rows.map((row) => Number(row.p95_duration_seconds || 0)), 1);
+  const axisMax = Math.ceil(maxSeconds * 1.04 * 10) / 10;
+  const chartHeight = height ?? Math.max(170, rows.length * 48 + 58);
   return (
-    <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined} style={{ height: height ?? Math.max(280, rows.length * 46), width: "100%" }} option={{
+    <ReactEChartsCore echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { item?: ComparisonInsight } }) => point.data?.item && onSelect(point.data.item) } : undefined} style={{ height: chartHeight, width: "100%" }} option={{
       color: ["#6d4aff", "#d8d2ff"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ dataIndex: number }>) => { const row = rows[points[0]?.dataIndex || 0]; return `<b>${row.label}</b><br/>p50: ${seconds(row.p50_duration_seconds)}<br/>p95: ${seconds(row.p95_duration_seconds)}<br/>Tail spread: ${seconds((row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0))}`; } },
       legend: { top: 0 },
-      grid: { left: 225, right: 70, top: 42, bottom: 38 },
-      xAxis: { type: "value", name: "Seconds", nameLocation: "middle", nameGap: 28, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 208, overflow: "break", lineHeight: 16 } },
+      grid: { left: 70, right: 25, top: 39, bottom: 42, containLabel: false },
+      xAxis: { type: "value", min: 0, max: axisMax, splitNumber: 4, name: "Seconds", nameLocation: "middle", nameGap: 28, axisLabel: { formatter: (value: number) => `${value}s` }, splitLine: { lineStyle: { color: "#ecece7" } } },
+      yAxis: { type: "category", data: rows.map((row) => row.label), axisLabel: { width: 76, overflow: "truncate", lineHeight: 16, margin: 8 } },
       series: [
         { name: "p50", type: "bar", stack: "latency", data: rows.map((row) => ({ value: row.p50_duration_seconds, item: row })), barMaxWidth: 18, itemStyle: { borderRadius: [4, 0, 0, 4] } },
         {
           name: "p50 → p95",
           type: "bar",
           stack: "latency",
-          data: rows.map((row) => ({ value: (row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0), item: row })),
+          data: rows.map((row) => ({ value: Math.max(0, (row.p95_duration_seconds || 0) - (row.p50_duration_seconds || 0)), item: row })),
           barMaxWidth: 18,
           itemStyle: { borderRadius: [0, 4, 4, 0] },
           label: { show: true, position: "right", formatter: ({ dataIndex }: { dataIndex: number }) => seconds(rows[dataIndex].p95_duration_seconds), color: "#64645f", fontSize: 11 },
@@ -1216,15 +1320,15 @@ export function GoalTrendChart({ items, onSelect }: { items: Overview["goal_tren
                 return `<b>${formatBrowserDate(item?.date)}</b><br/>${label}: ${formatted(point?.value)}<br/>${coverage}`;
               },
             },
-            grid: { left: 64, right: 24, top: 20, bottom: 44 },
-            xAxis: { type: "category", data: items.map((item) => formatBrowserDate(item.date)), axisLabel: { hideOverlap: true } },
+            grid: { left: 8, right: 6, top: 7, bottom: 10 },
+            xAxis: { type: "category", data: items.map((item) => formatBrowserDate(item.date)), axisLabel: { hideOverlap: true, margin: 4 } },
             yAxis: {
               type: "value",
               min: 0,
               max: metric === "success" ? 100 : undefined,
-              axisLabel: { formatter: (value: number) => formatted(value) },
+              axisLabel: { inside: true, align: "left", margin: 4, formatter: (value: number) => formatted(value) },
             },
-            series: [{ name: label, type: "line", smooth: true, symbolSize: 8, data: values, connectNulls: false }],
+            series: [{ name: label, type: "line", smooth: true, symbolSize: 10, lineStyle: { width: 3 }, data: values, connectNulls: false }],
           }}
         />
       ) : <Empty>No reported goal history in this view.</Empty>}
@@ -1279,7 +1383,7 @@ export function RetryPressureChart({ runs, height = 210 }: { runs: Run[]; height
     color: ["#8068b7", "#d58b24"],
     tooltip: { trigger: "item", formatter: (point: { data: { run: Run } }) => { const run = point.data.run; return `<b>${formatDateTime(run.started_at)}</b><br/>Elapsed: ${seconds(run.duration_seconds)}<br/>Retries: ${formatNumber(Number(run.workflow_retry_attempts || 0))}<br/>Goal: ${run.product_goal_achieved === true ? "achieved" : run.product_goal_achieved === false ? "not achieved" : "not reported"}`; } },
     legend: { top: 0, data: groups, selectedMode: true, itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
-    grid: { left: 36, right: 10, top: 28, bottom: 34 },
+    grid: { left: 20, right: 10, top: 28, bottom: 34, containLabel: false },
     xAxis: { type: "value", name: "Elapsed", nameLocation: "middle", nameGap: 24, nameTextStyle: { fontSize: 9 }, axisLabel: { formatter: (value: number) => seconds(value), fontSize: 9 }, splitLine: { lineStyle: { color: "#ecece7" } } },
     yAxis: { type: "value", minInterval: 1, axisLabel: { fontSize: 9 }, splitLine: { lineStyle: { color: "#ecece7" } } },
     series: groups.map((name, index) => ({ name, type: "scatter", symbolSize: (value: number[]) => 11 + Math.min(8, value[1] * 2), emphasis: { focus: "series", scale: 1.4 }, data: shown.filter((run) => (Number(run.workflow_retry_attempts || 0) > 0) === Boolean(index)).map((run) => ({ value: [run.duration_seconds, Number(run.workflow_retry_attempts || 0)], run })) })),
@@ -1319,9 +1423,9 @@ export function StageDiagnosticsChart({ items, height = 310 }: { items: Overview
       color: [metric === "failures" ? "#dc5a5a" : metric === "retries" ? "#d58b24" : "#7153b5"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: Overview["stages"][number] } }>) => { const item = points[0]?.data.item; return item ? `<b>${item.label}</b><br/>Elapsed: ${seconds(item.time_seconds)}<br/>Failures: ${formatNumber(item.failures)}<br/>Extra attempts: ${formatNumber(item.extra_attempts)}<br/>Cost: ${money(item.known_cost)}<br/>Tokens: ${formatNumber(item.total_tokens)}` : ""; } },
       legend: { top: 0, data: [metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1)], itemWidth: 9, itemHeight: 7, textStyle: { fontSize: 9 } },
-      grid: { left: 128, right: 18, top: 28, bottom: 22 },
+      grid: { left: 70, right: 12, top: 28, bottom: 22, containLabel: false },
       xAxis: { type: "value", splitNumber: 4, minInterval: metric === "failures" || metric === "retries" ? 1 : undefined, axisLabel: { fontSize: 8, hideOverlap: true, margin: 5, formatter: (raw: number) => metric === "time" ? seconds(raw) : metric === "cost" ? money(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 116, overflow: "truncate", fontSize: 8 } },
+      yAxis: { type: "category", data: shown.map((item) => item.label), axisLabel: { width: 64, overflow: "truncate", fontSize: 8 } },
       series: [{ name: metric === "time" ? "Elapsed" : metric[0].toUpperCase() + metric.slice(1), type: "bar", data: shown.map((item) => ({ value: value(item), item })), barMaxWidth: 16, itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }],
     }} />}
   </div>;
@@ -1337,9 +1441,9 @@ export function OperationHealthChart({ items, height = 260, onSelect }: { items:
     {!shown.length ? <Empty>No operation classifications have been materialized.</Empty> : metric === "failures" && !shown.some((item) => item.failed) ? <Empty>No operation failures were observed in this selection.</Empty> : <AnalyticsChart echarts={echarts} onEvents={onSelect ? { click: (point: { data?: { item?: OperationTypeSummary } }) => point.data?.item && onSelect(point.data.item, metric === "failures") } : undefined} style={{ height: Math.max(height, shown.length * 38), width: "100%" }} option={{
       color: [metric === "failures" ? "#dc5a5a" : metric === "time" ? "#2477e6" : "#6d4aff"],
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (points: Array<{ data: { item: OperationTypeSummary } }>) => { const item = points[0]?.data.item; return item ? `<b>${humanizeOperationType(item.type)}</b><br/>${formatNumber(item.operations)} operations<br/>Active time: ${seconds(item.active_seconds)}<br/>Failures: ${formatNumber(item.failed)}<br/>Interface: ${item.interfaces.join(", ") || "unknown"}<br/>Providers: ${item.providers.join(", ") || "not reported"}` : ""; } },
-      grid: { left: 142, right: 28, top: 12, bottom: 30 },
+      grid: { left: 90, right: 20, top: 12, bottom: 30, containLabel: false },
       xAxis: { type: "value", minInterval: metric === "time" ? undefined : 1, name, nameLocation: "middle", nameGap: 24, nameTextStyle: { fontSize: 9 }, axisLabel: { fontSize: 8, formatter: (raw: number) => metric === "time" ? seconds(raw) : formatNumber(raw) }, splitLine: { lineStyle: { color: "#ecece7" } } },
-      yAxis: { type: "category", data: shown.map((item) => humanizeOperationType(item.type)), axisLabel: { width: 132, overflow: "truncate", fontSize: 9 } },
+      yAxis: { type: "category", data: shown.map((item) => humanizeOperationType(item.type)), axisLabel: { width: 78, overflow: "truncate", fontSize: 9 } },
       series: [{ name, type: "bar", barMaxWidth: 18, data: shown.map((item) => ({ value: value(item), item })), itemStyle: { borderRadius: [0, 4, 4, 0] }, emphasis: { focus: "series" } }],
     }} />}
   </div>;

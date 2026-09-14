@@ -766,7 +766,14 @@ function WorkflowAtAGlance({ executions, stats, overview, workflowId }: { execut
 
 function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = null }: { replay: WorkflowReplay; onSelect?: (node: ProjectedWorkflowNode) => void; firstScreen?: boolean; controlsHost?: HTMLElement | null }) {
   const viewport = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const pan = useRef<{ pointerId: number; clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === canvasRef.current);
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
   const [zoom, setZoom] = useState(0.9);
   const [isPanning, setIsPanning] = useState(false);
   const declaredOnly = replay.nodes.length === 0;
@@ -854,7 +861,27 @@ function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = 
     setZoom(0.9);
     window.requestAnimationFrame(() => { if (nodes[0]) focusNode(nodes[0].id, "smooth", 0.9); });
   };
-  const zoomControls = <div className="flex items-center gap-1 rounded-lg border border-[#ddd9e2] bg-white p-1">
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      return;
+    }
+    if (!canvasRef.current) return;
+    try {
+      if (document.fullscreenEnabled && canvasRef.current.requestFullscreen) {
+        await canvasRef.current.requestFullscreen();
+      } else {
+        setIsFullscreen(true);
+      }
+    } catch {
+      setIsFullscreen(true);
+    }
+  };
+  const zoomControls = <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[#ddd9e2] bg-white p-1">
     <span className="hidden px-2 text-[9px] font-medium text-[#8a838d] lg:inline">Drag canvas to pan</span>
     <button type="button" aria-label="Zoom out" onClick={() => zoomTo(zoom - 0.15)} className="rounded px-2 py-1 text-sm font-semibold text-[#5d5662] hover:bg-[#f2eff5]">−</button>
     <input aria-label="Flowchart zoom" type="range" min="5" max="250" step="5" value={Math.round(zoom * 100)} onChange={(event) => zoomTo(Number(event.target.value) / 100)} className="w-24 accent-[#7052b4]" />
@@ -864,10 +891,10 @@ function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = 
     <button type="button" onClick={() => fit()} className="rounded px-2 py-1 text-[10px] font-semibold text-[#5d5662] hover:bg-[#f2eff5]">Overview</button>
   </div>;
 
-  return <>{controlsHost ? createPortal(zoomControls, controlsHost) : null}<div className={`${firstScreen ? "h-[clamp(280px,calc(100vh-387px),560px)]" : "h-[clamp(320px,calc(100vh-360px),620px)]"} flex flex-col overflow-hidden rounded-2xl border border-[#dfdce5] bg-[#f8f7f4]`}>
+  return <>{controlsHost ? createPortal(zoomControls, controlsHost) : null}<div ref={canvasRef} className={`witdem-workflow-canvas relative ${isFullscreen ? "is-workflow-fullscreen" : ""} ${firstScreen ? "h-[clamp(280px,calc(100vh-387px),560px)]" : "h-[clamp(320px,calc(100vh-360px),620px)]"} flex flex-col overflow-hidden rounded-2xl border border-[#dfdce5] bg-[#f8f7f4]`}>
     <span className="sr-only" role="status">{geometryIssues.length ? `${geometryIssues.length} flowchart geometry issues: ${geometryIssues.join(", ")}` : "Flowchart geometry valid"}</span>
     <div className="flex shrink-0 items-center gap-3 border-b border-[#dedbd6] bg-white px-3 py-2">
-      <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto [scrollbar-width:none]">
+    <div className="witdem-workflow-stage-strip flex min-w-0 flex-1 gap-2 overflow-x-auto [scrollbar-width:none]">
         {replay.stages.map((stage, index) => {
           const active = stage.nodes.filter((id) => nodeById.get(id)?.state !== "inactive").length;
           return <button key={stage.id} type="button" onClick={() => {
@@ -947,6 +974,7 @@ function WorkflowCanvas({ replay, onSelect, firstScreen = false, controlsHost = 
         </div>
       </div>
     </div>
+    <button type="button" aria-label={isFullscreen ? "Close workflow diagram fullscreen" : "Open workflow diagram fullscreen"} onClick={() => void toggleFullscreen()} className="witdem-workflow-fullscreen-button">{isFullscreen ? "Schließen" : "Fullscreen"}</button>
   </div></>;
 }
 
