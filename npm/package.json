@@ -1,6 +1,6 @@
 {
   "name": "witdem",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Run the local Witdem analytics environment with one command.",
   "type": "module",
   "bin": {
