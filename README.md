@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/assets/witdem-banner.png" alt="Witdem AI: Understand how your AI system actually behaves" width="100%">
+<img src="docs/assets/witdem-banner.png" alt="Witdem: product analytics for AI agents — goal, cost, and why" width="100%">
 
 # Witdem
 
-**Analytics for AI agents and multi-step AI applications.**
+**Open-source product analytics for AI agents and multi-step AI applications.**
 
 Tracing tells you what executed. Witdem connects those executions to application outcomes: which paths ran, what they cost, where they failed, and whether they achieved the product goal you defined.
 
@@ -19,6 +19,12 @@ Tracing tells you what executed. Witdem connects those executions to application
 
 </div>
 
+## The problem
+
+An agentic workflow can return **200 OK** and still miss the job. Green traces answer “what executed?” — not “did we achieve the product goal?” or “was the spend worth it?”
+
+Witdem sits **on top of** your existing stack (Haystack, LangGraph, LangChain, OpenAI Agents, OpenTelemetry, …). You declare success in `.witdem/witdem.yaml`. Witdem evaluates live and historical runs against that definition. It does not replace your orchestrator, and it does not invent business success from a completed LLM call.
+
 ## See Witdem in action
 
 From one-line setup and two-line instrumentation to a measured run, its
@@ -31,6 +37,8 @@ execution graph, business outcome, cost, and contract evidence.
   <br>
   <a href="https://cdn.jsdelivr.net/gh/ebrahimisoheil/witdem-oss@37e335d/docs/assets/witdem-demo.mp4"><strong>▶ Watch the 1:48 installation-to-analysis walkthrough</strong></a>
 </p>
+
+**Runnable example:** [Haystack parallel pipeline](examples/haystack/pipeline/README.md) (concurrent retrievers + OpenAI answer, with contract + cost/outcome in the dashboard).
 
 ## First run
 
