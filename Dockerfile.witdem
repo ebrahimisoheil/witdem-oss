@@ -6,7 +6,7 @@ RUN npm install --global npm@11.19.1 && npm ci
 COPY web ./
 RUN npm run build
 
-FROM python:3.12-slim@sha256:97490e383c4cffb12825431fa24e3d2b70e39fd691a8e33c46bf4c18edca3998
+FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 
 WORKDIR /app
 
